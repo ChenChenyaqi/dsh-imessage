@@ -1,0 +1,4 @@
+# @chenyaqi/dsh-imessage bundle layer: inserts the compiled host plugin (lib/index.js).
+- insert:
+    - id: chenyaqi-dsh-imessage
+      name: '@chenyaqi/dsh-imessage'

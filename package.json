@@ -1,0 +1,53 @@
+{
+  "name": "@chenyaqi/dsh-imessage",
+  "version": "0.0.1",
+  "description": "Native macOS iMessage channel plugin for DeepSeek Harness (DSH).",
+  "type": "module",
+  "license": "MIT",
+  "main": "./lib/index.js",
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "lib",
+    "cordis.patch.yml",
+    "README.en.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "prepack": "pnpm build",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "lint": "eslint .",
+    "check": "pnpm typecheck && pnpm lint && pnpm build && pnpm test",
+    "prepare": "lefthook install || true"
+  },
+  "devDependencies": {
+    "@commitlint/cli": "^21.2.4",
+    "@commitlint/config-conventional": "^21.2.4",
+    "@deepseek-ai/cordis": "^4.1.0",
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^24.19.2",
+    "esbuild": "^0.28.2",
+    "eslint": "^10.14.0",
+    "lefthook": "^2.2.2",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.72.1",
+    "vitest": "^5.1.0"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild",
+      "lefthook"
+    ]
+  }
+}

@@ -1,0 +1,10 @@
+# lefthook config — https://lefthook.dev
+pre-commit:
+  commands:
+    quality:
+      run: pnpm typecheck && pnpm lint && pnpm test
+
+commit-msg:
+  commands:
+    commitlint:
+      run: pnpm commitlint --edit {1}
