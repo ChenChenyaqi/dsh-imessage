@@ -5,9 +5,10 @@ import { fileURLToPath } from 'node:url';
 import { build } from 'esbuild';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const outfile = resolve(root, 'lib/index.js');
 
-await mkdir(dirname(outfile), { recursive: true });
+// 双入口：lib/index.js = cordis 插件（host）；lib/core.js = core 公共 API
+// （dev CLI 消费，见 scripts/dev-cli.mjs）
+await mkdir(resolve(root, 'lib'), { recursive: true });
 await build({
   entryPoints: [resolve(root, 'src/host/index.ts')],
   tsconfig: resolve(root, 'tsconfig.json'),
@@ -15,8 +16,19 @@ await build({
   format: 'esm',
   platform: 'node',
   target: ['node22'],
-  outfile,
+  outfile: resolve(root, 'lib/index.js'),
   sourcemap: true,
 });
 
-console.log(`Wrote ${outfile}`);
+await build({
+  entryPoints: [resolve(root, 'src/core/index.ts')],
+  tsconfig: resolve(root, 'tsconfig.json'),
+  bundle: true,
+  format: 'esm',
+  platform: 'node',
+  target: ['node22'],
+  outfile: resolve(root, 'lib/core.js'),
+  sourcemap: true,
+});
+
+console.log('Wrote lib/index.js, lib/core.js');

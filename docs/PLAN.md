@@ -94,7 +94,7 @@ src/
 | 风险 | 对策 |
 | --- | --- |
 | chat.db schema 随 macOS 升级变动 | 查询集中在 chatdb 一个模块；启动做 schema 探测，失败明确报错不静默 |
-| 「插件继承 desktop 权限」假设不成立 | M4 联调第一时间验证；不成立则引导用户对 DeepSeek Harness.app 补授权 |
+| 「插件继承 desktop 权限」假设不成立 | M4 联调第一时间验证；不成立则引导用户对 DeepSeek Harness.app 补授权。**权限主体是 TCC 责任进程**：desktop 揢件=DeepSeek Harness.app；CLI/web 形态=启动命令的终端 app；dev CLI（终端跑）=终端本身——探测结果只代表当前宿主环境，设置页引导文案需按形态动态说明给哪个 app 授权 |
 | DSH rc 版 apiProxy 接口漂移 | 已收口在 DshPort，只改 host |
 | 与 dsh-im iMessage bot 并行抢消息 | 切换流程写入 M4 验收；数据根完全独立 |
 | attributedBody 变体解码失败 | fixture 驱动；解码失败降级为占位文本，不丢消息 |

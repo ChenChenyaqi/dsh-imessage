@@ -20,6 +20,7 @@
   },
   "scripts": {
     "build": "node scripts/build.mjs",
+    "dev": "node scripts/dev-cli.mjs",
     "prepack": "pnpm build",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
