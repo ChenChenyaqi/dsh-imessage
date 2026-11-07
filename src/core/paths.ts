@@ -5,9 +5,9 @@
 // 都挂在这一个根下，检查/备份/卸载只需处理一个目录：
 //
 //   ~/.dsh-imessage/
-//   ├── state.json         cursor/seenIds/sessions（stores/state-store，第 7 步）
+//   ├── state.json         cursor/seenIds/sessions（stores/state-store）
 //   ├── logs/
-//   │   └── imessage.jsonl 结构化 JSONL 日志（log/jsonl，第 5 步）
+//   │   └── imessage-YYYYMMDD.jsonl   按天滚动的结构化 JSONL 日志（log/jsonl）
 //   └── conversations/     每手机号一个工作区（routing，M3）
 //
 // 业务配置不入本目录：走 DSH 官方 Config schema → 存 profile（D9 决策）。
@@ -29,8 +29,8 @@ export interface Paths {
   root: string;
   /** 通道状态（cursor / seenIds / sessions）。 */
   stateFile: string;
-  /** 结构化 JSONL 日志文件。 */
-  logFile: string;
+  /** 结构化 JSONL 日志目录（文件按天滚动，见 log/jsonl）。 */
+  logDir: string;
   /** 每个手机号一个会话工作区的父目录。 */
   conversationsDir: string;
 }
@@ -47,7 +47,7 @@ export function resolvePaths(env: PathEnv = process.env): Paths {
   return {
     root,
     stateFile: join(root, 'state.json'),
-    logFile: join(root, 'logs', 'imessage.jsonl'),
+    logDir: join(root, 'logs'),
     conversationsDir: join(root, 'conversations'),
   };
 }

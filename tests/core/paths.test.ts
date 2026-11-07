@@ -34,7 +34,7 @@ describe('resolvePaths', () => {
   it('lays out every well-known path under the root', () => {
     const p = resolvePaths({ [DATA_ROOT_ENV]: '/tmp/dsh-imessage-test' });
     expect(p.stateFile).toBe(join(p.root, 'state.json'));
-    expect(p.logFile).toBe(join(p.root, 'logs', 'imessage.jsonl'));
+    expect(p.logDir).toBe(join(p.root, 'logs'));
     expect(p.conversationsDir).toBe(join(p.root, 'conversations'));
   });
 

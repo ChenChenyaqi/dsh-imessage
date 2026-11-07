@@ -7,9 +7,8 @@
 //   记日志出问题不能影响消息管道。
 // - 日志内容一律英文（event 名与字段值约定）。
 
-import { appendFileSync } from 'node:fs';
-import { mkdirSync } from 'node:fs';
-import { dirname } from 'node:path';
+import { appendFileSync, mkdirSync, readdirSync, rmSync } from 'node:fs';
+import { join } from 'node:path';
 
 export type LogLevel = 'debug' | 'info' | 'warn' | 'error';
 
@@ -86,11 +85,51 @@ export function makeLogger(opts: LoggerOptions): Logger {
   };
 }
 
-/** 文件 sink：追加写、自动建目录。同步实现——日志频率低（秒级几条），
- *  阻塞可忽略，换简单可靠。 */
-export function makeFileSink(logFile: string): LogSink {
-  mkdirSync(dirname(logFile), { recursive: true });
+/** 文件 sink：按天滚动（imessage-YYYYMMDD.jsonl）+ 惰性清理。
+ *  无定时器无后台任务——只在 sink 创建与跨天切换时顺带删过期文件。 */
+export function makeFileSink(
+  logDir: string,
+  opts: { keepDays?: number; now?: () => Date } = {},
+): LogSink {
+  const keepDays = opts.keepDays ?? 7;
+  const now = opts.now ?? (() => new Date());
+  const filePattern = /^imessage-(\d{4})(\d{2})(\d{2})\.jsonl$/;
+
+  mkdirSync(logDir, { recursive: true });
+
+  /** 本地时区 YYYYMMDD（用户视角的“一天”）。 */
+  const dateKey = (d: Date): string =>
+    `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(
+      d.getDate(),
+    ).padStart(2, '0')}`;
+
+  /** 删掉早于保留窗口的日期文件；不匹配模式的文件一律不动（保守）。 */
+  const cleanup = (today: Date): void => {
+    const threshold = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+    threshold.setDate(threshold.getDate() - (keepDays - 1));
+    for (const name of readdirSync(logDir)) {
+      const m = filePattern.exec(name);
+      if (!m) continue;
+      const fileDate = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+      if (fileDate < threshold) {
+        try {
+          rmSync(join(logDir, name), { force: true });
+        } catch {
+          // 清理失败不影响写入
+        }
+      }
+    }
+  };
+
+  let currentKey = dateKey(now());
+  cleanup(now());
+
   return (line: string) => {
-    appendFileSync(logFile, `${line}\n`, 'utf8');
+    const nextKey = dateKey(now());
+    if (nextKey !== currentKey) {
+      currentKey = nextKey; // 跨天：切新文件并顺带清理
+      cleanup(now());
+    }
+    appendFileSync(join(logDir, `imessage-${currentKey}.jsonl`), `${line}\n`, 'utf8');
   };
 }

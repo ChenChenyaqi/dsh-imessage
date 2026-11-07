@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -77,16 +77,48 @@ describe('makeLogger · never throws', () => {
   });
 });
 
-describe('makeFileSink', () => {
-  it('appends JSON lines and auto-creates the directory', () => {
+describe('makeFileSink · daily rotation', () => {
+  const day = (ymd: string) => () => new Date(`${ymd}T12:00:00`);
+
+  it('writes into a date-stamped file and auto-creates the directory', () => {
     const dir = mkdtempSync(join(tmpdir(), 'dsh-imessage-log-'));
-    const file = join(dir, 'nested', 'logs', 'imessage.jsonl');
     try {
-      const sink = makeFileSink(file);
+      const sink = makeFileSink(join(dir, 'nested', 'logs'), { now: day('2026-11-06') });
       sink('{"a":1}');
       sink('{"a":2}');
-      const text = readFileSync(file, 'utf8');
+      const text = readFileSync(join(dir, 'nested', 'logs', 'imessage-20261106.jsonl'), 'utf8');
       expect(text.split('\n').filter(Boolean)).toHaveLength(2);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('switches to a new file when the day changes', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'dsh-imessage-log-'));
+    try {
+      let now = day('2026-11-06')();
+      const sink = makeFileSink(dir, { now: () => now });
+      sink('{"day":1}');
+      now = day('2026-11-07')();
+      sink('{"day":2}');
+      expect(existsSync(join(dir, 'imessage-20261106.jsonl'))).toBe(true);
+      expect(existsSync(join(dir, 'imessage-20261107.jsonl'))).toBe(true);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('lazily removes logs older than the retention window', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'dsh-imessage-log-'));
+    try {
+      // 预置：10 天前（应删）、6 天前（应留）、无关文件（不动）
+      writeFileSync(join(dir, 'imessage-20261027.jsonl'), '', 'utf8');
+      writeFileSync(join(dir, 'imessage-20261031.jsonl'), '', 'utf8');
+      writeFileSync(join(dir, 'unrelated.txt'), '', 'utf8');
+      const sink = makeFileSink(dir, { now: day('2026-11-06'), keepDays: 7 });
+      sink('{"x":1}');
+      const names = readdirSync(dir).sort();
+      expect(names).toEqual(['imessage-20261031.jsonl', 'imessage-20261106.jsonl', 'unrelated.txt']);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
