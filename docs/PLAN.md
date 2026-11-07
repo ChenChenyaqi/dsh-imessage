@@ -17,10 +17,11 @@
 | D2  | 分层：`core/`（零框架依赖内核）+ `host/`（薄 cordis 适配层） | 内核可独立单测、架构自主；与 dsh-im 的无边界 shared 层形成代差 |
 | D3  | TypeScript + ESM + Node ≥22 + vitest；运行时零外部依赖 | `node:sqlite`/`fetch`/`WebSocket` 全内置 |
 | D4  | 单 bot：不做 dsh-im 的多机器人注册/token 层 | 单机 iMessage 天然单身份，配置直写 |
-| D5  | 数据完全独立：新根目录（含 per-conversation 工作区），不碰 `~/.dsh/integrations/` | 与 dsh-im 共存、切换互不污染；暂定 `~/.dsh/imessage/`，M1 定案 |
+| D5  | 数据完全独立：数据根 `~/.dsh-imessage/`（含 per-conversation 工作区），不碰 dsh-im 的任何目录 | 与 dsh-im 共存、切换互不污染；M1 已定案，可用 `DSH_IMESSAGE_HOME` 覆盖（测试/自定义安装） |
 | D6  | i18n 保留：zh/en 起步，轻量 `t()` 层放 core | 用户要求 |
 | D7  | 借用 dsh-im 验证过的 **macOS 事实**（chat.db SQL、typedstream 解码、绑定事务踩坑、osascript 用法），代码全部自研 | 这些是事实知识，不是代码 |
 | D8  | 安全边界：chat.db 只读；发送只走 Messages.app 自动化；白名单默认拒绝 | 沿用 dsh-im 原则 |
+| D9  | 业务配置走 DSH 官方体系：插件导出 Config Schemastery schema → cordis 加载时校验 → 存 profile；DSH 设置页据 schema 自动生成表单，用户不碰任何 JSON 文件。`~/.dsh-imessage/` 只存运行时状态（state/日志/会话工作区）。插件启停用 DSH 插件列表开关，不设业务级 `enabled` | 查证 DSH 源码 `packages/settings`（autoGenerate 表单 + 乐观锁/脱敏/HMR）；避免自建配置体系与宿主双轨 |
 
 ## 三、总体架构
 
@@ -29,10 +30,10 @@ src/
 ├─ core/                      # 纯 TS 内核，零 cordis 依赖
 │  ├─ imessage/               #   macOS 面：permissions / chatdb / decode / normalize / sender / humanize
 │  ├─ routing/                #   大脑：gate（白名单+幂等）/ session-router / pipeline（单向流）
-│  ├─ stores/                 #   config / state（原子写）
+│  ├─ stores/                 #   state（原子写）
 │  ├─ i18n/  log/  types.ts
 └─ host/                      # 薄 cordis 适配层
-   ├─ index.ts                #   name / inject / apply：生命周期装配
+   ├─ index.ts                #   name / inject / apply：生命周期装配 + Config schema 声明（D9）
    ├─ dsh-port.ts             #   apiProxy → core 的 DshPort 实现
    └─ rpc/ settings/          #   管理面（M4 最小化起步）
 ```
@@ -45,11 +46,14 @@ src/
 
 ## 四、里程碑（MVP = M1 → M4）
 
-### M1 · 底座
-- 仓库骨架：pnpm + tsconfig + vitest + lint；package.json 按 DSH bundle 规范预留
-- core 类型系统（NormalizedMessage / AccessPolicy / ChannelState / Config）
-- stores：state 原子写、cursor + seenIds + sessions；config 读取与校验
-- i18n（zh/en）、JSONL 结构化日志
+### M1 · 底座（拆为 7 步，每步 = 源文件 + 同构测试文件 + check 全绿）
+- ① 仓库骨架：pnpm + tsconfig + vitest + lint；package.json 按 DSH bundle 规范预留（已完成）
+- ② paths：数据根定案 `~/.dsh-imessage/`，`DSH_IMESSAGE_HOME` 可覆盖（已完成）
+- ③ 类型：NormalizedMessage / AccessPolicy（含号码归一化）
+- ④ 类型：ChannelState 形态 + Config 纯类型与默认值（业务配置校验在 M4 走 host 层 Schemastery schema，D9）
+- ⑤ i18n（zh/en）
+- ⑥ JSONL 结构化日志（sink 可注入）
+- ⑦ 原子写工具 + state store（cursor / seenIds / sessions）
 - **验收**：单测与构建全绿；数据根目录定案
 
 ### M2 · iMessage 收发内核（macOS 面）
@@ -61,6 +65,9 @@ src/
 
 ### M3 · 内核接线（大脑）
 - session-router：conversationKey → 隔离目录 → **预绑定事务**（create 前预绑定、成功后无条件重申、per-key 串行锁；吸收 dsh-im 孤儿会话教训，砍掉其 fence/多 bot 复杂度）
+- 绑定模型：手机号 → **单活跃会话 + 固定工作区**（工作区跟手机号走、永不换；会话只是可替换的把手）；会话失效（删除/归档/DSH 重装）采用**懒验证**：下次来消息时验证 sessionId，死了重建新会话并换绑，工作区不动，不主动同步删除；**不按名复活**：用户恢复归档旧会话后与重建的新会话并存，绑定保持新会话不回跳（定案）；DSH 会话记忆与工作区文件是两条独立的记忆线，切换绑定只动 sessionId
+- **会话所有权隔离**：DSH 会话是全局列表、无归属概念，插件自记账：sessions 含 `bindHistory`（该手机号绑定过的全部会话，**append 前判重**——同 id 只记一次、保持首绑顺序；归档/删除记录保留在案）；`/sessions` 只列发起者台账内的**活跃会话**（显示前过滤：已归档、已删除不显示），`/bind` 只允许绑活跃会话，拒绝已归档/已删除目标（默认拒绝，与 D8 同源）；会话命名约定 `imessage <phone>` 仅作可读辅助，不作安全边界；DSH 侧手动建的会话不在任何台账、不可被 bind（SessionId 为不透明 branded string，DSH 允许调用方自带 id，唯一性由生成方保证——去重只需判存在，与格式无关）
+- **懒验证三态**（归档≠删除，DSH 事实：archived-session-gate 冻结模型步骤但会话可查，unarchiveSession API 存在，官方复用逻辑也排除归档）：当前绑定会话为「活跃→正常路由；归档→自动新建+告知（手机端用户无法去 DSH 恢复）；删除→自动新建」；`DshPort` 需提供 `getSessionStatus(id): active|archived|missing`（M4 用 workspaceRegistry.archivedSessionIds 实现）
 - gate：白名单评估 + 幂等（含"失败不吞消息"的 unmark 语义）
 - pipeline：组装单向流；轮询调度、abort、单条消息失败不中断循环
 - **验收**：fake DshPort 的内核集成测试全链路绿；崩溃/重启恢复测试（不丢、不重）
@@ -73,8 +80,8 @@ src/
 - **切换流程**：上线前先停 dsh-im 的 iMessage bot（避免双端抢消息），白名单手动迁移
 
 ### M5+ · 迭代池（顺序到时排）
-- P1：收图（HEIC→JPEG via sips）、引用回复注入 prompt、发文件（macOS 26 `send POSIX file`）、`/help` `/new` 命令、联系人备注上下文、会话标题
-- P2：companion（scheduler / motives / mood / controller，状态持久化）、表情包上下文、设置页 UI（权限引导 / 白名单 / 参数表单热更新）、模型选择
+- P1：收图（HEIC→JPEG via sips）、引用回复注入 prompt、发文件（macOS 26 `send POSIX file`）、`/help` `/new` `/sessions` `/bind` 命令（`/sessions` 只列发起者 bindHistory 内的会话、`/bind` 只能切到台账内目标；切换手机号绑定的 DSH 会话，记忆跟会话走、工作区不变）、联系人备注上下文、会话标题
+- P2：companion（scheduler / motives / mood / controller，状态持久化）、表情包上下文、设置页 UI（权限引导 / 白名单 / 参数表单热更新 / **会话绑定可视化切换**）、模型选择
 
 ## 五、测试与质量策略
 

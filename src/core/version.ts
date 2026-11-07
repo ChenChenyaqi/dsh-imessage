@@ -1,4 +1,4 @@
-// Shared identity constants for the plugin, used by the host entry and tests.
+// 插件的身份常量，宿主入口与测试共用。
 
-/** Cordis plugin name (unique within the DSH plugin tree). */
+/** cordis 插件名（DSH 插件树内唯一）。 */
 export const PLUGIN_ID = 'dsh-imessage';
