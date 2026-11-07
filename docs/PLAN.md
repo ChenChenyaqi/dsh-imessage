@@ -51,7 +51,7 @@ src/
 - ② paths：数据根定案 `~/.dsh-imessage/`，`DSH_IMESSAGE_HOME` 可覆盖（已完成）
 - ③ 类型：NormalizedMessage / AccessPolicy（含号码归一化）
 - ④ 类型：ChannelState 形态 + Config 纯类型与默认值（业务配置校验在 M4 走 host 层 Schemastery schema，D9）
-- ⑤ i18n（zh/en）
+- ⑤ i18n（zh/en）：仅负责 **iMessage 回复文案**，不含设置页 UI（表单语言随 M4 schema 文案策略定）；Error/日志一律英文不走 i18n
 - ⑥ JSONL 结构化日志（sink 可注入）
 - ⑦ 原子写工具 + state store（cursor / seenIds / sessions）
 - **验收**：单测与构建全绿；数据根目录定案
@@ -60,7 +60,7 @@ src/
 - 权限探测（FDA + 自动化，含权限错误分类）
 - chatdb：`node:sqlite` 只读打开、单查询 JOIN（消息/附件/引用）、typedstream(attributedBody) 解码
 - normalize：防循环（from-me / bot 前缀 / group / 空消息）、引用回复归一化
-- sender：osascript sendText、AppleScript 转义；humanize：语义分段 + 打字延迟
+- sender：osascript sendText、AppleScript 转义；humanize：语义分段 + 打字延迟。**双路径发送**：AI 内容走拟人化路径（分段+延迟）；系统消息（错误/命令结果/状态告知，即 i18n 词条）走 system 路径：无延迟、一次发出、统一加 `[dsh] ` 前缀与 AI 消息区分
 - **验收**：解码/归一化/分段 fixture 单测绿；提供 dev-only CLI 手工工具，真机收、发各通一条文本
 
 ### M3 · 内核接线（大脑）
