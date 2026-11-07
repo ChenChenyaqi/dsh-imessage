@@ -29,7 +29,9 @@ export const OBJECT_REPLACEMENT_CHAR = '\uFFFC';
 
 /**
  * 提取 attributedBody 中的正文文本。
- * 返回：非空文本；null = 无 BLOB / 解码失败 / 剥离 FFFC 后无文本（纯附件）。
+ * 返回：文本（可能为空串）；null = 无 BLOB / 解码失败。
+ * 空串语义 = 解码成功但剥离 U+FFFC 后无文本（纯附件），
+ * 与 null（失败）区分，供 normalize 层分派不同占位。
  */
 export function decodeAttributedBodyText(
   blob: Uint8Array | null | undefined,
@@ -61,9 +63,8 @@ export function decodeAttributedBodyText(
   }
 
   // 剥离附件占位符（不是文本语义的一部分）；不 trim——忠实原文，
-  // 空白策略归 normalize 层。剥后全空（纯附件）归 null。
-  const stripped = raw.replaceAll(OBJECT_REPLACEMENT_CHAR, '');
-  return stripped.length > 0 ? stripped : null;
+  // 空白策略归 normalize 层。空串 = 纯附件，与失败（null）区分。
+  return raw.replaceAll(OBJECT_REPLACEMENT_CHAR, '');
 }
 
 // ---------------------------------------------------------------------------

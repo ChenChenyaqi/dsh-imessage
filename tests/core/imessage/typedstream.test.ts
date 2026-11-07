@@ -133,9 +133,9 @@ describe('decodeAttributedBodyText · constructed blobs', () => {
     expect(decodeAttributedBodyText(makeBlob(payload))).toBe('看这张图');
   });
 
-  it('returns null for attachment-only bodies (all U+FFFC)', () => {
+  it('returns empty string for attachment-only bodies (all U+FFFC)', () => {
     const payload = UTF8.encode(OBJECT_REPLACEMENT_CHAR.repeat(3));
-    expect(decodeAttributedBodyText(makeBlob(payload))).toBeNull();
+    expect(decodeAttributedBodyText(makeBlob(payload))).toBe('');
   });
 });
 
