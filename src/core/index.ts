@@ -2,3 +2,4 @@
 // 内部模块间互相 import 不走这里，用相对/别名路径。
 
 export * from './imessage/env';
+export * from './imessage/chatdb';
