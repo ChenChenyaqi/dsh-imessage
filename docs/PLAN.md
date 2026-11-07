@@ -21,7 +21,7 @@
 | D6  | i18n 保留：zh/en 起步，轻量 `t()` 层放 core | 用户要求 |
 | D7  | 借用 dsh-im 验证过的 **macOS 事实**（chat.db SQL、typedstream 解码、绑定事务踩坑、osascript 用法），代码全部自研 | 这些是事实知识，不是代码 |
 | D8  | 安全边界：chat.db 只读；发送只走 Messages.app 自动化；白名单默认拒绝 | 沿用 dsh-im 原则 |
-| D9  | 业务配置走 DSH 官方体系：插件导出 Config Schemastery schema → cordis 加载时校验 → 存 profile；DSH 设置页据 schema 自动生成表单，用户不碰任何 JSON 文件。`~/.dsh-imessage/` 只存运行时状态（state/日志/会话工作区）。插件启停用 DSH 插件列表开关，不设业务级 `enabled` | 查证 DSH 源码 `packages/settings`（autoGenerate 表单 + 乐观锁/脱敏/HMR）；避免自建配置体系与宿主双轨 |
+| D9  | 业务配置走 DSH 官方体系：插件导出 Config Schemastery schema → cordis 加载时校验 → 存 profile；DSH 设置页据 schema 自动生成表单，用户不碰任何 JSON 文件。`~/.dsh-imessage/` 只存运行时状态（state/日志/会话工作区）。插件启停用 DSH 插件列表开关，不设业务级 `enabled`。**白名单约定**：条目必须带区号（设置页表单校验强制，不带/邮箱不合法保存不了）；直接改配置文件的非法条目静默丢弃（归一化后匹配不上任何消息，等价于不在白名单）；系统内不做国家码猜测、无默认区号配置（简化） | 查证 DSH 源码 `packages/settings`（autoGenerate 表单 + 乐观锁/脱敏/HMR）；避免自建配置体系与宿主双轨 |
 
 ## 三、总体架构
 
