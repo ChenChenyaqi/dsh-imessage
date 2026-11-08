@@ -4,10 +4,12 @@
 // 用法：node scripts/dev-cli.mjs <command>
 //   probe   环境与权限探测（FDA + Messages 自动化）
 //   peek   读真库最新若干条（只读，验证 schema 探测 + JOIN + WAL 实时性）
-//   send   真机发送：send <address> [--system] <text>（写路径验证）
+//   send   真机发送：send [--system] <address> <text>（写路径验证）
+//   listen  实时轮询全链路：poll → typedstream → normalize → 打印
+//          listen [--replay N]   默认从当前水位起；--replay N 回放最近 N 行
 
 import { defaultChatDbPath, probeEnvironment } from '../lib/core.js';
-import { fetchBatch, openChatDb, readMaxRowId } from '../lib/core.js';
+import { fetchBatch, normalizeRows, openChatDb, readMaxRowId } from '../lib/core.js';
 import { makeSender } from '../lib/core.js';
 
 const cmd = process.argv[2] ?? 'help';
@@ -53,8 +55,40 @@ if (cmd === 'probe') {
       process.exitCode = 1;
     }
   }
+} else if (cmd === 'listen') {
+  const replayIdx = process.argv.indexOf('--replay');
+  const replay = replayIdx >= 0 ? Number(process.argv[replayIdx + 1] ?? 20) : undefined;
+  const db = openChatDb(defaultChatDbPath());
+  const max = readMaxRowId(db) ?? 0;
+  let cursor = replay !== undefined ? Math.max(0, max - replay) : max;
+  console.log(`listen 起始水位 = ${cursor}${replay !== undefined ? `（回放最近 ${replay} 行）` : '（只看新消息）'}，每 2s 轮询，Ctrl-C 退出`);
+  let running = true;
+  process.on('SIGINT', () => {
+    running = false;
+  });
+  try {
+    while (running) {
+      const rows = fetchBatch(db, cursor, 50);
+      if (rows.length > 0) {
+        for (const r of normalizeRows(rows)) {
+          if (r.status === 'accepted') {
+            const ts = new Date(r.message.date).toLocaleTimeString('zh-CN');
+            console.log(`  ✓ ${ts} ${r.message.conversationKey}: ${r.message.text.slice(0, 60)}`);
+          } else {
+            console.log(`  - #${r.rowId} 跳过（${r.reason}）`);
+          }
+        }
+        // cursor 推进覆盖所有拉出的原始行（含被过滤的）——与 M3 定案同语义
+        cursor = rows[rows.length - 1].rowid;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+    }
+  } finally {
+    db.close();
+    console.log('已停止');
+  }
 } else {
-  console.log('usage: node scripts/dev-cli.mjs <probe|peek|send> [args]');
+  console.log('usage: node scripts/dev-cli.mjs <probe|peek|send|listen> [args]');
   process.exitCode = cmd === 'help' ? 0 : 1;
 }
 
