@@ -3,3 +3,6 @@
 
 export * from './imessage/env';
 export * from './imessage/chatdb';
+export * from './imessage/typedstream';
+export * from './imessage/normalize';
+export * from './imessage/sender';

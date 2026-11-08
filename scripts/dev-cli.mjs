@@ -4,9 +4,11 @@
 // 用法：node scripts/dev-cli.mjs <command>
 //   probe   环境与权限探测（FDA + Messages 自动化）
 //   peek   读真库最新若干条（只读，验证 schema 探测 + JOIN + WAL 实时性）
+//   send   真机发送：send <address> [--system] <text>（写路径验证）
 
 import { defaultChatDbPath, probeEnvironment } from '../lib/core.js';
 import { fetchBatch, openChatDb, readMaxRowId } from '../lib/core.js';
+import { makeSender } from '../lib/core.js';
 
 const cmd = process.argv[2] ?? 'help';
 
@@ -31,8 +33,28 @@ if (cmd === 'probe') {
   } finally {
     db.close();
   }
+} else if (cmd === 'send') {
+  const args = process.argv.slice(3);
+  const system = args.includes('--system'); // 位置无关：任意位置识别
+  const rest = args.filter((a) => a !== '--system');
+  const address = rest.shift();
+  const text = rest.join(' ');
+  if (!address || !text) {
+    console.log('usage: send [--system] <address> <text>');
+    process.exitCode = 1;
+  } else {
+    const sender = makeSender();
+    try {
+      if (system) await sender.sendSystem(address, text);
+      else await sender.sendText(address, text);
+      console.log(`已发送 → ${address}`);
+    } catch (err) {
+      console.log(`发送失败：${err.message}`);
+      process.exitCode = 1;
+    }
+  }
 } else {
-  console.log('usage: node scripts/dev-cli.mjs <probe|peek> [args]');
+  console.log('usage: node scripts/dev-cli.mjs <probe|peek|send> [args]');
   process.exitCode = cmd === 'help' ? 0 : 1;
 }
 

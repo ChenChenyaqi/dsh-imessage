@@ -27,7 +27,7 @@ export const ATTACHMENT_PLACEHOLDER = '[attachment: image, not yet supported]';
 export const UNDECODABLE_PLACEHOLDER = '[undecodable message]';
 
 /** 本插件系统消息前缀（sender 层 system 路径同款），回环防御。 */
-const DSH_PREFIX = '[dsh]';
+export const DSH_PREFIX = '[dsh]';
 
 /** Mac 绝对时间（2001 epoch）与 Unix epoch 的毫秒差。 */
 const MAC_EPOCH_OFFSET_MS = 978_307_200_000;
