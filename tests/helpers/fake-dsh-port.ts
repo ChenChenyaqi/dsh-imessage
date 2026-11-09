@@ -36,6 +36,8 @@ export interface FakeDshPort extends DshPort {
   failNextCreate(err: Error): void;
   /** 排队一个 ask 脚本（FIFO；不排则用默认回复）。 */
   queueAsk(script: AskScript): void;
+  /** 给 createSession 加延迟（并发窗口测试）。 */
+  setCreateDelay(ms: number): void;
 }
 
 export function makeFakeDshPort(): FakeDshPort {
@@ -44,6 +46,7 @@ export function makeFakeDshPort(): FakeDshPort {
   const statuses = new Map<SessionId, SessionStatus>();
   const scripts: AskScript[] = [];
   let createFailure: Error | null = null;
+  let createDelayMs = 0;
   let seq = 0;
 
   return {
@@ -59,8 +62,15 @@ export function makeFakeDshPort(): FakeDshPort {
       scripts.push(script);
     },
 
+    setCreateDelay(ms) {
+      createDelayMs = ms;
+    },
+
     async createSession(input) {
       createdCalls.push(input);
+      if (createDelayMs > 0) {
+        await new Promise((resolve) => setTimeout(resolve, createDelayMs));
+      }
       if (createFailure) {
         const err = createFailure;
         createFailure = null;
