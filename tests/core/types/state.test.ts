@@ -1,3 +1,4 @@
+import { asSessionId } from '@/core/types/dsh';
 import { describe, expect, it } from 'vitest';
 
 import {
@@ -31,7 +32,7 @@ describe('deriveWorkspaceDir', () => {
 
 describe('recordBinding · first bind', () => {
   it('creates binding with derived workspace and single-entry history', () => {
-    const state = recordBinding(makeChannelState(), '+8613800000000', 's1');
+    const state = recordBinding(makeChannelState(), '+8613800000000', asSessionId('s1'));
     const b = state.sessions['+8613800000000']!;
     expect(b.sessionId).toBe('s1');
     expect(b.workspaceDir).toBe('conversations/+8613800000000');
@@ -41,7 +42,7 @@ describe('recordBinding · first bind', () => {
 
 describe('recordBinding · rebind', () => {
   const setup = () =>
-    recordBinding(recordBinding(makeChannelState(), '+8613800000000', 's1'), '+8613800000000', 's2');
+    recordBinding(recordBinding(makeChannelState(), '+8613800000000', asSessionId('s1')), '+8613800000000', asSessionId('s2'));
 
   it('moves the pointer and appends history', () => {
     const b = setup().sessions['+8613800000000']!;
@@ -61,7 +62,7 @@ describe('recordBinding · dedup', () => {
     // s1 → s2 → 切回 s1 → 再 s2：bindHistory 仍是 [s1, s2]
     let state = makeChannelState();
     for (const sid of ['s1', 's2', 's1', 's2', 's1']) {
-      state = recordBinding(state, '+8613800000000', sid);
+      state = recordBinding(state, '+8613800000000', asSessionId(sid));
     }
     const b = state.sessions['+8613800000000']!;
     expect(b.sessionId).toBe('s1');
@@ -71,15 +72,15 @@ describe('recordBinding · dedup', () => {
 
 describe('recordBinding · purity', () => {
   it('does not mutate the input state', () => {
-    const before = recordBinding(makeChannelState(), '+8613800000000', 's1');
+    const before = recordBinding(makeChannelState(), '+8613800000000', asSessionId('s1'));
     const snapshot = structuredClone(before);
-    recordBinding(before, '+8613800000000', 's2');
+    recordBinding(before, '+8613800000000', asSessionId('s2'));
     expect(before).toEqual(snapshot);
   });
 
   it('keeps other keys untouched', () => {
-    let state = recordBinding(makeChannelState(), '+8613800000000', 's1');
-    state = recordBinding(state, 'alice@icloud.com', 'e1');
+    let state = recordBinding(makeChannelState(), '+8613800000000', asSessionId('s1'));
+    state = recordBinding(state, 'alice@icloud.com', asSessionId('e1'));
     expect(state.sessions['+8613800000000']!.sessionId).toBe('s1');
     expect(state.sessions['alice@icloud.com']!.sessionId).toBe('e1');
   });
@@ -88,7 +89,7 @@ describe('recordBinding · purity', () => {
 describe('isChannelState', () => {
   it('accepts a fresh and a bound state', () => {
     expect(isChannelState(makeChannelState())).toBe(true);
-    expect(isChannelState(recordBinding(makeChannelState(), '+8613800000000', 's1'))).toBe(true);
+    expect(isChannelState(recordBinding(makeChannelState(), '+8613800000000', asSessionId('s1')))).toBe(true);
   });
 
   it('rejects malformed objects', () => {

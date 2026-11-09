@@ -2,6 +2,7 @@ import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'n
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
+import { asSessionId } from '@/core/types/dsh';
 import { describe, expect, it } from 'vitest';
 
 import { loadState, saveState } from '@/core/stores/state-store';
@@ -41,8 +42,8 @@ describe('loadState · round-trip', () => {
     const { dir, file } = tempStateFile();
     try {
       let state = makeChannelState();
-      state = recordBinding(state, '+8613800000000', 's1');
-      state = recordBinding(state, '+8613800000000', 's2');
+      state = recordBinding(state, '+8613800000000', asSessionId('s1'));
+      state = recordBinding(state, '+8613800000000', asSessionId('s2'));
       saveState(file, state);
 
       const loaded = loadState(file);

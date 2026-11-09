@@ -12,15 +12,17 @@ export const SEEN_IDS_MAX = 500;
 /** 持久化格式版本号：未来 schema 变更时作为迁移依据。 */
 export const STATE_VERSION = 1;
 
+import type { SessionId } from './dsh';
+
 /** 一个手机号/邮箱的会话绑定（所有权台账见 M3 设计）。 */
 export interface SessionBinding {
   /** 当前绑定的 DSH 会话 id（单活跃；归档/删除后由懒验证换绑）。 */
-  sessionId: string;
+  sessionId: SessionId;
   /** 固定工作区，相对数据根的路径（搬数据根不失效），永不随会话变。 */
   workspaceDir: string;
   /** 该 key 绑定过的全部会话，append 去重、只增不删（/sessions 与 /bind 的
    *  所有权边界）。 */
-  bindHistory: readonly string[];
+  bindHistory: readonly SessionId[];
 }
 
 /** 通道运行时状态 = state.json 全部内容。 */
@@ -58,7 +60,7 @@ export function deriveWorkspaceDir(conversationKey: string): string {
 export function recordBinding(
   state: ChannelState,
   conversationKey: string,
-  sessionId: string,
+  sessionId: SessionId,
 ): ChannelState {
   const existing = state.sessions[conversationKey];
   const binding: SessionBinding = existing
