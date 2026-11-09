@@ -1,0 +1,297 @@
+// pipeline：M3 总装——耳朵（fetch/normalize）→ 门卫（gate）→ 管理员
+// （router）→ DSH（ask 流）→ 嘴巴（humanize/sender）的单向流。
+//
+// 状态机（每条 accepted 消息；崩溃语义 = at-most-once，防重复 > 防丢）：
+//   gate 评估
+//     ├─ already-seen / 白名单拒绝 → 终态：cursor 推进（不 mark）
+//     └─ pass → claim：markSeen 落盘（先记账后处理）
+//          route（懒验证/建会话；归档换绑走系统路径告知）
+//          ask（流式收集）
+//          sendHumanized（AI 路径）
+//          终态：cursor 推进落盘
+//
+// 失败分层（定案：send 失败不重试、不重复回复）：
+//   - pre-ask 失败（route/告知/ask 流）：unmarkSeen 落盘，cursor 不动
+//     → 下轮重拉重试（零副作用失败才配重试）；
+//   - send 阶段失败：保持 claim + cursor 推进 → 这条算处理完（吞），
+//     日志留痕，绝不重发；
+//   - SendError(automation-permission)：权限被收回，重试只会刷屏
+//     -1743 → 停轮询等人工，RunResult.permission-stopped。
+//
+// cursor 推进时机（与 M2 定案一致：覆盖所有拉出行，含被滤的）：
+// normalize skipped 行只推进内存 cursor（搭车下一条/batch 尾落盘），
+// 崩溃重拉后 normalize 幂等再拒，无副作用。
+//
+// 轮询与退避：intervalMs 起步，拉取抛错逐次翻倍至 maxBackoffMs，
+// 成功一轮重置；单条消息处理失败不计入（已就地消化）。
+
+import type { ChatDbRow } from '../imessage/chatdb';
+import { normalizeRows } from '../imessage/normalize';
+import type { ImessageSender, SendError } from '../imessage/sender';
+import { sendHumanized } from '../imessage/humanize';
+import type { Logger } from '../log/jsonl';
+import type { AccessPolicy } from '../types/policy';
+import type { DshPort } from '../types/dsh';
+import type { ChannelState } from '../types/state';
+import { evaluateGate, markSeen, unmarkSeen } from './gate';
+import type { SessionRouter } from './session-router';
+
+/** 单条消息 ask 失败的最大尝试次数（首答 + 重试），超过即吞 + 告知（定案 B+）。 */
+export const MAX_ASK_RETRIES = 3;
+
+// ---------------------------------------------------------------------------
+// 依赖与选项
+// ---------------------------------------------------------------------------
+
+export interface PipelineDeps {
+  /** 拉一批增量行（组装层闭包 db；pipeline 不碰数据库对象）。 */
+  readonly fetchRows: (cursor: number, limit: number) => ChatDbRow[];
+  /** 当前库最大 ROWID（cursor=null 首次初始化用，不回放历史）。 */
+  readonly currentMaxRowId: () => number;
+  readonly sender: ImessageSender;
+  readonly port: DshPort;
+  readonly router: SessionRouter;
+  readonly policy: AccessPolicy;
+  /** 归档换绑告知文案（i18n 已渲染）。 */
+  readonly sessionSwitchedText: string;
+  /** 重试耗尽告知文案（i18n 已渲染）。 */
+  readonly replyUnavailableText: string;
+  readonly loadState: () => ChannelState;
+  readonly saveState: (state: ChannelState) => void;
+  readonly log?: Pick<Logger, 'info' | 'warn' | 'error'>;
+}
+
+export interface PipelineOptions {
+  readonly signal?: AbortSignal;
+  /** 轮询间隔（默认 2s）。 */
+  readonly intervalMs?: number;
+  /** 退避上限（默认 60s）。 */
+  readonly maxBackoffMs?: number;
+  /** 单批拉取上限（默认 50）。 */
+  readonly batchLimit?: number;
+  /** 等待实现（测试假钟）。 */
+  readonly sleep?: (ms: number, signal?: AbortSignal) => Promise<void>;
+}
+
+export interface RunResult {
+  /** 停止原因。 */
+  readonly reason: 'aborted' | 'permission-stopped' | 'fatal';
+  /** 完整走完（含吞掉）的消息数。 */
+  readonly processed: number;
+}
+
+// ---------------------------------------------------------------------------
+// 内部：单条消息处理
+// ---------------------------------------------------------------------------
+
+const isPermissionError = (err: unknown): boolean =>
+  err instanceof Error &&
+  (err as SendError).kind === 'automation-permission';
+
+export interface MessageOutcome {
+  readonly kind: 'done' | 'retry' | 'permission-stopped';
+}
+
+// ---------------------------------------------------------------------------
+// 总装
+// ---------------------------------------------------------------------------
+
+export async function runPipeline(
+  deps: PipelineDeps,
+  options: PipelineOptions = {},
+): Promise<RunResult> {
+  const {
+    fetchRows, sender, port, router, policy, sessionSwitchedText, replyUnavailableText,
+    loadState, saveState, log,
+  } = deps;
+  const signal = options.signal;
+  const intervalMs = options.intervalMs ?? 2_000;
+  const maxBackoffMs = options.maxBackoffMs ?? 60_000;
+  const batchLimit = options.batchLimit ?? 50;
+  const sleep = options.sleep ?? (async (ms, sig) => {
+    await new Promise<void>((resolve, reject) => {
+      const t = setTimeout(resolve, ms);
+      sig?.addEventListener('abort', () => {
+        clearTimeout(t);
+        reject(sig.reason ?? new Error('aborted'));
+      }, { once: true });
+    });
+  });
+
+  const aborted = () =>
+    signal?.aborted === true ? (signal.reason ?? new Error('aborted')) : null;
+
+  let processed = 0;
+  /** ask 失败计数（内存态：重启清零 = 干预后再给满额机会）。 */
+  const retryCounts = new Map<string, number>();
+
+  // cursor=null = 首次启动：定位当前水位，不回放历史（M2 定案）
+  const initialCursor = loadState().cursor;
+  let cursor: number;
+  if (initialCursor === null) {
+    cursor = deps.currentMaxRowId();
+    saveState({ ...loadState(), cursor });
+    log?.info('pipeline.cursor-initialized', { cursor });
+  } else {
+    cursor = initialCursor;
+  }
+
+  /** 处理一条 accepted 消息（claim 已落盘前提下的后半程）。 */
+  const processAccepted = async (key: string, guid: string, text: string): Promise<MessageOutcome> => {
+    let asked = false; // send 阶段前始终保持可重试
+    try {
+      const routed = await router.route(key);
+      if (routed.reason === 'rebind-archived') {
+        // 归档换绑告知走系统路径；失败按 pre-ask 处理（重试不再告知）
+        await sender.sendSystem(key, sessionSwitchedText);
+      }
+      const chunks: string[] = [];
+      for await (const chunk of port.ask({ sessionId: routed.sessionId, prompt: text, signal })) {
+        chunks.push(chunk);
+      }
+      asked = true;
+      // 打字延迟等待复用注入的 sleep（测试假钟；生产同款 abort 语义）
+      await sendHumanized(sender, key, chunks.join(''), { signal, deps: { sleep } });
+      return { kind: 'done' };
+    } catch (err) {
+      if (isPermissionError(err)) return { kind: 'permission-stopped' };
+      if (asked) {
+        // send 阶段失败：终态吞（定案：不重试不重复回复）
+        log?.warn('pipeline.send-failed', {
+          guid, key,
+          error: err instanceof Error ? err.message : String(err),
+        });
+        return { kind: 'done' };
+      }
+      // pre-ask 失败：零副作用，恢复重试
+      log?.warn('pipeline.message-failed', {
+        guid, key,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return { kind: 'retry' };
+    }
+  };
+
+  let backoffMs = intervalMs;
+
+  while (true) {
+    const abortErr = aborted();
+    if (abortErr) throw abortErr;
+
+    const batchStart = cursor;
+    let persisted = true; // 内存 cursor 是否已落盘（skipped 搭车后置 false）
+
+    let rows: ChatDbRow[];
+    try {
+      rows = fetchRows(cursor, batchLimit);
+    } catch (err) {
+      log?.error('pipeline.fetch-failed', {
+        error: err instanceof Error ? err.message : String(err),
+        retryInMs: backoffMs,
+      });
+      try {
+        await sleep(backoffMs, signal);
+      } catch {
+        return { reason: 'aborted', processed };
+      }
+      backoffMs = Math.min(backoffMs * 2, maxBackoffMs);
+      continue;
+    }
+
+    /** 落盘：seenIds 换新 + cursor 推到给定值（当前内存位置或终态行）。 */
+    const persist = (nextCursor: number, nextSeen: readonly string[]) => {
+      saveState({ ...loadState(), cursor: nextCursor, seenIds: nextSeen });
+      if (nextCursor >= cursor) cursor = nextCursor;
+      persisted = true;
+    };
+
+    try {
+      for (const result of normalizeRows(rows)) {
+        if (result.status === 'skipped') {
+          cursor = Math.max(cursor, result.rowId); // 搭车推进，随下次落盘带出
+          persisted = false;
+          continue;
+        }
+        const msg = result.message;
+        const seenNow = () => loadState().seenIds;
+
+        const verdict = evaluateGate(policy, seenNow(), msg);
+        if (!verdict.pass && verdict.reason === 'already-seen') {
+          // 终态恢复（上次崩溃在 claim 后/吞后）：cursor 补推进即完成
+          persist(msg.rowId, seenNow());
+          processed += 1;
+          continue;
+        }
+        if (!verdict.pass) {
+          persist(msg.rowId, seenNow()); // 白名单拒绝：cursor 过、不 mark
+          continue;
+        }
+
+        // claim：先记账落盘（at-most-once）。cursor 停在当前位不动
+        // ——保留重拉窗口，ask 失败重试才拉得到这条。
+        persist(cursor, markSeen(seenNow(), msg.guid));
+
+        const outcome = await processAccepted(msg.conversationKey, msg.guid, msg.text);
+        if (outcome.kind === 'permission-stopped') {
+          log?.error('pipeline.permission-stopped', { guid: msg.guid });
+          persist(msg.rowId, loadState().seenIds); // 停机前把状态收干净
+          processed += 1;
+          return { reason: 'permission-stopped', processed };
+        }
+        if (outcome.kind === 'retry') {
+          const failures = (retryCounts.get(msg.guid) ?? 0) + 1;
+          retryCounts.set(msg.guid, failures);
+          if (failures < MAX_ASK_RETRIES) {
+            // unmark + cursor 不动 + 中断本批：同批后继行不能把 cursor
+            // 带过去（否则这条永远拉不到）。下轮从 cursor 重拉。
+            persist(cursor, unmarkSeen(loadState().seenIds, msg.guid));
+            break;
+          }
+          // 重试耗尽（定案 B+）：吞 — 保持 claim + cursor 推进，本批
+          // 继续处理后续消息（不堵塞）；best-effort 系统告知后即经。
+          persist(msg.rowId, loadState().seenIds);
+          processed += 1;
+          retryCounts.delete(msg.guid);
+          log?.warn('pipeline.retry-exhausted', { guid: msg.guid, key: msg.conversationKey, attempts: failures });
+          try {
+            await sender.sendSystem(msg.conversationKey, replyUnavailableText);
+          } catch (err) {
+            if (isPermissionError(err)) {
+              log?.error('pipeline.permission-stopped', { guid: msg.guid });
+              return { reason: 'permission-stopped', processed };
+            }
+            // 告知失败不翻案：终态已落盘，仅留痕
+            log?.warn('pipeline.notify-failed', {
+              guid: msg.guid,
+              error: err instanceof Error ? err.message : String(err),
+            });
+          }
+          continue;
+        }
+        persist(msg.rowId, loadState().seenIds); // 终态（成功或 send 失败吞）
+        retryCounts.delete(msg.guid);
+        processed += 1;
+      }
+    } catch (err) {
+      if (aborted()) return { reason: 'aborted', processed };
+      log?.error('pipeline.fatal', {
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return { reason: 'fatal', processed };
+    }
+
+    if (!persisted && cursor !== batchStart) {
+      saveState({ ...loadState(), cursor, seenIds: loadState().seenIds });
+    }
+
+    if (rows.length === 0) {
+      try {
+        await sleep(intervalMs, signal);
+      } catch {
+        return { reason: 'aborted', processed };
+      }
+    } else {
+      backoffMs = intervalMs; // 有产出即重置退避
+    }
+  }
+}

@@ -6,3 +6,6 @@ export * from './imessage/chatdb';
 export * from './imessage/typedstream';
 export * from './imessage/normalize';
 export * from './imessage/sender';
+export * from './router/gate';
+export * from './router/pipeline';
+export * from './router/session-router';

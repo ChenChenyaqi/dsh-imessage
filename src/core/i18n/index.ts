@@ -21,11 +21,15 @@ const messages: Record<Locale, Readonly<Record<string, string>>> = {
     'common.error': '出错了，请稍后再试',
     'common.notReady': '我还没准备好，请稍后再试',
     'common.unknownCommand': '不认识的命令：{command}',
+    'session.switched': '上一个对话已被归档，我开启了新对话继续聊',
+    'reply.unavailable': '这条我暂时回不了，稍后再问一次吧',
   },
   en: {
     'common.error': 'Something went wrong, please try later',
     'common.notReady': "I'm not ready yet, please try later",
     'common.unknownCommand': 'Unknown command: {command}',
+    'session.switched': 'The previous conversation was archived; I started a new one',
+    'reply.unavailable': "I can't answer this one right now; please ask again later",
   },
 };
 
