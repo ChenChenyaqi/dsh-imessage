@@ -103,6 +103,27 @@ describe('isChannelState', () => {
       }),
     ).toBe(false);
   });
+
+  it('rejects a cursor that is neither null nor a number', () => {
+    // cursor 为字符串：过不了「null 或 number」检查
+    expect(isChannelState({ ...makeChannelState(), cursor: '42' })).toBe(false);
+  });
+
+  it('rejects seenIds that is an object but not an array', () => {
+    // 对象非数组：能通过 typeof 检查，但不是合法的 guid 环形列表
+    expect(isChannelState({ ...makeChannelState(), seenIds: { length: 0 } })).toBe(false);
+  });
+
+  it('rejects seenIds containing non-string entries', () => {
+    // 数组里混入数字：去重列表必须全为字符串 guid
+    expect(isChannelState({ ...makeChannelState(), seenIds: ['ok', 42] })).toBe(false);
+  });
+
+  it('rejects sessions that is null or not an object', () => {
+    // sessions 为 null / 字符串：台账结构不合法
+    expect(isChannelState({ ...makeChannelState(), sessions: null })).toBe(false);
+    expect(isChannelState({ ...makeChannelState(), sessions: 'nope' })).toBe(false);
+  });
 });
 
 describe('constants', () => {

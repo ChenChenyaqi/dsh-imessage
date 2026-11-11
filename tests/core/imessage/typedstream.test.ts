@@ -45,6 +45,13 @@ function makeBlob(
   return out;
 }
 
+/** 构造 0x83 引导的 8 字节小端长度前缀。 */
+function make8ByteLengthPrefix(len: bigint): Uint8Array {
+  const view = new DataView(new ArrayBuffer(8));
+  view.setBigInt64(0, len, true);
+  return new Uint8Array([0x83, ...new Uint8Array(view.buffer)]);
+}
+
 // ---------------------------------------------------------------------------
 // 结构 fixture：真实 blob 的结构骨架 + 合成文本（零隐私）
 //
@@ -128,6 +135,13 @@ describe('decodeAttributedBodyText · constructed blobs', () => {
     expect(decodeAttributedBodyText(makeBlob(payload, prefix))).toBe(text);
   });
 
+  it('supports the 8-byte length form (0x83)', () => {
+    // 8 字节小端 BigInt 长度：长度 5 + payload 'hello'
+    expect(
+      decodeAttributedBodyText(makeBlob(UTF8.encode('hello'), make8ByteLengthPrefix(5n))),
+    ).toBe('hello');
+  });
+
   it('strips attachment placeholders from captioned text', () => {
     const payload = UTF8.encode(`${OBJECT_REPLACEMENT_CHAR}看这张图${OBJECT_REPLACEMENT_CHAR}`);
     expect(decodeAttributedBodyText(makeBlob(payload))).toBe('看这张图');
@@ -175,5 +189,25 @@ describe('decodeAttributedBodyText · degradation', () => {
     const payload = UTF8.encode('hello');
     const badPrefix = new Uint8Array([0xff]); // -1（有符号）
     expect(decodeAttributedBodyText(makeBlob(payload, badPrefix))).toBeNull();
+  });
+
+  it('returns null when the 8-byte length exceeds MAX_SAFE_INTEGER', () => {
+    // 超出安全整数范围的 8 字节长度直接判无效
+    const payload = UTF8.encode('hello');
+    const prefix = make8ByteLengthPrefix(BigInt(Number.MAX_SAFE_INTEGER) + 1n);
+    expect(decodeAttributedBodyText(makeBlob(payload, prefix))).toBeNull();
+  });
+
+  it('returns null on a negative 8-byte length', () => {
+    // BigInt64 按有符号小端解码：负长度无效
+    const payload = UTF8.encode('hello');
+    const prefix = make8ByteLengthPrefix(-1n);
+    expect(decodeAttributedBodyText(makeBlob(payload, prefix))).toBeNull();
+  });
+
+  it('returns null when the 8-byte length field is truncated', () => {
+    // 0x83 后只剩 2 字节，凑不齐 8 字节长度字段 → 判截断
+    const blob = new Uint8Array([...UTF8.encode('NSString'), 0x2b, 0x83, 0x05, 0x00]);
+    expect(decodeAttributedBodyText(blob)).toBeNull();
   });
 });

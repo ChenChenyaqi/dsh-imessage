@@ -16,22 +16,23 @@ interface Harness {
   readonly warnings: Array<{ event: string; fields?: Record<string, unknown> }>
   /** 读当前内存 state（断言用）。 */
   snapshot(): ReturnType<typeof makeChannelState>
-  /** 一次性注入下一次落盘失败。 */
-  failNextSave(): void
+  /** 一次性注入下一次落盘失败（抛出值可自定义，默认 Error("disk full")）。 */
+  failNextSave(err?: unknown): void
 }
 
 function makeHarness(): Harness {
   let state = makeChannelState()
   const port = makeFakeDshPort()
   const warnings: Harness["warnings"] = []
-  let failSave = false
+  let failSave: { err: unknown } | null = null
   const router = makeSessionRouter({
     port,
     loadState: () => state,
     saveState: (next) => {
       if (failSave) {
-        failSave = false
-        throw new Error("disk full")
+        const { err } = failSave
+        failSave = null
+        throw err
       }
       state = next
     },
@@ -45,8 +46,8 @@ function makeHarness(): Harness {
     router,
     warnings,
     snapshot: () => state,
-    failNextSave: () => {
-      failSave = true
+    failNextSave: (err: unknown = new Error("disk full")) => {
+      failSave = { err }
     },
   }
 }
@@ -152,6 +153,16 @@ describe("session router · pre-bind transaction", () => {
     // 重启后（state 无绑定）再次路由：自然重建
     const rebuilt = await h.router.route(KEY)
     expect(rebuilt.sessionId).not.toBe(result.sessionId)
+  })
+
+  it("stringifies non-Error save failures in the orphan warning", async () => {
+    const h = makeHarness()
+    h.failNextSave("disk full") // 抛出字符串而非 Error：走 String(err) 分支
+    const result = await h.router.route(KEY)
+    expect(result.created).toBe(true) // 落盘失败不吞消息
+    expect(h.warnings).toHaveLength(1)
+    expect(h.warnings[0]?.event).toBe("router.orphan-session")
+    expect(h.warnings[0]?.fields?.error).toBe("disk full")
   })
 
   it("propagates create failures (the lock survives for later calls)", async () => {

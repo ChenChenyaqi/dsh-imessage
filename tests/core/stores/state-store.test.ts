@@ -1,4 +1,4 @@
-import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -110,6 +110,20 @@ describe('loadState · corruption recovery', () => {
       writeFileSync(file, JSON.stringify(future), 'utf8');
       expect(loadState(file)).toEqual(makeChannelState());
       expect(quarantined(dir)).toHaveLength(1);
+    } finally {
+      cleanup(dir);
+    }
+  });
+});
+
+describe('loadState · IO errors', () => {
+  it('rethrows non-corrupt IO errors without quarantining', () => {
+    const { dir, file } = tempStateFile();
+    try {
+      // state.json 位置被目录占用：readJson 抛 EISDIR，非 ENOENT 也非解析错误
+      mkdirSync(file);
+      expect(() => loadState(file)).toThrow(/EISDIR/);
+      expect(quarantined(dir)).toEqual([]);
     } finally {
       cleanup(dir);
     }

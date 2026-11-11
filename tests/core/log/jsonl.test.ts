@@ -123,4 +123,21 @@ describe('makeFileSink · daily rotation', () => {
       rmSync(dir, { recursive: true, force: true });
     }
   });
+
+  it('uses the real clock when opts is omitted entirely', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'dsh-imessage-log-'));
+    try {
+      const sink = makeFileSink(dir); // 第二个参数整个不传：keepDays/now 全走默认
+      const logger = makeLogger({ sink });
+      logger.info('x');
+      // 当天（本地时区 YYYYMMDD）日志文件存在，且包含刚写的那一行
+      const now = new Date();
+      const key = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}`;
+      const file = join(dir, `imessage-${key}.jsonl`);
+      expect(existsSync(file)).toBe(true);
+      expect(readFileSync(file, 'utf8')).toContain('"event":"x"');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
 });

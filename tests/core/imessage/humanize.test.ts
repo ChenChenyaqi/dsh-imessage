@@ -174,10 +174,22 @@ describe('defaultSleep', () => {
     await expect(defaultSleep(-5)).resolves.toBeUndefined();
   });
 
+  it('resolves naturally after the full wait when no abort happens', async () => {
+    // 5ms 真等待：覆盖 timer 到期 → removeEventListener → resolve 路径
+    await expect(defaultSleep(5)).resolves.toBeUndefined();
+  });
+
   it('rejects when aborted mid-wait', async () => {
     const controller = new AbortController();
     const p = defaultSleep(10_000, controller.signal);
     controller.abort(new Error('stop'));
     await expect(p).rejects.toThrow('stop');
+  });
+
+  it('rejects when the signal is already aborted before the call', async () => {
+    // 调用前已 abort：立即拒绝并透传 abort reason，不启动任何定时器
+    const controller = new AbortController();
+    controller.abort(new Error('stop'));
+    await expect(defaultSleep(1_000, controller.signal)).rejects.toThrow('stop');
   });
 });

@@ -1,7 +1,13 @@
-import { describe, expect, it } from 'vitest';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import {
   AUTOMATION_PROBE_SOURCE,
+  defaultChatDbPath,
+  nodeProbeDeps,
   probeEnvironment,
   type ProbeDeps,
 } from '@/core/imessage/env';
@@ -82,4 +88,43 @@ describe('probeEnvironment · probe isolation', () => {
     expect(probe.disk.ok).toBe(false);
     expect(probe.automation.ok).toBe(false);
   });
+});
+
+// ---------------------------------------------------------------------------
+// node 默认实现：真实临时文件验证（runAppleScript 留白，见 describe 内注释）
+// ---------------------------------------------------------------------------
+
+describe('node defaults', () => {
+  let dir: string;
+  let file: string;
+
+  beforeAll(() => {
+    dir = mkdtempSync(join(tmpdir(), 'env-probe-'));
+    file = join(dir, 'head.bin');
+    writeFileSync(file, 'x'); // 1 字节即可供 readFileHead 读取
+  });
+
+  afterAll(() => {
+    // 清理临时目录
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('defaultChatDbPath points at the macOS chat.db location', () => {
+    // 默认路径必须落在用户主目录的消息库位置
+    expect(defaultChatDbPath()).toContain('Library/Messages/chat.db');
+  });
+
+  it('statFile detects an existing file and a missing path', () => {
+    expect(nodeProbeDeps.statFile(file)).toBe(true);
+    expect(nodeProbeDeps.statFile(join(dir, 'missing.db'))).toBe(false);
+  });
+
+  it('readFileHead reads one byte without throwing', () => {
+    // 真实打开/读/关闭 fd，验证默认实现不抛错
+    expect(() => nodeProbeDeps.readFileHead(file)).not.toThrow();
+  });
+
+  // 留白说明：nodeProbeDeps.runAppleScript 不在本 describe 测试——默认实现
+  // 会真实调用 osascript（触发 TCC 授权弹窗，且仅 macOS 可用），不适合单测；
+  // automation 分支已由上方 fake runAppleScript 用例覆盖。
 });

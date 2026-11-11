@@ -1,4 +1,4 @@
-import { mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -57,6 +57,20 @@ describe('writeJsonAtomic', () => {
       rmSync(dir, { recursive: true, force: true });
     }
   });
+
+  it('removes the tmp file and rethrows when rename fails', () => {
+    const dir = tempDir();
+    try {
+      // 目标路径已被目录占用：rename 无法落位，走「清 tmp 后 rethrow」路径
+      const file = join(dir, 'state.json');
+      mkdirSync(file);
+      expect(() => writeJsonAtomic(file, { a: 1 })).toThrow();
+      const leftovers = readdirSync(dir).filter((f) => f.includes('.tmp'));
+      expect(leftovers).toEqual([]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
 });
 
 describe('readJson', () => {
@@ -75,6 +89,16 @@ describe('readJson', () => {
       const file = join(dir, 'broken.json');
       writeFileSync(file, '{ this is not json', 'utf8');
       expect(() => readJson(file)).toThrow(JsonCorruptError);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('rethrows IO errors other than ENOENT as-is', () => {
+    const dir = tempDir();
+    try {
+      // 传目录路径：readFileSync 抛 EISDIR，非「文件不存在」，应原样上抛
+      expect(() => readJson(dir)).toThrow(/EISDIR/);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

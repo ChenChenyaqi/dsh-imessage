@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import type { ChatDbRow } from '@/core/imessage/chatdb';
 import { SendError } from '@/core/imessage/sender';
-import { runPipeline } from '@/core/router/pipeline';
+import { runPipeline, type PipelineOptions } from '@/core/router/pipeline';
 import { makeSessionRouter } from '@/core/router/session-router';
 import { makePolicy } from '@/core/types/policy';
 import { makeChannelState, type ChannelState } from '@/core/types/state';
@@ -20,8 +20,8 @@ const SWITCHED_TEXT = '上一个对话已被归档，我开启了新对话继续
 const UNAVAILABLE_TEXT = '这条我暂时回不了，稍后再问一次吧';
 
 interface Harness {
-  /** 跑到 idle（fetch 队列耗尽）返回 RunResult。 */
-  run(): ReturnType<typeof runPipeline>;
+  /** 跑到 idle（fetch 队列耗尽）返回 RunResult。可覆盖 options（测试边角分支用）。 */
+  run(overrides?: Partial<PipelineOptions>): ReturnType<typeof runPipeline>;
   /** 预填一批行（按序消费）。 */
   feed(rows: ChatDbRow[]): void;
   /** 预置 fetch 抛错（按序消费）。 */
@@ -35,6 +35,8 @@ interface Harness {
   readonly fetchCursors: number[];
   readonly logLines: Array<{ level: string; event: string }>;
   setMaxRowId(n: number): void;
+  /** 一次性注入下一次落盘失败（claim persist 同步抛错 → fatal 分支）。 */
+  failNextSave(): void;
 }
 
 type ChannelStateDraft = import('@/core/types/state').ChannelState;
@@ -43,12 +45,19 @@ function makeHarness(initialMaxRowId = 4): Harness {
   let state: ChannelStateDraft = makeChannelState();
   const port = makeFakeDshPort();
   const sender = makeFakeSender();
+  // 落盘统一走这里：failNextSave 注入的一次性失败对 router/pipeline 都生效
+  let failSave = false;
+  const saveState = (s: ChannelStateDraft) => {
+    if (failSave) {
+      failSave = false;
+      throw new Error('disk full');
+    }
+    state = s;
+  };
   const router = makeSessionRouter({
     port,
     loadState: () => state,
-    saveState: (s) => {
-      state = s;
-    },
+    saveState,
   });
   const policy = makePolicy(['+8613800000000']);
   // 拉取脚本：喂入顺序 = 消费顺序（错误/数据交替可精确编排）
@@ -78,6 +87,9 @@ function makeHarness(initialMaxRowId = 4): Harness {
     setMaxRowId: (n) => {
       maxRowId = n;
     },
+    failNextSave: () => {
+      failSave = true;
+    },
     feed(rows) {
       fetchPlan.push({ kind: 'rows', rows });
     },
@@ -87,7 +99,7 @@ function makeHarness(initialMaxRowId = 4): Harness {
     mutate(fn) {
       state = fn(state);
     },
-    run: () => {
+    run: (overrides: Partial<PipelineOptions> = {}) => {
       // 一次 run = 一次进程生命周期：独立的 abort 信号（idle 停机不污染下一次）
       const controller = new AbortController();
       return runPipeline(
@@ -111,9 +123,7 @@ function makeHarness(initialMaxRowId = 4): Harness {
           sessionSwitchedText: SWITCHED_TEXT,
           replyUnavailableText: UNAVAILABLE_TEXT,
           loadState: () => state,
-          saveState: (s) => {
-            state = s;
-          },
+          saveState,
           log,
         },
         {
@@ -123,6 +133,7 @@ function makeHarness(initialMaxRowId = 4): Harness {
             sleeps.push(ms);
             if (sig?.aborted) throw sig.reason ?? new Error('aborted');
           },
+          ...overrides, // 传 sleep: undefined 可显式切回 runPipeline 内联的默认实现
         },
       );
     },
@@ -496,6 +507,71 @@ describe('pipeline · crash recovery matrix', () => {
     expect(result.processed).toBe(1);
     expect(h.port.askCalls).toHaveLength(0);
     expect(h.state()).toMatchObject({ cursor: 5, seenIds: ['m5'] });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 边角分支补覆盖：fatal / 纯 skipped 批尾落盘 / 内联默认 sleep
+// ---------------------------------------------------------------------------
+
+describe('pipeline · edge coverage', () => {
+  it('returns fatal when saveState throws during claim persist', async () => {
+    const h = makeHarness();
+    // 预置 cursor：跳过首启初始化落盘（那一步的 saveState 在循环 try/catch
+    // 之外，抛错会直接 reject 而非走 fatal 分支）
+    h.mutate((s) => ({ ...s, cursor: 4 }));
+    h.feed([R5()]); // 端口不排脚本：默认回复
+    h.failNextSave(); // claim persist 同步抛错，先于下一轮 fetch 的 idle abort
+
+    const result = await h.run();
+
+    expect(result).toEqual({ reason: 'fatal', processed: 0 });
+    expect(h.state().seenIds).toEqual([]); // 账本未被污染
+    expect(h.logLines).toContainEqual({ level: 'error', event: 'pipeline.fatal' });
+  });
+
+  it('persists the piggybacked cursor at batch tail for an all-skipped batch', async () => {
+    const h = makeHarness(3); // 首启水位 3 < 批内最大 rowid：搭车 cursor 才有推进量
+    h.feed([makeRow({ rowid: 4, guid: 'm4', isFromMe: 1 })]); // from-me：被 normalize 滤掉
+
+    const result = await h.run();
+
+    expect(result).toEqual({ reason: 'aborted', processed: 0 });
+    expect(h.state().cursor).toBe(4); // 批尾落盘把搭车 cursor 带出
+    expect(h.state().seenIds).toEqual([]);
+  });
+
+  it('waits empty batches with the built-in default sleep (no injected sleep)', async () => {
+    const h = makeHarness();
+    h.feed([]); // 空批：本轮无产出 → 内联默认 sleep 真 timer 等待 intervalMs
+    const controller = new AbortController();
+    // 在等待窗口内 abort（5ms < 50ms，定时器到期序确定）：命中默认 sleep 的
+    // abort 监听路径（清 timer + reject）→ catch 转成 aborted 停机。
+    // 注：不能用 harness 的 idle-stop（它在 fetch 时机 abort，此时 sleep
+    // 尚未挂监听，事后监听不会补发 → 循环顶 throw 变 reject 而非 aborted）
+    setTimeout(() => controller.abort(new Error('idle-stop')), 5);
+
+    const result = await h.run({ signal: controller.signal, intervalMs: 50, sleep: undefined });
+
+    expect(result).toEqual({ reason: 'aborted', processed: 0 });
+    expect(h.sleeps).toHaveLength(0); // 假 sleep 完全未介入
+  });
+
+  it('returns aborted when the backoff wait itself is interrupted', async () => {
+    const h = makeHarness();
+    // 两次拉取失败；第二次的退避等待被外部中断 → catch 转 aborted
+    h.feedFetchError(new Error('db locked'));
+    h.feedFetchError(new Error('db locked'));
+    let calls = 0;
+    const result = await h.run({
+      sleep: async () => {
+        calls += 1;
+        if (calls === 2) throw new Error('interrupted mid-backoff');
+      },
+    });
+
+    expect(result).toEqual({ reason: 'aborted', processed: 0 });
+    expect(h.logLines.filter((l) => l.event === 'pipeline.fetch-failed')).toHaveLength(2);
   });
 });
 

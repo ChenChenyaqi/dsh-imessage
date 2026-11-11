@@ -106,11 +106,16 @@ export interface HumanizeDeps {
 export function defaultSleep(ms: number, signal?: AbortSignal): Promise<void> {
   return new Promise((resolve, reject) => {
     if (ms <= 0) return resolve();
+    // 提前 abort：还没定时器可清，直接拒绝（不能走 abort 闭包——
+    // 那里 clearTimeout(timer) 会碰到未初始化的 timer）
+    if (signal?.aborted) {
+      reject(signal.reason ?? new Error('humanized send aborted'));
+      return;
+    }
     const abort = () => {
       clearTimeout(timer);
       reject(signal?.reason ?? new Error('humanized send aborted'));
     };
-    if (signal?.aborted) return abort();
     const timer = setTimeout(() => {
       signal?.removeEventListener('abort', abort);
       resolve();
