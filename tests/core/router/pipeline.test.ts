@@ -51,8 +51,11 @@ function makeHarness(initialMaxRowId = 4): Harness {
     },
   });
   const policy = makePolicy(['+8613800000000']);
-  const fetchQueue: ChatDbRow[][] = [];
-  const fetchErrors: Error[] = [];
+  // 拉取脚本：喂入顺序 = 消费顺序（错误/数据交替可精确编排）
+  const fetchPlan: Array<
+    | { kind: 'rows'; rows: ChatDbRow[] }
+    | { kind: 'error'; err: Error }
+  > = [];
   const sleeps: number[] = [];
   const fetchCursors: number[] = [];
   const logLines: Harness['logLines'] = [];
@@ -76,10 +79,10 @@ function makeHarness(initialMaxRowId = 4): Harness {
       maxRowId = n;
     },
     feed(rows) {
-      fetchQueue.push(rows);
+      fetchPlan.push({ kind: 'rows', rows });
     },
     feedFetchError(err) {
-      fetchErrors.push(err);
+      fetchPlan.push({ kind: 'error', err });
     },
     mutate(fn) {
       state = fn(state);
@@ -91,13 +94,14 @@ function makeHarness(initialMaxRowId = 4): Harness {
         {
           fetchRows: (cursor, _limit) => {
             fetchCursors.push(cursor);
-            // idle 检测只属于拉取：连续空批 = 所有消息处理完（打字延迟
-            // 期间不会拉取，不会误停）
-            if (fetchQueue.length === 0 && fetchErrors.length === 0) {
+            // 脚本耗尽 = 真正 idle（所有消息处理完后的空拉）→ 停机。
+            // 打字延迟期间不会拉取，不会误停。
+            if (fetchPlan.length === 0) {
               controller.abort(new Error('idle-stop'));
             }
-            if (fetchErrors.length > 0) throw fetchErrors.shift()!;
-            return fetchQueue.shift() ?? [];
+            const step = fetchPlan.shift();
+            if (step?.kind === 'error') throw step.err;
+            return step?.kind === 'rows' ? step.rows : [];
           },
           currentMaxRowId: () => maxRowId,
           sender,
@@ -308,6 +312,35 @@ describe('pipeline · bookkeeping', () => {
     expect(h.sleeps[h.sleeps.length - 1]).toBe(10);
     expect(h.logLines.filter((l) => l.event === 'pipeline.fetch-failed')).toHaveLength(2);
   });
+
+  it('terminates with fetch-exhausted after consecutive failures reach the cap', async () => {
+    const h = makeHarness();
+    for (let i = 0; i < 10; i++) h.feedFetchError(new Error('db gone'));
+
+    const result = await h.run();
+
+    expect(result).toEqual({ reason: 'fetch-exhausted', processed: 0 });
+    expect(h.logLines).toContainEqual({ level: 'error', event: 'pipeline.fetch-exhausted' });
+    expect(h.sleeps).toHaveLength(9); // 第 10 次失败直接终止，不再等待
+    // 退避节奏：10 → 20 → 40 → …，第 5 次起夹逼在 60s
+    expect(h.sleeps.slice(0, 5)).toEqual([10, 20, 40, 80, 160]);
+  });
+
+  it('resets the failure streak after a successful fetch', async () => {
+    const h = makeHarness();
+    // 9 连败 → 一批真消息（拉取成功，通道复活清零）→ 再 9 连败：未达上限
+    for (let i = 0; i < 9; i++) h.feedFetchError(new Error('db flaky'));
+    h.feed([R5()]);
+    h.port.queueAsk({ chunks: ['ok'] });
+    for (let i = 0; i < 9; i++) h.feedFetchError(new Error('db flaky'));
+
+    const result = await h.run();
+
+    expect(result).toEqual({ reason: 'aborted', processed: 1 }); // 消息也正常答了
+    expect(h.logLines.filter((l) => l.event === 'pipeline.fetch-exhausted')).toHaveLength(0);
+    // 两段各 9 次 fetch-failed，中间成功一次（共 19 次拉取）
+    expect(h.logLines.filter((l) => l.event === 'pipeline.fetch-failed')).toHaveLength(18);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -381,6 +414,88 @@ describe('pipeline · ask retry budget', () => {
     expect(result.processed).toBe(2); // m5 答 + m6 吞
     expect(h.state().cursor).toBe(6);
     expect(h.state().seenIds).toEqual(['m6', 'm5']);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 崩溃 / 重启恢复专测（M3 验收：不丢、不重——定案后语义为 at-most-once：
+// 不重是硬保证；崩溃窗口内可能吞一条，用户重发即愈）
+// ---------------------------------------------------------------------------
+
+describe('pipeline · crash recovery matrix', () => {
+  it('crash after reply sent: restart never answers twice', async () => {
+    const h = makeHarness();
+    // 生命周期 1：完整回答（reply 已发出，但崩溃发生在 cursor 落盘前）
+    h.feed([R5()]);
+    h.port.queueAsk({ chunks: ['答完了'] });
+    await h.run();
+    expect(h.sender.sent).toHaveLength(1);
+
+    // 人为回退 cursor 模拟「落盘前崩溃」（seen 保留、cursor 停在原地）
+    h.mutate((s) => ({ ...s, cursor: 4 }));
+    h.sender.sent.length = 0;
+    h.port.askCalls.length = 0;
+
+    // 生命周期 2（重启）：重拉 m5 → already-seen → 只补推 cursor
+    h.feed([R5()]);
+    const second = await h.run();
+    expect(second.processed).toBe(1);
+    expect(h.sender.sent).toHaveLength(0); // 不再回复
+    expect(h.port.askCalls).toHaveLength(0); // 不再问
+    expect(h.state().cursor).toBe(5);
+  });
+
+  it('crash mid-reply (partial segments sent): restart does not resume sending', async () => {
+    const h = makeHarness();
+    // 生命周期 1：多段回复只发出第一段后崩溃（humanize 内部异常）
+    h.feed([R5()]);
+    h.port.queueAsk({ chunks: ['第一段\n第二段'] });
+    h.sender.failTextAt(1, new Error('crash mid-segments'));
+    await h.run();
+    // 只有第一段到了手机；第二段发送失败 → 终态吞（at-most-once 的代价：
+    // 部分回复，不补发不重发）
+    expect(h.sender.sent.map((s) => s.text)).toEqual(['第一段']);
+
+    // 重启重拉：already-seen 挡住，不补发不重发
+    h.mutate((s) => ({ ...s, cursor: 4 }));
+    h.sender.sent.length = 0;
+    h.feed([R5()]);
+    await h.run();
+    expect(h.sender.sent).toHaveLength(0);
+  });
+
+  it('crash before batch-tail persist: skipped rows are re-filtered idempotently', async () => {
+    const h = makeHarness();
+    // 生命周期 1：批内只有 skipped 行（搭车推进未落盘即崩溃）
+    h.feed([makeRow({ rowid: 4, guid: 'm4', isFromMe: 1 })]);
+    const first = await h.run();
+    expect(first.processed).toBe(0);
+    // idle 停机前的 batch 尾落盘会带出 cursor=4 —— 用 mutate 模拟崩溃回退
+    h.mutate((s) => ({ ...s, cursor: 3 }));
+
+    // 生命周期 2：重拉 m4（fromMe）再被 normalize 拒，无副作用
+    h.feed([
+      makeRow({ rowid: 4, guid: 'm4', isFromMe: 1 }),
+      R5({ text: '新消息' }),
+    ]);
+    h.port.queueAsk({ chunks: ['回复'] });
+    const second = await h.run();
+    expect(second.processed).toBe(1);
+    expect(h.state().cursor).toBe(5);
+    expect(h.state().seenIds).toEqual(['m5']);
+  });
+
+  it('crash between claim and ask: the message is swallowed exactly once, ledger stays consistent', async () => {
+    const h = makeHarness();
+    // 生命周期 1：claim 已落盘，ask 未发生即崩溃（无 ask 脚本也行——直接断电式）
+    h.mutate((s) => ({ ...s, cursor: 4, seenIds: ['m5'] }));
+
+    // 生命周期 2：重拉 → already-seen 终态补推 → 不问不答（at-most-once 窗口）
+    h.feed([R5()]);
+    const result = await h.run();
+    expect(result.processed).toBe(1);
+    expect(h.port.askCalls).toHaveLength(0);
+    expect(h.state()).toMatchObject({ cursor: 5, seenIds: ['m5'] });
   });
 });
 

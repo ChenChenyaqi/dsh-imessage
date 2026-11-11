@@ -18,6 +18,15 @@
   - 拟人化编排：一行一气泡、代码块不切断、思考窗/打字节奏/抖动/夹逼延迟，
     rng/sleep/abort 可注入
   - dev-only CLI（probe/peek/send/listen）真机验收，见 docs/CHECKLIST-M2.md
+- **M3 · 内核接线（大脑）**：
+  - DshPort 端口契约（createSession/getSessionStatus/ask 流式，SessionId
+    branded 防伪）+ 可编程 fake（故障注入、并发窗口）
+  - session-router：懒验证三态（active/archived/missing）+ 不按名复活 +
+    预绑定事务（孤儿会话无害化）+ per-key 串行锁 + bindHistory 台账
+  - gate：seen 查重优先于白名单 + claim/unmark 纯函数（环形容量）
+  - pipeline：claim 先落盘的 at-most-once 状态机；ask 重试预算（3 连败
+    吞 + 系统告知，不堵塞通道）；send 失败不重试（不重复回复）；
+    权限失效停机；轮询退避；崩溃恢复矩阵四场景测试
 - **M1 · 底座**：数据根 `~/.dsh-imessage/`（env 可覆盖）、号码归一化（E.164 实测校准）、
   白名单策略、消息/通道状态/配置类型、i18n（zh/en）、JSONL 日志（按天滚动 +
   惰性清理）、原子写与损坏自愈 state store

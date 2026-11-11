@@ -69,8 +69,8 @@ src/
 - **会话所有权隔离**：DSH 会话是全局列表、无归属概念，插件自记账：sessions 含 `bindHistory`（该手机号绑定过的全部会话，**append 前判重**——同 id 只记一次、保持首绑顺序；归档/删除记录保留在案）；`/sessions` 只列发起者台账内的**活跃会话**（显示前过滤：已归档、已删除不显示），`/bind` 只允许绑活跃会话，拒绝已归档/已删除目标（默认拒绝，与 D8 同源）；会话命名约定 `imessage <phone>` 仅作可读辅助，不作安全边界；DSH 侧手动建的会话不在任何台账、不可被 bind（SessionId 为不透明 branded string，DSH 允许调用方自带 id，唯一性由生成方保证——去重只需判存在，与格式无关）
 - **懒验证三态**（归档≠删除，DSH 事实：archived-session-gate 冻结模型步骤但会话可查，unarchiveSession API 存在，官方复用逻辑也排除归档）：当前绑定会话为「活跃→正常路由；归档→自动新建+告知（手机端用户无法去 DSH 恢复）；删除→自动新建」；`DshPort` 需提供 `getSessionStatus(id): active|archived|missing`（M4 用 workspaceRegistry.archivedSessionIds 实现）
 - gate：白名单评估 + 幂等（含"失败不吞消息"的 unmark 语义）
-- pipeline：组装单向流；轮询调度、abort、单条消息失败不中断循环
-- **验收**：fake DshPort 的内核集成测试全链路绿；崩溃/重启恢复测试（不丢、不重）
+- pipeline：组装单向流；轮询调度、abort、单条消息失败不中断循环；**ask 重试预算（定案 B+）**：单进程内 3 连败 → 吞 + 系统告知（不堵塞通道），重启清零；**崩溃语义定案：at-most-once（防重复 > 防丢）**——claim 先落盘，崩溃窗口内可能吞一条（用户重发即愈），绝不重复回复；send 失败不重试不重复回复（定案）
+- **验收**：fake DshPort 的内核集成测试全链路绿；崩溃/重启恢复测试（不重为硬保证，不丢在 at-most-once 窗口内让位于防重复）✅ 2026-11 完成，224 测试全绿（DshPort 契约 + fake、session-router、gate、pipeline、崩溃恢复矩阵）
 
 ### M4 · 插件宿主 → **MVP 完成**
 - host/cordis：apply() 生命周期；DshPort 的 apiProxy 适配（session.create/rename/history/ask 流式回复）

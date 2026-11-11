@@ -39,6 +39,9 @@ import type { SessionRouter } from './session-router';
 /** 单条消息 ask 失败的最大尝试次数（首答 + 重试），超过即吞 + 告知（定案 B+）。 */
 export const MAX_ASK_RETRIES = 3;
 
+/** 拉取连续失败上限：达到即终止（退避节奏下约 6 分钟全故障 = 读通道真死）。 */
+export const MAX_FETCH_FAILURES = 10;
+
 // ---------------------------------------------------------------------------
 // 依赖与选项
 // ---------------------------------------------------------------------------
@@ -74,8 +77,8 @@ export interface PipelineOptions {
 }
 
 export interface RunResult {
-  /** 停止原因。 */
-  readonly reason: 'aborted' | 'permission-stopped' | 'fatal';
+  /** 停止原因。fetch-exhausted = 拉取连续失败到上限（读通道死亡，宿主层处理）。 */
+  readonly reason: 'aborted' | 'permission-stopped' | 'fetch-exhausted' | 'fatal';
   /** 完整走完（含吞掉）的消息数。 */
   readonly processed: number;
 }
@@ -124,6 +127,8 @@ export async function runPipeline(
   let processed = 0;
   /** ask 失败计数（内存态：重启清零 = 干预后再给满额机会）。 */
   const retryCounts = new Map<string, number>();
+  /** 拉取连续失败计数（成功一次即清零）。 */
+  let fetchFailStreak = 0;
 
   // cursor=null = 首次启动：定位当前水位，不回放历史（M2 定案）
   const initialCursor = loadState().cursor;
@@ -184,11 +189,19 @@ export async function runPipeline(
     let rows: ChatDbRow[];
     try {
       rows = fetchRows(cursor, batchLimit);
+      fetchFailStreak = 0; // 拉到（哪怕空批）= 通道活着，清零
     } catch (err) {
+      fetchFailStreak += 1;
       log?.error('pipeline.fetch-failed', {
         error: err instanceof Error ? err.message : String(err),
+        streak: fetchFailStreak,
         retryInMs: backoffMs,
       });
+      if (fetchFailStreak >= MAX_FETCH_FAILURES) {
+        // 连续失败到上限：读通道真死（文件被删/权限被收等），不无限耗着
+        log?.error('pipeline.fetch-exhausted', { failures: fetchFailStreak });
+        return { reason: 'fetch-exhausted', processed };
+      }
       try {
         await sleep(backoffMs, signal);
       } catch {
