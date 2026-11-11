@@ -7,9 +7,12 @@
 import type { Context } from '@deepseek-ai/cordis';
 import z from '@deepseek-ai/schemastery';
 
+import { resolvePaths } from '@/core/paths';
 import { PLUGIN_ID } from '@/core/version';
 import { startImessageChannel } from '@/host/channel';
 import type { ChannelEnv } from '@/host/channel';
+import { registerStatusRpc } from '@/host/rpc';
+import type { FetchRegistry } from '@/host/rpc';
 import type { DshPortServices } from '@/host/dsh-port';
 import type {
   HostAgentDefaultModelService,
@@ -54,7 +57,7 @@ export const Config: z<Config> = z.object({
   maxBackoffMs: z.number().step(1).min(1).default(60000),
 });
 
-export function apply(ctx: Context, config: Config): void {
+export function apply(ctx: Context, config: Config, overrides: Partial<ChannelEnv> = {}): void {
   // 宿主服务经 inject 提供；类型合并声明在上方 declare module
   const services: DshPortServices = {
     agents: ctx.agents,
@@ -65,12 +68,14 @@ export function apply(ctx: Context, config: Config): void {
   const env: ChannelEnv = {
     services,
     events: ctx as unknown as ChannelEnv['events'],
+    // 测试/嵌入注入点（cordis 只传前两参）；未注入时走真 macOS IO
+    ...overrides,
   };
   const channel = startImessageChannel(
     {
       // Config schema 层是宽松 string；i18n 层对非法值回退 zh，这里显式收窄类型
       locale: config.locale === 'en' ? 'en' : 'zh',
-      allowlist: config.allowlist,
+      allowlist: config.allowlist ?? [],
       intervalMs: config.intervalMs,
       maxBackoffMs: config.maxBackoffMs,
     },
@@ -79,4 +84,16 @@ export function apply(ctx: Context, config: Config): void {
   // 卸载时等待 pipeline 收尾（at-most-once 语义靠 stop 落盘）；
   // cordis 的 Disposable 允许返回 Promise，会被 await
   ctx.effect(() => () => channel.stop());
+
+  // 最小管理面：POST /api/dsh-imessage/status（只读快照）。
+  // connection 服务缺失时降级为无管理面（不阻断通道运行）
+  const connection = (ctx as unknown as { connection?: { fetch?: FetchRegistry } }).connection;
+  if (connection?.fetch !== undefined) {
+    const disposeRpc = registerStatusRpc(connection.fetch, {
+      status: () => channel.status(),
+      stateFile: (env.paths ?? resolvePaths()).stateFile,
+      allowlist: config.allowlist ?? [],
+    });
+    ctx.effect(() => () => disposeRpc());
+  }
 }
