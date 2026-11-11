@@ -16,6 +16,12 @@
 /** 宿主侧会话 id：plain string（branded 转换在 dsh-port 适配层完成）。 */
 export type HostSessionId = string;
 
+/** 活会话引用（探针实测：agent.session 是 Session 对象，id 在 .id 字段）。 */
+export interface HostSessionObject {
+  readonly id: HostSessionId;
+  readonly [key: string]: unknown;
+}
+
 /** 模型选择（agentOptions；探针：agents.create 必带，无默认兜底）。 */
 export interface HostAgentOptions {
   readonly provider: string;
@@ -117,6 +123,9 @@ export interface HostTextBlock {
 
 export interface HostUserMessage {
   readonly id: string;
+  /** 源码事实：createUserMessage 自动补全 role；持久化校验要求存在（探针实测：
+   *  缺 role 的消息 resume 时报 SessionPersistenceCorruptionError）。 */
+  readonly role: 'user';
   readonly content: ReadonlyArray<HostTextBlock>;
   readonly source: { readonly kind: string; readonly [key: string]: unknown };
 }
@@ -145,7 +154,8 @@ export interface HostCreateAgentInput {
 }
 
 export interface HostAgent {
-  readonly session: HostSessionId;
+  /** 探针实测：是 Session 对象（不是 id 字符串），id 在 .id。 */
+  readonly session: HostSessionObject;
   /** 探针：只有 idle/running 两态，翻转沿各发一次事件。 */
   readonly status: 'idle' | 'running';
   /** 入队一条用户消息并独占一个 turn；无返回值（源码事实：fire-and-forget）。 */
@@ -165,6 +175,9 @@ export interface HostAgentsService {
   create(input: HostCreateAgentInput): Promise<HostAgentHandle>;
   /** 活会话返回句柄；不存在返回 undefined（探针实测）。 */
   get(sessionId: HostSessionId): HostAgentHandle | undefined;
+  /** 冷会话恢复（探针实测：持久存在则恢复同 id 活句柄；不存在抛
+   *  SessionPersistenceNotFoundError —— 适配层判 missing 的依据）。 */
+  resume(input: { readonly resumeSessionId: HostSessionId }): Promise<HostAgentHandle>;
 }
 
 // ---------------------------------------------------------------------------
@@ -203,7 +216,8 @@ export interface HostRenameResult {
 }
 
 export interface HostSessionTitleService {
-  rename(sessionId: HostSessionId, title: string): HostRenameResult;
+  /** 探针实测：首参传 Session 对象（webhook 同款用法）。 */
+  rename(session: HostSessionObject, title: string): HostRenameResult;
 }
 
 // ---------------------------------------------------------------------------

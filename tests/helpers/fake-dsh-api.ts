@@ -76,6 +76,12 @@ export interface FakeDshHost {
   scriptFailure(input: { readonly attempts: number; readonly failure: HostLlmFailure }): void;
   /** 下一次 agents.create 抛错（一次性）。 */
   failNextCreate(error: Error): void;
+  /** 下一次 workspace.attachSession 抛错（一次性，适配层回滚测试用）。 */
+  failNextAttach(error: Error): void;
+  /** 下一次 agents.resume 抛错（一次性，非 NotFound 类错误注入用）。 */
+  failNextResume(error: Error): void;
+  /** 当前某事件的监听器数（验证适配层卸载干净）。 */
+  listenerCount(event: HostEventName): number;
   /** 模型选择（agents.create 未带 agentOptions 时的兜底源）。 */
   setModelSelection(selection: { readonly provider: string; readonly model: string }): void;
   /** 归档集（可变；registry.archivedSessionIds 是同一引用的只读视图）。 */
@@ -83,9 +89,9 @@ export interface FakeDshHost {
   readonly log: FakeHostLogEntry[];
 }
 
-/** 构造 followup 入参消息（与真宿主的 UserMessage 形状一致）。 */
+/** 构造 followup 入参消息（与真宿主的 UserMessage 形状一致，含 role）。 */
 export function userText(text: string): HostUserMessage {
-  return { id: randomUUID(), content: [{ type: 'text', text }], source: { kind: 'user' } };
+  return { id: randomUUID(), role: 'user', content: [{ type: 'text', text }], source: { kind: 'user' } };
 }
 
 // ---------------------------------------------------------------------------
@@ -105,11 +111,15 @@ interface AgentRecord {
 export function makeFakeDshHost(): FakeDshHost {
   const listeners = new Map<string, Set<(...args: unknown[]) => void>>();
   const agents = new Map<HostSessionId, AgentRecord>();
+  /** 模拟持久层：dispose 后会话仍存在（可 resume 复活）。 */
+  const persistedSessions = new Set<HostSessionId>();
   const scripts: Script[] = [];
   const workspaces: HostWorkspace[] = [];
   const archivedSessionIds: HostSessionId[] = [];
   const log: FakeHostLogEntry[] = [];
   let failNext: Error | undefined;
+  let failNextAttach: Error | undefined;
+  let failNextResume: Error | undefined;
   let modelSelection = { provider: 'fake-provider', model: 'fake-model' };
   let eventSeq = 0;
 
@@ -153,7 +163,7 @@ export function makeFakeDshHost(): FakeDshHost {
     });
 
   async function runScript(record: AgentRecord, script: Script, message: HostUserMessage): Promise<void> {
-    const sessionId = record.handle.agent.session;
+    const sessionId = record.handle.agent.session.id;
     const turn = ++record.turn;
     record.status = 'running';
     emit('agent/status', { agent: sessionId, status: 'running' });
@@ -287,7 +297,7 @@ export function makeFakeDshHost(): FakeDshHost {
         turn: 0,
       };
       const agent: HostAgent = {
-        session: sessionId,
+        session: { id: sessionId },
         get status() {
           return record.status;
         },
@@ -313,14 +323,35 @@ export function makeFakeDshHost(): FakeDshHost {
         agent,
         async dispose() {
           agents.delete(sessionId);
+          persistedSessions.add(sessionId);
           log.push({ kind: 'agents.dispose', sessionId });
         },
       };
       agents.set(sessionId, record);
+      persistedSessions.add(sessionId); // 创建即持久化（对齐真宿主：会话日志落盘）
       return record.handle;
     },
     get(sessionId: HostSessionId): HostAgentHandle | undefined {
       return agents.get(sessionId)?.handle;
+    },
+    async resume(input: { resumeSessionId: HostSessionId }): Promise<HostAgentHandle> {
+      log.push({ kind: 'agents.resume', sessionId: input.resumeSessionId });
+      if (failNextResume) {
+        const error = failNextResume;
+        failNextResume = undefined;
+        throw error;
+      }
+      const sessionId = input.resumeSessionId;
+      const existing = agents.get(sessionId);
+      if (existing) return existing.handle; // 已活：幂等返回（探针实测 ok）
+      if (!persistedSessions.has(sessionId)) {
+        // 探针实测：不存在时扌 SessionPersistenceNotFoundError（判 missing 依据）
+        const error = new Error(`session "${sessionId}" not found`) as Error & { name: string };
+        error.name = 'SessionPersistenceNotFoundError';
+        throw error;
+      }
+      // 冷会话复活：重建活句柄，同 id（探针实测 sameSession true）
+      return agentsService.create({ sessionId });
     },
   };
 
@@ -335,6 +366,11 @@ export function makeFakeDshHost(): FakeDshHost {
           return [...sessionIds];
         },
         async attachSession(sessionId) {
+          if (failNextAttach) {
+            const error = failNextAttach;
+            failNextAttach = undefined;
+            throw error;
+          }
           if (!sessionIds.includes(sessionId)) sessionIds.push(sessionId);
           log.push({ kind: 'workspace.attachSession', path: absolutePath, sessionId });
         },
@@ -360,7 +396,7 @@ export function makeFakeDshHost(): FakeDshHost {
   };
 
   const sessionTitle: HostSessionTitleService = {
-    rename(sessionId, title): HostRenameResult {
+    rename(session, title): HostRenameResult {
       const result: HostRenameResult = {
         title,
         messageSeqs: [],
@@ -368,7 +404,7 @@ export function makeFakeDshHost(): FakeDshHost {
         eventSeq: eventSeq++,
         updatedAt: Date.now(),
       };
-      log.push({ kind: 'sessionTitle.rename', sessionId, title });
+      log.push({ kind: 'sessionTitle.rename', sessionId: session.id, title });
       return result;
     },
   };
@@ -387,6 +423,15 @@ export function makeFakeDshHost(): FakeDshHost {
     },
     failNextCreate(error) {
       failNext = error;
+    },
+    failNextAttach(error) {
+      failNextAttach = error;
+    },
+    failNextResume(error) {
+      failNextResume = error;
+    },
+    listenerCount(event) {
+      return listeners.get(event)?.size ?? 0;
     },
     setModelSelection(selection) {
       modelSelection = { ...selection };
