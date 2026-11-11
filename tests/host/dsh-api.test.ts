@@ -40,7 +40,7 @@ describe('fake host · agents service', () => {
       agentOptions: { provider: 'p', model: 'm' },
     });
 
-    expect(String(handle.agent.session)).toBe('s1');
+    expect(handle.agent.session.id).toBe('s1');
     expect(handle.agent.status).toBe('idle');
     expect(host.log.map((c) => c.kind)).toContain('agents.create');
   });
@@ -315,7 +315,7 @@ describe('fake host · workspace & registry', () => {
     // 探针实测返回：{ title, messageSeqs, source, eventSeq, updatedAt }
     const host = makeFakeDshHost();
 
-    const result = host.services.sessionTitle.rename('s1', 'imessage +8613800000000');
+    const result = host.services.sessionTitle.rename({ id: 's1' }, 'imessage +8613800000000');
 
     expect(result.title).toBe('imessage +8613800000000');
     expect(typeof result.eventSeq).toBe('number');

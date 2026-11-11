@@ -13,20 +13,8 @@ import {
   readMaxRowId,
 } from '@/core/imessage/chatdb';
 
-/** 查询涉及的最小 schema（内存库用）。 */
-const SCHEMA_SQL = `
-  CREATE TABLE message (
-    ROWID INTEGER PRIMARY KEY, guid TEXT, text TEXT, attributedBody BLOB,
-    is_from_me INTEGER, handle_id INTEGER, date INTEGER,
-    thread_originator_guid TEXT
-  );
-  CREATE TABLE chat (ROWID INTEGER PRIMARY KEY, guid TEXT, style INTEGER);
-  CREATE TABLE handle (ROWID INTEGER PRIMARY KEY, id TEXT, service TEXT);
-  CREATE TABLE chat_message_join (chat_id INTEGER, message_id INTEGER);
-  CREATE TABLE chat_handle_join (chat_id INTEGER, handle_id INTEGER);
-  CREATE TABLE message_attachment_join (message_id INTEGER, attachment_id INTEGER);
-  CREATE TABLE attachment (ROWID INTEGER PRIMARY KEY, filename TEXT, mime_type TEXT);
-`;
+/** 查询涉及的最小 schema（内存库用；共享自 tests/helpers）。 */
+import { SCHEMA_SQL } from '../../helpers/chatdb-schema';
 
 interface Fixture {
   readonly db: DatabaseSync;
