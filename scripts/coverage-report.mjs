@@ -43,6 +43,9 @@ const KNOWN_SKIP = [
   { file: 'core/router/pipeline.ts', line: 190, why: 'defensive: thrown values are Errors' },
   { file: 'core/router/pipeline.ts', line: 197, why: 'defensive: thrown values are Errors' },
   { file: 'core/router/pipeline.ts', line: 221, why: 'defensive: thrown values are Errors' },
+  { file: 'host/channel.ts', line: 150, why: 'default node IO: real chatDbPath/probe deps' },
+  { file: 'host/channel.ts', line: 175, why: 'default node IO: real openChatDb on machine chat.db' },
+  { file: 'host/index.ts', line: 111, why: 'defensive catch: volatile listener throw is host-bounded' },
 ];
 
 const sections = [];

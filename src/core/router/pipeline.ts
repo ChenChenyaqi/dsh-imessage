@@ -106,9 +106,11 @@ export async function runPipeline(
   options: PipelineOptions = {},
 ): Promise<RunResult> {
   const {
-    fetchRows, sender, port, router, policy, sessionSwitchedText, replyUnavailableText,
+    fetchRows, sender, port, router,
     loadState, saveState, log,
   } = deps;
+  // policy / 文案不解构定格：每次使用时读 deps（通道热更换白名单/语言
+  // 即改 deps 字段，运行中的循环立即生效——见 hot config swap 测试）
   const signal = options.signal;
   const intervalMs = options.intervalMs ?? 2_000;
   const maxBackoffMs = options.maxBackoffMs ?? 60_000;
@@ -154,7 +156,7 @@ export async function runPipeline(
       const routed = await router.route(key);
       if (routed.reason === 'rebind-archived') {
         // 归档换绑告知走系统路径；失败按 pre-ask 处理（重试不再告知）
-        await sender.sendSystem(key, sessionSwitchedText);
+        await sender.sendSystem(key, deps.sessionSwitchedText);
       }
       log?.info('pipeline.ask-start', { guid, key, sessionId: routed.sessionId, chars: text.length });
       const chunks: string[] = [];
@@ -255,7 +257,7 @@ export async function runPipeline(
         const msg = result.message;
         const seenNow = () => loadState().seenIds;
 
-        const verdict = evaluateGate(policy, seenNow(), msg);
+        const verdict = evaluateGate(deps.policy, seenNow(), msg);
         if (!verdict.pass && verdict.reason === 'already-seen') {
           // 终态恢复（上次崩溃在 claim 后/吞后）：cursor 补推进即完成
           log?.info('pipeline.message-skipped', {
@@ -305,7 +307,7 @@ export async function runPipeline(
           retryCounts.delete(msg.guid);
           log?.warn('pipeline.retry-exhausted', { guid: msg.guid, key: msg.conversationKey, attempts: failures });
           try {
-            await sender.sendSystem(msg.conversationKey, replyUnavailableText);
+            await sender.sendSystem(msg.conversationKey, deps.replyUnavailableText);
           } catch (err) {
             if (isPermissionError(err)) {
               log?.error('pipeline.permission-stopped', { guid: msg.guid });

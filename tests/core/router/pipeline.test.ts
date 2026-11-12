@@ -5,6 +5,7 @@ import { SendError } from '@/core/imessage/sender';
 import { runPipeline, type PipelineOptions } from '@/core/router/pipeline';
 import { makeSessionRouter } from '@/core/router/session-router';
 import { makePolicy } from '@/core/types/policy';
+import type { AccessPolicy } from '@/core/types/policy';
 import { makeChannelState, type ChannelState } from '@/core/types/state';
 import { makeFakeDshPort } from '../../helpers/fake-dsh-port';
 import { makeFakeSender } from '../../helpers/fake-sender';
@@ -37,6 +38,10 @@ interface Harness {
   setMaxRowId(n: number): void;
   /** 一次性注入下一次落盘失败（claim persist 同步抛错 → fatal 分支）。 */
   failNextSave(): void;
+  /** 运行中热更换白名单（模拟 UI 改配置，不重启 run）。 */
+  swapPolicy(allowlist: readonly string[]): void;
+  /** 运行中热更换"暂不回复"文案（模拟 UI 改语言）。 */
+  swapUnavailableText(text: string): void;
 }
 
 type ChannelStateDraft = import('@/core/types/state').ChannelState;
@@ -59,7 +64,6 @@ function makeHarness(initialMaxRowId = 4): Harness {
     loadState: () => state,
     saveState,
   });
-  const policy = makePolicy(['+8613800000000']);
   // 拉取脚本：喂入顺序 = 消费顺序（错误/数据交替可精确编排）
   const fetchPlan: Array<
     | { kind: 'rows'; rows: ChatDbRow[] }
@@ -70,6 +74,7 @@ function makeHarness(initialMaxRowId = 4): Harness {
   const logLines: Harness['logLines'] = [];
   let maxRowId = initialMaxRowId;
 
+
   // 记录字段：链路日志的断言依赖 guid/key/chars/耗时等
   const log: Logger = {
     debug: () => {},
@@ -77,6 +82,34 @@ function makeHarness(initialMaxRowId = 4): Harness {
     warn: (event, fields) => logLines.push({ level: 'warn', event, ...(fields === undefined ? {} : { fields }) }),
     error: (event, fields) => logLines.push({ level: 'error', event, ...(fields === undefined ? {} : { fields }) }),
   };
+
+  // deps 是跨 run 共享的可变对象：policy / 文案字段可被热更换，
+  // pipeline 必须"用时读"（见 hot config swap 测试组）
+  const deps = {
+    fetchRows: (cursor: number, _limit: number) => {
+      fetchCursors.push(cursor);
+      // 脚本耗尽 = 真正 idle（所有消息处理完后的空拉）→ 停机。
+      // 打字延迟期间不会拉取，不会误停。
+      if (fetchPlan.length === 0) {
+        controllerAbort();
+      }
+      const step = fetchPlan.shift();
+      if (step?.kind === 'error') throw step.err;
+      return step?.kind === 'rows' ? step.rows : [];
+    },
+    currentMaxRowId: () => maxRowId,
+    sender,
+    port,
+    router,
+    policy: makePolicy(['+8613800000000']),
+    sessionSwitchedText: SWITCHED_TEXT,
+    replyUnavailableText: UNAVAILABLE_TEXT,
+    loadState: () => state,
+    saveState,
+    log,
+  } as Parameters<typeof runPipeline>[0];
+  // fetchRows 的停机信号由 run 每次注入（独立的 abort 信号 = 独立进程生命周期）
+  let controllerAbort: () => void = () => {};
 
   return {
     port,
@@ -91,6 +124,12 @@ function makeHarness(initialMaxRowId = 4): Harness {
     failNextSave: () => {
       failSave = true;
     },
+    swapPolicy: (allowlist) => {
+      (deps as { policy: AccessPolicy }).policy = makePolicy(allowlist);
+    },
+    swapUnavailableText: (text) => {
+      (deps as { replyUnavailableText: string }).replyUnavailableText = text;
+    },
     feed(rows) {
       fetchPlan.push({ kind: 'rows', rows });
     },
@@ -103,30 +142,9 @@ function makeHarness(initialMaxRowId = 4): Harness {
     run: (overrides: Partial<PipelineOptions> = {}) => {
       // 一次 run = 一次进程生命周期：独立的 abort 信号（idle 停机不污染下一次）
       const controller = new AbortController();
+      controllerAbort = () => controller.abort(new Error('idle-stop'));
       return runPipeline(
-        {
-          fetchRows: (cursor, _limit) => {
-            fetchCursors.push(cursor);
-            // 脚本耗尽 = 真正 idle（所有消息处理完后的空拉）→ 停机。
-            // 打字延迟期间不会拉取，不会误停。
-            if (fetchPlan.length === 0) {
-              controller.abort(new Error('idle-stop'));
-            }
-            const step = fetchPlan.shift();
-            if (step?.kind === 'error') throw step.err;
-            return step?.kind === 'rows' ? step.rows : [];
-          },
-          currentMaxRowId: () => maxRowId,
-          sender,
-          port,
-          router,
-          policy,
-          sessionSwitchedText: SWITCHED_TEXT,
-          replyUnavailableText: UNAVAILABLE_TEXT,
-          loadState: () => state,
-          saveState,
-          log,
-        },
+        deps,
         {
           signal: controller.signal,
           intervalMs: 10,
@@ -287,6 +305,64 @@ describe('pipeline · trace logs', () => {
     const dump = JSON.stringify(h.logLines);
     expect(dump).not.toContain('银行卡');
     expect(dump).not.toContain('收到');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 热更换配置（UI 改配置 → 通道不重启，立即生效）
+// ---------------------------------------------------------------------------
+
+describe('pipeline · hot config swap', () => {
+  const STRANGER = {
+    handleText: '+8613900000000',
+    chatGuid: 'iMessage;-;+8613900000000',
+  };
+
+  it('enforces a swapped allowlist mid-run without restart', async () => {
+    const h = makeHarness();
+    // 第一批：老白名单内的号 → 放行；ask 完成时热换白名单（只剩陌生号）
+    h.feed([R5({ text: 'first' })]);
+    // 第二批：陌生号（已换入）→ 放行；老号（被换出）→ 拒绝
+    h.feed([
+      makeRow({ rowid: 6, guid: 'm6', text: 'stranger', ...STRANGER }),
+      makeRow({ rowid: 7, guid: 'm7', text: 'old number' }),
+    ]);
+    h.port.queueAsk({ chunks: ['a1'], onEnd: () => h.swapPolicy(['+8613900000000']) });
+    h.port.queueAsk({ chunks: ['a2'] }); // m6 的回复
+
+    await h.run();
+
+    // 同一个 run 内：m5、m6 都回了，m7 被新白名单拒之门外
+    expect(h.sender.sent.filter((x) => x.kind === 'text')).toHaveLength(2);
+    expect(fieldsOf(h, 'pipeline.message-skipped')).toMatchObject({
+      guid: 'm7',
+      reason: 'not-allowlisted',
+    });
+  });
+
+  it('uses the swapped reply-unavailable text when retries exhaust', async () => {
+    const h = makeHarness();
+    const NEW_TEXT = 'swapped unavailable text';
+    // 同一条消息重拉三次（重试预算 3）：第一次失败时就热换文案
+    h.feed([R5()]);
+    h.feed([R5()]);
+    h.feed([R5()]);
+    for (let i = 0; i < 3; i += 1) {
+      h.port.queueAsk({
+        chunks: [],
+        failWith: new Error('stream broke'),
+        onEnd: i === 0 ? () => h.swapUnavailableText(NEW_TEXT) : undefined,
+      });
+    }
+
+    await h.run();
+
+    // 重试耗尽的系统告知必须用热换后的文案（证明"用时读"而非启动定格）
+    expect(h.sender.sent).toContainEqual({
+      kind: 'system',
+      address: '+8613800000000',
+      text: NEW_TEXT,
+    });
   });
 });
 

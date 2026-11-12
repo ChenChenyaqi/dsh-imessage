@@ -44,12 +44,30 @@ export interface Config {
   readonly maxBackoffMs?: number;
 }
 
-export const Config: z<Config> = z.object({
-  locale: z.string().default('zh'),
-  allowlist: z.array(z.string()).default([]),
+// volatile（DSH settings 事实）：设置页只渲染 volatile 字段；改动经
+// loader 提交进运行引用并广播 loader/volatile-update，插件不重挂载
+// 注：不加显式泛型注解——volatile 字段的 schema 输出类型自带引用语义，
+// 与手写 Config 接口不再同形；运行时两种形态由 readVolatile 统一处理
+export const Config = z.object({
+  locale: z.string().default('zh').volatile(),
+  allowlist: z.array(z.string()).default([]).volatile(),
   intervalMs: z.number().step(1).min(1).default(2000),
   maxBackoffMs: z.number().step(1).min(1).default(60000),
 });
+
+// loader 广播的 volatile 更新事件（宿主有 loader 才会发；类型增广一次即可）
+declare module '@deepseek-ai/cordis' {
+  interface Events {
+    'loader/volatile-update'(paths: readonly (readonly string[])[]): void;
+  }
+}
+
+/** volatile 活引用（loader 语义）→ 当前值；非引用环境（测试/嵌入）原样返回。 */
+function readVolatile<T>(value: T | { get(): T }): T {
+  return typeof (value as { get?: unknown } | undefined)?.get === 'function'
+    ? (value as unknown as { get(): T }).get()
+    : (value as T);
+}
 
 export function apply(ctx: Context, config: Config, overrides: Partial<ChannelEnv> = {}): void {
   // 宿主服务经 inject 提供；类型合并声明在上方 declare module
@@ -68,8 +86,9 @@ export function apply(ctx: Context, config: Config, overrides: Partial<ChannelEn
   const channel = startImessageChannel(
     {
       // Config schema 层是宽松 string；i18n 层对非法值回退 zh，这里显式收窄类型
-      locale: config.locale === 'en' ? 'en' : 'zh',
-      allowlist: config.allowlist ?? [],
+      // volatile 字段在真 loader 下是活引用（readVolatile 取当前值）
+      locale: readVolatile(config.locale) === 'en' ? 'en' : 'zh',
+      allowlist: readVolatile(config.allowlist) ?? [],
       intervalMs: config.intervalMs,
       maxBackoffMs: config.maxBackoffMs,
     },
@@ -78,6 +97,21 @@ export function apply(ctx: Context, config: Config, overrides: Partial<ChannelEn
   // 卸载时等待 pipeline 收尾（at-most-once 语义靠 stop 落盘）；
   // cordis 的 Disposable 允许返回 Promise，会被 await
   ctx.effect(() => () => channel.stop());
+
+  // UI 改 volatile 配置 → loader 提交新引用并广播本事件 → 通道热更
+  // （引用是活的：这里 .get() 即最新值；监听器抛错由宿主兜底，不影响已提交配置）
+  if (typeof ctx.on === 'function') {
+    ctx.on('loader/volatile-update', () => {
+      try {
+        channel.updateConfig({
+          locale: readVolatile(config.locale) === 'en' ? 'en' : 'zh',
+          allowlist: readVolatile(config.allowlist) ?? [],
+        });
+      } catch (err) {
+        console.error('[dsh-imessage] volatile update failed:', err);
+      }
+    });
+  }
 
   // 最小管理面：POST /api/dsh-imessage/status（只读快照）。
   // cordis 探针事实：ctx 上访问未 inject 的服务属性会抛错，且静态 inject
@@ -92,7 +126,7 @@ export function apply(ctx: Context, config: Config, overrides: Partial<ChannelEn
       const disposeRpc = registerStatusRpc(fetchRegistry, {
         status: () => channel.status(),
         stateFile: (env.paths ?? resolvePaths()).stateFile,
-        allowlist: config.allowlist ?? [],
+        allowlist: () => channel.currentAllowlist(),
       });
       ctx.effect(() => () => disposeRpc());
     });

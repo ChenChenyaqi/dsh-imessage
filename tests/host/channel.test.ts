@@ -48,6 +48,15 @@ const greenProbe: ProbeDeps = {
 
 interface EnvOptions {
   probe?: ProbeDeps;
+  /** 覆盖通道配置（默认白名单 + zh + 1ms，测试要跑得快）。 */
+  config?: {
+    locale?: 'zh' | 'en';
+    allowlist?: readonly string[];
+    intervalMs?: number;
+    maxBackoffMs?: number;
+  };
+  /** 覆盖 openDb（模拟 db 打不开的 start-failed 路径；可抛非 Error）。 */
+  openDbThrows?: unknown;
 }
 
 function makeEnv(options: EnvOptions = {}) {
@@ -68,7 +77,7 @@ function makeEnv(options: EnvOptions = {}) {
 
   const start = () =>
     startImessageChannel(
-      { allowlist: ['+8613800000000'], locale: 'zh', intervalMs: 1 },
+      options.config ?? { allowlist: ['+8613800000000'], locale: 'zh', intervalMs: 1 },
       {
         services: host.services,
         events: host,
@@ -76,6 +85,7 @@ function makeEnv(options: EnvOptions = {}) {
         probe: options.probe ?? greenProbe,
         sender: sender as ImessageSender,
         openDb: () => {
+          if (options.openDbThrows) throw options.openDbThrows;
           openDbCalls.count += 1;
           db = new DatabaseSync(':memory:');
           db.exec(SCHEMA_SQL);
@@ -313,6 +323,131 @@ describe('channel · lifecycle logs', () => {
 });
 
 // ---------------------------------------------------------------------------
+// 热更新配置（UI 改 volatile 字段 → loader/volatile-update → updateConfig）
+// ---------------------------------------------------------------------------
+
+describe('channel · hot config update', () => {
+  it('swaps the allowlist at runtime and logs the change', async () => {
+    const env = makeEnv();
+    const channel = env.start();
+    await waitFor(() => env.logLines.some((l) => l.event === 'channel.started'), 2000);
+
+    // UI 把白名单换成陌生号（原生号被换出）
+    channel.updateConfig({ allowlist: ['+8613900000000'] });
+
+    const updated = env.logLines.find((l) => l.event === 'channel.config-updated');
+    expect(updated).toMatchObject({
+      level: 'info',
+      locale: 'zh', // 未改的字段原值透传
+      allowlistCount: 1,
+      changed: ['allowlist'],
+    });
+
+    // RPC 活读源：句柄直接给出当前白名单
+    expect(channel.currentAllowlist()).toEqual(['+8613900000000']);
+
+    // 陌生号消息被放行并回复（热更换立即生效，通道未重启）
+    env.host.scriptReply({ text: 'hello stranger' });
+    env.insertAfterStart('hi', 'HOT-1', '+8613900000000');
+    await waitFor(() => env.sender.sent.length > 0, 12_000);
+    expect(env.sender.sent[0]).toMatchObject({ kind: 'text', address: '+8613900000000' });
+    await channel.stop();
+  }, 15_000);
+
+  it('reports both fields when locale and allowlist change together', async () => {
+    const env = makeEnv();
+    const channel = env.start();
+    await waitFor(() => env.logLines.some((l) => l.event === 'channel.started'), 2000);
+
+    channel.updateConfig({ locale: 'en', allowlist: ['+8613800000000', '+8613900000000'] });
+
+    const updated = env.logLines.find((l) => l.event === 'channel.config-updated');
+    expect(updated).toMatchObject({
+      locale: 'en',
+      allowlistCount: 2,
+      changed: ['locale', 'allowlist'],
+    });
+    await channel.stop();
+  });
+
+  it('applies a locale-only patch without touching the allowlist', async () => {
+    const env = makeEnv();
+    const channel = env.start();
+    await waitFor(() => env.logLines.some((l) => l.event === 'channel.started'), 2000);
+
+    channel.updateConfig({ locale: 'en' });
+
+    const updated = env.logLines.find((l) => l.event === 'channel.config-updated');
+    expect(updated).toMatchObject({ locale: 'en', allowlistCount: 1, changed: ['locale'] });
+    // 白名单原样保留
+    expect(channel.currentAllowlist()).toEqual(['+8613800000000']);
+    await channel.stop();
+  });
+
+  it('runs with a minimal config and reports the fallbacks in the started log', async () => {
+    const env = makeEnv({ config: {} });
+    const channel = env.start();
+    await waitFor(() => env.logLines.some((l) => l.event === 'channel.started'), 2000);
+
+    // 缺省兜底：locale zh、白名单空、调优项 null（未配置）
+    expect(env.logLines.find((l) => l.event === 'channel.started')).toMatchObject({
+      locale: 'zh',
+      allowlist: [],
+      allowlistCount: 0,
+      intervalMs: null,
+      maxBackoffMs: null,
+    });
+    expect(channel.currentAllowlist()).toEqual([]);
+    await channel.stop();
+  });
+
+  it('records a non-Error openDb failure as a string', () => {
+    // 非 Error 抛出（如原生层字符串）也要归因到 start-failed
+    const env = makeEnv({ openDbThrows: 'db locked' });
+    const channel = env.start();
+
+    expect(channel.status()).toEqual({ phase: 'start-failed', error: 'db locked' });
+  });
+
+  it('fills zh and an empty allowlist for a minimal config', () => {
+    // 极简配置（宿主 schema 填默认前的裸形态）：不炸、默认生效
+    const root = mkdtempSync(join(tmpdir(), 'ch-min-'));
+    tempRoots.push(root);
+    const channel = startImessageChannel({}, {
+      services: makeFakeDshHost().services,
+      events: makeFakeDshHost(),
+      paths: {
+        root,
+        stateFile: join(root, 'state.json'),
+        logDir: join(root, 'logs'),
+        conversationsDir: join(root, 'conversations'),
+      },
+      probe: { ...greenProbe, statFile: () => false },
+    });
+    expect(channel.status().phase).toBe('probe-failed');
+    expect(channel.currentAllowlist()).toEqual([]);
+  });
+
+  it('is a harmless no-op on a start-failed channel', () => {
+    const env = makeEnv({ openDbThrows: new Error('locked') });
+    const channel = env.start();
+
+    expect(channel.status().phase).toBe('start-failed');
+    expect(() => channel.updateConfig({ allowlist: ['+8613900000000'] })).not.toThrow();
+    expect(channel.currentAllowlist()).toEqual(['+8613900000000']);
+  });
+
+  it('is a harmless no-op on a probe-failed channel', () => {
+    const env = makeEnv({ probe: { ...greenProbe, statFile: () => false } });
+    const channel = env.start();
+
+    expect(() => channel.updateConfig({ allowlist: ['+8613900000000'] })).not.toThrow();
+    // 探测失败也要能答"当前配置"（RPC 活读依赖它）
+    expect(channel.currentAllowlist()).toEqual(['+8613900000000']);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // 端到端
 // ---------------------------------------------------------------------------
 
@@ -381,10 +516,18 @@ describe('plugin manifest · Config schema', () => {
     );
   });
 
-  it('fills defaults for an empty config', () => {
-    // schemastery 的 ~standard 类型声明含 Promise（实为同步），断言处收窄
+  it('fills defaults for an empty config (volatile fields as live refs)', () => {
+    // schemastery 的 ~standard 类型声明含 Promise（实为同步），断言处收窄。
+    // volatile 字段（loader 语义）以活引用输出：宿主端 .get() 取当前值
     const result = Config['~standard'].validate({}) as { value: Record<string, unknown> };
-    expect(result.value).toMatchObject({ locale: 'zh', allowlist: [], intervalMs: 2000 });
+    const value = result.value as {
+      locale: { get(): string };
+      allowlist: { get(): string[] };
+      intervalMs: number;
+    };
+    expect(value.locale.get()).toBe('zh');
+    expect(value.allowlist.get()).toEqual([]);
+    expect(value.intervalMs).toBe(2000);
   });
 
   it('rejects a non-positive interval', () => {

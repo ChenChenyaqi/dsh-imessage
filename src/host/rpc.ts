@@ -36,8 +36,8 @@ export interface StatusRpcDeps {
   readonly status: () => ChannelStatus;
   /** state 文件路径（读 cursor / 会话计数）。 */
   readonly stateFile: string;
-  /** 白名单（归一化后的键；计数展示）。 */
-  readonly allowlist: readonly string[];
+  /** 白名单活读源（通道热更后计数跟着变）。 */
+  readonly allowlist: () => readonly string[];
 }
 
 // ---------------------------------------------------------------------------
@@ -62,7 +62,7 @@ function buildPayload(deps: StatusRpcDeps): StatusPayload {
   const state = loadState(deps.stateFile);
   const payload: StatusPayload = {
     phase: status.phase,
-    allowlistCount: deps.allowlist.length,
+    allowlistCount: deps.allowlist().length,
     cursor: state.cursor,
     sessionCount: Object.keys(state.sessions).length,
   };

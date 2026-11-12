@@ -71,9 +71,19 @@ export type ChannelStatus =
   | { readonly phase: 'running' }
   | { readonly phase: 'stopped'; readonly reason: string };
 
+/** 热更新载荷（UI 改 volatile 字段 → loader/volatile-update）。 */
+export interface HotConfigPatch {
+  readonly locale?: Locale;
+  readonly allowlist?: readonly string[];
+}
+
 export interface ChannelHandle {
   /** 当前通道状态（RPC 查询面，Step 4 消费）。 */
   status(): ChannelStatus;
+  /** 热更新配置：不重启通道立即生效（白名单/语言），并留痕日志。 */
+  updateConfig(patch: HotConfigPatch): void;
+  /** 当前生效白名单（RPC 活读；probe-failed 通道也可答）。 */
+  currentAllowlist(): readonly string[];
   /** 停止：abort → 等收尾 → 关库。幂等。 */
   stop(): Promise<void>;
 }
@@ -86,10 +96,55 @@ export function startImessageChannel(
   config: ChannelConfig,
   env: ChannelEnv,
 ): ChannelHandle {
+  // 生效配置的活容器：updateConfig 改它 + deps 字段（运行中的循环
+  // 用时读 deps，立即生效）；probe-failed 也能答"当前配置"
+  const live: {
+    locale: Locale;
+    allowlist: readonly string[];
+    intervalMs?: number;
+    maxBackoffMs?: number;
+  } = {
+    locale: config.locale ?? 'zh',
+    allowlist: config.allowlist ?? [],
+    intervalMs: config.intervalMs,
+    maxBackoffMs: config.maxBackoffMs,
+  };
+
+  // 可变 deps：运行中通道才登记（probe-failed 保持 undefined，热更新仅记录）
+  // 运行中通道才登记（probe-failed 保持 undefined，热更新仅记录）
+  const mutableDeps: {
+    current: {
+      policy: { allowlist: readonly string[] };
+      sessionSwitchedText: string;
+      replyUnavailableText: string;
+    } | undefined;
+  } = { current: undefined };
+
   const paths = env.paths ?? resolvePaths();
   const log: Logger = makeLogger({
     sink: env.logSink ?? makeFileSink(paths.logDir),
   });
+
+/** 热更新落点：改 live 容器 + 运行中的 deps 字段，打一行留痕日志。 */
+  function applyHotConfig(patch: HotConfigPatch): void {
+    const changed: string[] = [];
+    if (patch.locale !== undefined && patch.locale !== live.locale) changed.push('locale');
+    if (patch.allowlist !== undefined) changed.push('allowlist');
+    if (patch.locale !== undefined) live.locale = patch.locale;
+    if (patch.allowlist !== undefined) live.allowlist = patch.allowlist;
+    // 运行中的 pipeline 用时读 deps：直接改字段即热生效
+    if (mutableDeps.current !== undefined) {
+      const t = makeT(live.locale);
+      if (patch.allowlist !== undefined) mutableDeps.current.policy = { allowlist: patch.allowlist };
+      mutableDeps.current.sessionSwitchedText = t('session.switched');
+      mutableDeps.current.replyUnavailableText = t('reply.unavailable');
+    }
+    log.info('channel.config-updated', {
+      locale: live.locale,
+      allowlistCount: live.allowlist.length,
+      changed,
+    });
+  }
 
   // -- 权限门卫：两项探测任一失败都不启动（半瘫防线） --------------
   const probe = probeEnvironment(env.chatDbPath ?? defaultChatDbPath(), env.probe ?? nodeProbeDeps);
@@ -100,6 +155,8 @@ export function startImessageChannel(
     });
     return {
       status: () => ({ phase: 'probe-failed', probe }),
+      updateConfig: (patch) => applyHotConfig(patch),
+      currentAllowlist: () => live.allowlist,
       stop: async () => undefined,
     };
   }
@@ -121,13 +178,15 @@ export function startImessageChannel(
     log.error('channel.start-failed', { error: detail });
     return {
       status: () => ({ phase: 'start-failed', error: detail }),
+      updateConfig: (patch) => applyHotConfig(patch),
+      currentAllowlist: () => live.allowlist,
       stop: async () => undefined,
     };
   }
 
   // -- 全组件组装 -------------------------------------------------------
   const sender = env.sender ?? makeSender();
-  const t = makeT(config.locale ?? 'zh');
+  const t = makeT(live.locale);
   const stateFile = paths.stateFile;
   const controller = new AbortController();
 
@@ -143,31 +202,31 @@ export function startImessageChannel(
     log,
   });
 
-  const run = runPipeline(
-    {
-      fetchRows: (cursor, limit) => fetchBatch(db, cursor, limit),
-      currentMaxRowId: () => readMaxRowId(db) ?? 0,
-      sender,
-      port,
-      router,
-      policy: { allowlist: config.allowlist ?? [] },
-      sessionSwitchedText: t('session.switched'),
-      replyUnavailableText: t('reply.unavailable'),
-      loadState: () => loadState(stateFile),
-      saveState: (state) => saveState(stateFile, state),
-      log,
-    },
-    {
-      signal: controller.signal,
-      intervalMs: config.intervalMs,
-      maxBackoffMs: config.maxBackoffMs,
-      sleep: env.sleep,
-    },
-  );
+  const deps = {
+    fetchRows: (cursor: number, limit: number) => fetchBatch(db, cursor, limit),
+    currentMaxRowId: () => readMaxRowId(db) ?? 0,
+    sender,
+    port,
+    router,
+    policy: { allowlist: config.allowlist ?? [] },
+    sessionSwitchedText: t('session.switched'),
+    replyUnavailableText: t('reply.unavailable'),
+    loadState: () => loadState(stateFile),
+    saveState: (state: Parameters<typeof saveState>[1]) => saveState(stateFile, state),
+    log,
+  };
+  mutableDeps.current = deps;
+  const run = runPipeline(deps, {
+    signal: controller.signal,
+    intervalMs: config.intervalMs,
+    maxBackoffMs: config.maxBackoffMs,
+    sleep: env.sleep,
+  });
 
   // 启动成功：一行交代生效配置 + 起始水位（排查"配置到底生效没"）
   log.info('channel.started', {
     locale: config.locale ?? 'zh',
+    allowlist: config.allowlist ?? [],
     allowlistCount: (config.allowlist ?? []).length,
     intervalMs: config.intervalMs ?? null,
     maxBackoffMs: config.maxBackoffMs ?? null,
@@ -216,6 +275,8 @@ export function startImessageChannel(
 
   return {
     status: () => status,
+    updateConfig: (patch) => applyHotConfig(patch),
+    currentAllowlist: () => live.allowlist,
     stop,
   };
 }

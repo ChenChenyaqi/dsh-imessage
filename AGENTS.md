@@ -83,6 +83,9 @@
 - 生命周期：`channel.probe-ok` → `channel.started` → `channel.stop-requested` →
   `channel.stopped`（含 `processed`）；异常为 `probe-failed` / `start-failed` /
   `stopped-unexpectedly` / `fatal`
+- 配置热更：`channel.config-updated`（`locale` / `allowlist` / `changed`）——
+  UI 改 volatile 配置后立刻可见；重启后与 `channel.started` 的 `allowlist`
+  对得上即证明持久化闭环
 - 单条消息链路：`pipeline.fetch`（仅非空批）→ `message-claimed` → `ask-start` →
   `ask-done` → `reply-sent` → `message-done`；旁支 `message-skipped`、
   `send-failed`、`message-failed`、`retry-exhausted`、`permission-stopped`

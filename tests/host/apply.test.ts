@@ -34,6 +34,11 @@ type RouteHandler = (request: {
 }) => Promise<Response>;
 
 function makeCtx(options: { connectionFetch?: unknown } = {}) {
+  const listeners = new Map<string, Array<(payload?: unknown) => void>>();
+  /** 触发一个已注册事件（模拟 loader 提交 volatile 更新）。 */
+  const emit = (event: string, payload?: unknown) => {
+    for (const cb of listeners.get(event) ?? []) cb(payload);
+  };
   const host = makeFakeDshHost();
   const disposers: Array<() => unknown> = [];
   const routes: string[] = [];
@@ -59,6 +64,15 @@ function makeCtx(options: { connectionFetch?: unknown } = {}) {
     sessionTitle: host.services.sessionTitle,
     effect(fn: () => () => unknown) {
       disposers.push(fn());
+    },
+    on(event: string, cb: (payload?: unknown) => void) {
+      const list = listeners.get(event) ?? [];
+      list.push(cb);
+      listeners.set(event, list);
+      return () => {
+        const rest = (listeners.get(event) ?? []).filter((x) => x !== cb);
+        listeners.set(event, rest);
+      };
     },
     // 模拟 cordis 动态注入：服务挂上（getter → value）再回调——
     // 真 cordis 保证回调触发时属性可访问
@@ -104,8 +118,71 @@ function makeCtx(options: { connectionFetch?: unknown } = {}) {
     };
     return envelope.result;
   };
-  return { ctx, disposers, routes, callStatus };
+  return { ctx, disposers, routes, callStatus, emit };
 }
+
+// ---------------------------------------------------------------------------
+// volatile 配置（设置页可见可热改）
+// ---------------------------------------------------------------------------
+
+describe('apply · volatile config', () => {
+  it('marks locale and allowlist as volatile in the Config schema', async () => {
+    // 设置页只渲染 volatile 字段（settings/src/schema.ts volatileForm）
+    const { Config } = await import('@/host/index');
+    const dict = (Config as unknown as {
+      dict: Record<string, { meta?: { volatile?: boolean } }>;
+    }).dict;
+    expect(dict.locale?.meta?.volatile).toBe(true);
+    expect(dict.allowlist?.meta?.volatile).toBe(true);
+    // 调优字段保持普通（改动走重挂载，不进设置页）
+    expect(dict.intervalMs?.meta?.volatile).toBeUndefined();
+    expect(dict.maxBackoffMs?.meta?.volatile).toBeUndefined();
+  });
+
+  it('resolves volatile references from the loader at startup', async () => {
+    // 真 loader 语义：volatile 字段是活引用（.get() 取当前值），不是死值
+    const { ctx, disposers, callStatus } = makeCtx();
+    const ref = { get: () => ['+8613800000000', '+8613900000000'] };
+    apply(ctx as never, { locale: 'zh', allowlist: ref as never }, { probe: failingProbe });
+
+    const result = await callStatus();
+    expect(result.value).toMatchObject({ allowlistCount: 2 });
+    for (const dispose of disposers) void dispose();
+  });
+
+  it('resolves an en locale reference and a missing allowlist', async () => {
+    const { ctx, disposers, callStatus } = makeCtx();
+    const locale = { get: () => 'en' };
+    apply(ctx as never, { locale: locale as never }, { probe: failingProbe });
+
+    const result = await callStatus();
+    expect(result.value).toMatchObject({ allowlistCount: 0 }); // 缺省 → []
+    for (const dispose of disposers) void dispose();
+  });
+
+  it('skips the volatile listener when the host has no ctx.on', () => {
+    // 极简宿主防御：没有 on API 就不注册（不抛错）
+    const { ctx, disposers } = makeCtx();
+    delete (ctx as { on?: unknown }).on;
+    expect(() => apply(ctx as never, { locale: 'zh', allowlist: [] }, { probe: failingProbe })).not.toThrow();
+    for (const dispose of disposers) void dispose();
+  });
+
+  it('applies a volatile update when the host emits loader/volatile-update', async () => {
+    const { ctx, disposers, callStatus, emit } = makeCtx();
+    let allowlist = ['+8613800000000'];
+    const ref = { get: () => allowlist };
+    apply(ctx as never, { locale: 'zh', allowlist: ref as never }, { probe: failingProbe });
+    expect((await callStatus()).value).toMatchObject({ allowlistCount: 1 });
+
+    // UI 改配置 → loader 提交新引用 → 广播事件 → 通道热更
+    allowlist = ['+8613800000000', '+8613900000000'];
+    emit('loader/volatile-update', [['allowlist']]);
+
+    expect((await callStatus()).value).toMatchObject({ allowlistCount: 2 });
+    for (const dispose of disposers) void dispose();
+  });
+});
 
 describe('apply · wiring', () => {
   it('registers the status route and an effect disposer', () => {

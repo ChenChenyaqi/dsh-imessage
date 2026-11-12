@@ -99,7 +99,7 @@ function makeDeps(overrides: { status?: ChannelStatus } = {}) {
       // 对齐 ChannelHandle.status()：是 getter 函数而非值
       status: () => overrides.status ?? { phase: 'running' },
       stateFile,
-      allowlist: ['+8613800000000', '+8613900000000'],
+      allowlist: () => ['+8613800000000', '+8613900000000'],
     },
   };
 }
@@ -323,4 +323,24 @@ describe('rpc · request guards', () => {  it('rejects non-POST methods with 405
 
     expect(response.status).toBe(400);
   });
+
+  it('reads the allowlist count lazily (hot config update reflected)', async () => {
+    let allowlist = ['+8613800000000'];
+    const { deps } = makeDeps();
+    deps.allowlist = () => allowlist;
+    const reg = makeRegistry();
+    registerStatusRpc(reg.registry as never, deps);
+
+    const count = async (): Promise<number> => {
+      const response = await reg.call('POST', JSON_HEADERS, OK_BODY);
+      const body = (await response.json()) as { result: { value: { allowlistCount: number } } };
+      return body.result.value.allowlistCount;
+    };
+    expect(await count()).toBe(1);
+
+    // 通道热更白名单后，status 不需重挂载即反映新计数
+    allowlist = ['+8613800000000', '+8613900000000'];
+    expect(await count()).toBe(2);
+  });
 });
+
