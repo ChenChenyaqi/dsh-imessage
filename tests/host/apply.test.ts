@@ -33,12 +33,26 @@ type RouteHandler = (request: {
   json(): Promise<unknown>;
 }) => Promise<Response>;
 
-function makeCtx() {
+function makeCtx(options: { connectionFetch?: unknown } = {}) {
   const host = makeFakeDshHost();
   const disposers: Array<() => unknown> = [];
   const routes: string[] = [];
   const handlers = new Map<string, RouteHandler>();
-  const ctx = {
+  const fetchRegistry = {
+    register(definition: { path: string; fetch: RouteHandler }) {
+      routes.push(definition.path);
+      handlers.set(definition.path, definition.fetch);
+      return () => {
+        routes.splice(routes.indexOf(definition.path), 1);
+        handlers.delete(definition.path);
+      };
+    },
+  };
+  const connectionService =
+    'connectionFetch' in options && options.connectionFetch === undefined
+      ? { fetch: undefined }
+      : { fetch: fetchRegistry };
+  const ctx: Record<string, unknown> = {
     agents: host.services.agents,
     workspaceRegistry: host.services.workspaceRegistry,
     agentDefaultModel: host.services.agentDefaultModel,
@@ -46,24 +60,29 @@ function makeCtx() {
     effect(fn: () => () => unknown) {
       disposers.push(fn());
     },
-    // 模拟 cordis 动态注入：服务已挂载时立即同步回调（真宿主服务就绪
-    // 后异步回调；对本测同步即等价）
+    // 模拟 cordis 动态注入：服务挂上（getter → value）再回调——
+    // 真 cordis 保证回调触发时属性可访问
     inject(names: readonly string[], callback: () => unknown) {
-      if (names.includes('connection')) void callback();
-    },
-    connection: {
-      fetch: {
-        register(definition: { path: string; fetch: RouteHandler }) {
-          routes.push(definition.path);
-          handlers.set(definition.path, definition.fetch);
-          return () => {
-            routes.splice(routes.indexOf(definition.path), 1);
-            handlers.delete(definition.path);
-          };
-        },
-      },
+      if (!names.includes('connection')) return;
+      Object.defineProperty(ctx, 'connection', {
+        value: connectionService,
+        enumerable: true,
+        configurable: true,
+      });
+      void callback();
     },
   };
+  // 真 cordis 语义（实测事实）：访问未 inject 声明的服务属性直接抛错，
+  // 不是返回 undefined——顶层直接访问 ctx.connection 的写法在单测里
+  // 必须同样炸掉（防止"单测全绿、真机必炸"的回归）
+  Object.defineProperty(ctx, 'connection', {
+    get() {
+      throw new Error('cannot get property "connection" without inject');
+    },
+    enumerable: true,
+    configurable: true,
+  });
+
   /** 调一次已挂载的 status 路由（触发惰性 status 回调）。 */
   const callStatus = async (): Promise<{ ok: boolean; value: Record<string, unknown> }> => {
     const handler = handlers.get('/api/dsh-imessage/status');
@@ -98,11 +117,11 @@ describe('apply · wiring', () => {
     expect(disposers).toHaveLength(2); // channel.stop + rpc unregister
   });
 
-  it('skips the route when the host exposes no connection service', () => {
-    const { ctx, disposers, routes } = makeCtx();
-    const withoutConnection = { ...ctx, connection: undefined };
+  it('skips the route when the connection service has no fetch registry', () => {
+    // 服务挂载了但 fetch registry 缺失：动态注入回调内部降级返回
+    const { ctx, disposers, routes } = makeCtx({ connectionFetch: undefined });
 
-    apply(withoutConnection as never, { locale: 'zh', allowlist: [] }, { probe: failingProbe });
+    apply(ctx as never, { locale: 'zh', allowlist: [] }, { probe: failingProbe });
 
     expect(routes).toEqual([]);
     expect(disposers).toHaveLength(1); // 仅 channel.stop
