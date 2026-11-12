@@ -45,7 +45,7 @@ ConfigField → form.set() → settings.mutate RPC → configEditor.edit()
 **结论（全部实测通过）**：
 - 单包双面可行，file: link 也能被扫描 → **不需要拆包**（成本下调）
 - closure-factory 产物格式验证通过（`scripts/lib/client-bundle.mjs`）
-- 菜单已真实出现（`docs/probe-step0-settings-menu.png`）
+- 菜单已真实出现（无障碍树断言，验证方式见下）
 - **踩坑已固化**：必须 `slots.inject('settings.section', () => register(...))`，
   直接 register 会让整个客户端 boot 失败
 

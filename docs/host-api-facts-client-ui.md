@@ -83,8 +83,12 @@ ctx.effect(() => ctx.slots.inject('settings.section', () => ctx.slots.register(
 )));
 ```
 
-修复后实测：设置弹窗左侧出现「iMessage」，点开渲染出我们的组件
-（见 `docs/probe-step0-settings-menu.png`）。
+修复后实测：设置弹窗左侧出现「iMessage」（排在 Agent presets 之后），
+点开渲染出我们的占位组件（DOM 里 `[data-dsh-imessage-probe]` 命中，
+文案 `iMessage settings coming soon`）。
+
+验证方式不依赖截图：用 chrome-devtools 的 `take_snapshot` 读无障碍树
+即可断言菜单项与渲染结果——文本可 diff、可留档，不必把二进制提交进仓库。
 
 ## 5. 配置读写：`ctx.configForms.get(entryId)`
 

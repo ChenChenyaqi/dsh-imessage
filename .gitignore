@@ -3,3 +3,6 @@ lib/
 *.log
 .DS_Store
 coverage/
+
+# 真机验证截图属一次性证据（用无障碍树快照代替入库）
+docs/*.png
