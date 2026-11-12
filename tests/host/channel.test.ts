@@ -288,7 +288,12 @@ describe('channel · lifecycle logs', () => {
       expect.objectContaining({ level: 'info', event: 'channel.stop-requested' }),
     );
     expect(env.logLines).toContainEqual(
-      expect.objectContaining({ level: 'info', event: 'channel.stopped', reason: 'aborted' }),
+      expect.objectContaining({
+        level: 'info',
+        event: 'channel.stopped',
+        reason: 'aborted',
+        processed: 0, // 无消息往来时的收尾统计（停机日志必须有计数）
+      }),
     );
   });
 

@@ -204,7 +204,9 @@ export async function runPipeline(
 
   while (true) {
     const abortErr = aborted();
-    if (abortErr) throw abortErr;
+    // 正常停机（卸载/宿主关闭/权限停机后的收尾）：返回结果而非 reject，
+    // 这样 processed 计数能进日志，且与"sleep 期间中止"走同一路径
+    if (abortErr) return { reason: 'aborted', processed };
 
     const batchStart = cursor;
     let persisted = true; // 内存 cursor 是否已落盘（skipped 搭车后置 false）

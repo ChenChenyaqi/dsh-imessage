@@ -23,6 +23,8 @@ export interface AskScript {
   readonly failWith?: Error;
   /** true = 检查 signal.aborted（默认 true）。 */
   readonly checkAbort?: boolean;
+  /** 全部 chunk 产出后回调（测试用：在"刚处理完一条"的时机制造中止）。 */
+  readonly onEnd?: () => void;
 }
 
 export interface FakeDshPort extends DshPort {
@@ -100,6 +102,7 @@ export function makeFakeDshPort(): FakeDshPort {
           }
           yield chunk;
         }
+        script.onEnd?.();
         if (script.failWith) throw script.failWith;
       })();
     },

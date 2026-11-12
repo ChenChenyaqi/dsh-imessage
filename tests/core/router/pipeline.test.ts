@@ -247,6 +247,19 @@ describe('pipeline · trace logs', () => {
     expect(fieldsOf(h, 'pipeline.message-skipped')).toMatchObject({ reason: 'already-seen' });
   });
 
+  it('returns the processed count when shutdown lands between batches', async () => {
+    // 真机场景：第一条处理完、正在发送时用户退出 → 下一轮循环顶部才发现中止。
+    // 这必须作为"正常停机"返回（带 processed），不是 reject。
+    const h = makeHarness();
+    const controller = new AbortController();
+    h.feed([R5()]);
+    h.port.queueAsk({ chunks: ['好'], onEnd: () => controller.abort(new Error('shutdown')) });
+
+    const result = await h.run({ signal: controller.signal });
+
+    expect(result).toEqual({ reason: 'aborted', processed: 1 });
+  });
+
   it('reports firstDeltaMs as null when the reply stream yields nothing', async () => {
     const h = makeHarness();
     h.feed([R5()]);
