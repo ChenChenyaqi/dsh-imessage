@@ -46,6 +46,14 @@
 - core 层不含真 IO（数据库 / osascript / 文件系统全部依赖注入，
   CI/Linux 可跑）；真 IO 实现只出现在组装层与 dev CLI。
 
+## 真机探针纪律
+
+- 真机探针（`scripts/probe/`）创建的 workspace / session 会写进 DSH
+  **全局持久层**（`~/.dsh/storages/workspace.json`、`~/.dsh/sessions/`），
+  跨 profile 可见、随宿主重启出现在侧栏——**探针结束必须注销**
+  （`workspaceRegistry.delete`，成功与失败路径都要），不只清 /tmp 目录。
+- 探针用临时 id 前缀（如 `imessage-probe-`）便于事后排查残留。
+
 ## 协作
 
 - 设计遇到分叉：列出选项、各自取舍与倾向，由维护者拍板，不擅自定案。

@@ -35,6 +35,11 @@ function shape(value, depth = 0) {
   return t;
 }
 
+// 本轮探针建的 workspace 注册（成功/失败两条路径结束时都注销；
+// 实测教训 2026-11-11：注册记录写进 ~/.dsh/storages/workspace.json 等
+// 全局持久层，跨 profile 可见，不清理会随宿主重启污染 DSH 侧栏）
+const createdWorkspaces = [];
+
 async function run(ctx, result) {
   // -- 1. 服务存在性 -------------------------------------------------------
   const services = [
@@ -64,6 +69,7 @@ async function run(ctx, result) {
   mkdirSync(wsDir, { recursive: true }); // realpath 校验要求目录已存在
   const ws = await ctx.workspaceRegistry.create(wsDir);
   result.workspaceCreate = shape(ws, 1);
+  createdWorkspaces.push(ws); // 结束时统一注销（防 DSH 侧栏残留）
   result.workspaceMethods = Object.getOwnPropertyNames(Object.getPrototypeOf(ws)).filter((m) => m !== 'constructor');
 
   // -- 4. agents.create + attach + title -----------------------------------
@@ -153,6 +159,16 @@ async function run(ctx, result) {
   } catch (e) { result.coldResumeGhost = err(e); }
 
   result.createdIds = createdIds;
+
+  // -- 11. 收尾清理：注销本轮建的 workspace 注册 -------------------------
+  // （sessions 日志文件按 DSH 设计保留在磁盘，但表记录删除后侧栏不再显示）
+  result.cleanup = [];
+  for (const ws of createdWorkspaces) {
+    try {
+      const removed = await ctx.workspaceRegistry.delete(ws.id);
+      result.cleanup.push({ id: ws?.id, removed });
+    } catch (e) { result.cleanup.push({ id: ws?.id, error: err(e) }); }
+  }
 }
 
 function err(e) {
@@ -231,8 +247,11 @@ export function apply(ctx) {
       finish('ok');
       process.exit(0);
     })
-    .catch((e) => {
+    .catch(async (e) => {
       clearTimeout(kill);
+      for (const ws of createdWorkspaces) {
+        try { await ctx.workspaceRegistry.delete(ws.id); } catch { /* 尽力而为 */ }
+      }
       finish('failed', err(e));
       process.exit(1);
     });
