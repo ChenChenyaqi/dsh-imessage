@@ -53,6 +53,11 @@
   跨 profile 可见、随宿主重启出现在侧栏——**探针结束必须注销**
   （`workspaceRegistry.delete`，成功与失败路径都要），不只清 /tmp 目录。
 - 探针用临时 id 前缀（如 `imessage-probe-`）便于事后排查残留。
+- **不要手改 DSH 宿主的持久化存储**（`~/.dsh/storages/*.json`）：
+  内部结构是宿主私有契约（实测：workspace 在 `tables.workspaces` 与
+  `global.workspaceIds` 双处关联，只删一处会导致宿主一致性异常、
+  侧栏工作区/会话整体丢失）。残留清理走官方途径：运行中的 UI 手动
+ 删除，或 `workspaceRegistry.delete()`——探针自清理已覆盖后者。
 
 ## 协作
 
