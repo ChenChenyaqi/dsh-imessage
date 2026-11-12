@@ -59,6 +59,36 @@
   侧栏工作区/会话整体丢失）。残留清理走官方途径：运行中的 UI 手动
  删除，或 `workspaceRegistry.delete()`——探针自清理已覆盖后者。
 
+## 日志与排查
+
+日志位置：`~/.dsh-imessage/logs/imessage-YYYYMMDD.jsonl`（按天滚动，保留 7 天，
+一行一个 JSON：`ts` / `level` / `event` + 字段）。**成功路径也打点**——每条消息
+一条链路，用于定位"卡在哪一步"。正文类内容（消息文本、AI 回复）**永不入日志**，
+只记 `chars` 字数。
+
+排查从"链路断在哪"入手，而不是先猜代码：
+
+| 现象 | 先看哪一行 |
+|---|---|
+| 发消息毫无反应 | 有没有 `pipeline.fetch`？没有 = 没拉到（chat.db / 探测） |
+| 拉了但不回 | `pipeline.message-skipped` 的 `reason`（`not-allowlisted` / `already-seen`） |
+| AI 慢 | `pipeline.ask-done` 的 `firstDeltaMs` / `totalMs` |
+| 回复发不出去 | 有 `reply-sent` 吗？没有但见 `send-failed` = AppleScript / 权限 |
+| 插件没启动 | 有 `channel.started` 吗？没有看 `channel.probe-failed` 的 `disk`/`automation` |
+| 启动配置没生效 | `channel.started` 的 `allowlistCount` / `intervalMs` / `cursor` |
+| 退出时丢消息 | `channel.stop-requested` 紧跟某条 `send-failed … aborted`（定案：不重发） |
+
+事件清单（`src/` 内 `log.*` 唯一来源）：
+
+- 生命周期：`channel.probe-ok` → `channel.started` → `channel.stop-requested` →
+  `channel.stopped`（含 `processed`）；异常为 `probe-failed` / `start-failed` /
+  `stopped-unexpectedly` / `fatal`
+- 单条消息链路：`pipeline.fetch`（仅非空批）→ `message-claimed` → `ask-start` →
+  `ask-done` → `reply-sent` → `message-done`；旁支 `message-skipped`、
+  `send-failed`、`message-failed`、`retry-exhausted`、`permission-stopped`
+- 会话：`router.session-created`、`router.orphan-session`
+- 空批不打点（否则 2 秒一条心跳刷爆日志）；新增事件请遵守此原则
+
 ## 协作
 
 - 设计遇到分叉：列出选项、各自取舍与倾向，由维护者拍板，不擅自定案。
