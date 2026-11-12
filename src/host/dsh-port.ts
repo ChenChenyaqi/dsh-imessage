@@ -16,8 +16,8 @@ import { mkdir as fsMkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { asSessionId } from '@/core/types/dsh';
 import type { AskInput, AskStream, DshPort, SessionId, SessionStatus } from '@/core/types/dsh';
+import type { HostAgent, HostMessageId, HostSessionId } from '@/host/dsh-api';
 import type {
-  HostAgentHandle,
   HostAgentsService,
   HostAgentDefaultModelService,
   HostEventPayloads,
@@ -88,13 +88,13 @@ export function makeDshPort(deps: DshPortDeps): DshPort {
     // 会话 id 生成权归 port（M3 定案）；前缀对齐 webhook 惯例便于排查
     const sessionId = `imessage-${randomUUID()}`;
     const handle = await services.agents.create({
-      sessionId,
+      sessionId: sessionId as HostSessionId,
       meta: { cwd: absolute },
       // 探针事实：create 必带 agentOptions，无默认兜底
       agentOptions: services.agentDefaultModel.currentSelection(),
     });
     try {
-      await workspace.attachSession(sessionId);
+      await workspace.attachSession(sessionId as HostSessionId);
       // 探针事实：rename 收 Session 对象（不是 id 字符串）
       services.sessionTitle.rename(handle.agent.session, input.name);
     } catch (error) {
@@ -109,11 +109,12 @@ export function makeDshPort(deps: DshPortDeps): DshPort {
   async function getSessionStatus(sessionId: SessionId): Promise<SessionStatus> {
     const id: string = sessionId;
     // 归档集优先（源码事实：归档与活动状态独立，活着的归档会话也算 archived）
-    if (services.workspaceRegistry.archivedSessionIds.includes(id)) return 'archived';
-    if (services.agents.get(id) !== undefined) return 'active';
+    const hostId = id as HostSessionId;
+    if (services.workspaceRegistry.archivedSessionIds.includes(hostId)) return 'archived';
+    if (services.agents.get(hostId) !== undefined) return 'active';
     try {
       // 冷会话：resume 试探（探针事实：持久存在则复活同 id 活句柄）
-      await services.agents.resume({ resumeSessionId: id });
+      await services.agents.resume({ resumeSessionId: hostId });
       return 'active';
     } catch (error) {
       // 探针事实：不存在时 name === 'SessionPersistenceNotFoundError'
@@ -125,10 +126,15 @@ export function makeDshPort(deps: DshPortDeps): DshPort {
     }
   }
 
-  async function acquireAgent(id: string): Promise<HostAgentHandle> {
-    const live = services.agents.get(id);
-    if (live) return live;
-    return services.agents.resume({ resumeSessionId: id });
+  async function acquireAgent(id: string): Promise<HostAgent> {
+    const hostId = id as HostSessionId;
+    const live = services.agents.get(hostId);
+    // 官方类型事实：get 返回的 Agent 与 handle.agent 是同一对象，
+    // 运行时带完整增强面（followup/cancel/whenIdle，探针证实），
+    // 类型只承诺判活面，故此处收窄
+    if (live) return live as unknown as HostAgent;
+    const handle = await services.agents.resume({ resumeSessionId: hostId });
+    return handle.agent;
   }
 
   /**
@@ -139,8 +145,7 @@ export function makeDshPort(deps: DshPortDeps): DshPort {
     const id: string = input.sessionId;
     const signal = input.signal;
     return (async function* () {
-      const handle = await acquireAgent(id);
-      const agent = handle.agent;
+      const agent = await acquireAgent(id);
 
       type Item = { kind: 'delta'; text: string } | { kind: 'turn-end'; reason: unknown };
       const queue: Item[] = [];
@@ -180,7 +185,7 @@ export function makeDshPort(deps: DshPortDeps): DshPort {
       try {
         // 入队一条独占 turn 的用户消息（fire-and-forget，源码事实）
         agent.followup({
-          id: randomUUID(),
+          id: randomUUID() as HostMessageId,
           role: 'user',
           content: [{ type: 'text', text: input.prompt }],
           source: { kind: 'user' },

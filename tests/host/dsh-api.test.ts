@@ -12,6 +12,7 @@
 // 子集（inbox/turn/stream/assistant-message/turn-end），不追求协议复读。
 
 import { describe, expect, it } from 'vitest';
+import { asHostSessionId } from '@/host/dsh-api';
 import type { HostEventName } from '@/host/dsh-api';
 import { makeFakeDshHost, userText } from '../helpers/fake-dsh-api';
 
@@ -36,7 +37,7 @@ describe('fake host · agents service', () => {
     const host = makeFakeDshHost();
 
     const handle = await host.services.agents.create({
-      sessionId: 's1',
+      sessionId: asHostSessionId('s1'),
       agentOptions: { provider: 'p', model: 'm' },
     });
 
@@ -48,23 +49,24 @@ describe('fake host · agents service', () => {
   it('throws already-exists when creating a live session id again', async () => {
     // 探针实测：进程内面对已存在的活会话，create 是硬错误而非复用
     const host = makeFakeDshHost();
-    await host.services.agents.create({ sessionId: 's1', agentOptions: { provider: 'p', model: 'm' } });
+    await host.services.agents.create({ sessionId: asHostSessionId('s1'), agentOptions: { provider: 'p', model: 'm' } });
 
     await expect(
-      host.services.agents.create({ sessionId: 's1' }),
+      host.services.agents.create({ sessionId: asHostSessionId('s1') }),
     ).rejects.toThrow(/already exists/u);
   });
 
   it('returns the live handle from get() and undefined for unknown ids', async () => {
     const host = makeFakeDshHost();
     const created = await host.services.agents.create({
-      sessionId: 's1',
+      sessionId: asHostSessionId('s1'),
       agentOptions: { provider: 'p', model: 'm' },
     });
 
-    const live = host.services.agents.get('s1');
-    expect(live?.agent).toBe(created.agent);
-    expect(host.services.agents.get('nope')).toBeUndefined();
+    const live = host.services.agents.get(asHostSessionId('s1'));
+    // 官方类型事实：get 只承诺裸 Agent（判活面），断言 id 即可
+    expect(live?.id).toBe(created.agent.session.id);
+    expect(host.services.agents.get(asHostSessionId('nope'))).toBeUndefined();
   });
 
   it('can fail the next create for fault injection', async () => {
@@ -72,11 +74,11 @@ describe('fake host · agents service', () => {
     host.failNextCreate(new Error('boom'));
 
     await expect(
-      host.services.agents.create({ sessionId: 's1', agentOptions: { provider: 'p', model: 'm' } }),
+      host.services.agents.create({ sessionId: asHostSessionId('s1'), agentOptions: { provider: 'p', model: 'm' } }),
     ).rejects.toThrow('boom');
     // 一次性：第二次恢复正常
     await expect(
-      host.services.agents.create({ sessionId: 's1', agentOptions: { provider: 'p', model: 'm' } }),
+      host.services.agents.create({ sessionId: asHostSessionId('s1'), agentOptions: { provider: 'p', model: 'm' } }),
     ).resolves.toBeTruthy();
   });
 });
@@ -91,7 +93,7 @@ describe('fake host · conversation scripting', () => {
     const [frames] = collector<{ frame: { type: string; chunk?: { type?: string; text?: string } } }>(host, 'agent/assistant-stream');
 
     const handle = await host.services.agents.create({
-      sessionId: 's1',
+      sessionId: asHostSessionId('s1'),
       agentOptions: { provider: 'p', model: 'm' },
     });
     handle.agent.followup(userText('hi'));
@@ -118,7 +120,7 @@ describe('fake host · conversation scripting', () => {
     const [frames, disposeF] = collector<{ frame: { chunk?: { text?: string; type?: string } } }>(host, 'agent/assistant-stream');
 
     const handle = await host.services.agents.create({
-      sessionId: 's1',
+      sessionId: asHostSessionId('s1'),
       agentOptions: { provider: 'p', model: 'm' },
     });
     handle.agent.followup(userText('hi'));
@@ -141,7 +143,7 @@ describe('fake host · conversation scripting', () => {
     }>(host, 'session/event');
 
     const handle = await host.services.agents.create({
-      sessionId: 's1',
+      sessionId: asHostSessionId('s1'),
       agentOptions: { provider: 'p', model: 'm' },
     });
     handle.agent.followup(userText('hi'));
@@ -156,7 +158,7 @@ describe('fake host · conversation scripting', () => {
     const host = makeFakeDshHost();
     host.scriptReply({ text: 'ok' });
     const handle = await host.services.agents.create({
-      sessionId: 's1',
+      sessionId: asHostSessionId('s1'),
       agentOptions: { provider: 'p', model: 'm' },
     });
     const statuses: string[] = [];
@@ -172,7 +174,7 @@ describe('fake host · conversation scripting', () => {
   it('resolves whenIdle immediately for an idle agent', async () => {
     const host = makeFakeDshHost();
     const handle = await host.services.agents.create({
-      sessionId: 's1',
+      sessionId: asHostSessionId('s1'),
       agentOptions: { provider: 'p', model: 'm' },
     });
     await expect(handle.agent.whenIdle()).resolves.toBeUndefined();
@@ -186,7 +188,7 @@ describe('fake host · conversation scripting', () => {
     const [events, disposeE] = collector<{ type: string; data?: { message?: { content?: Array<{ text?: string }> } } }>(host, 'session/event');
 
     const handle = await host.services.agents.create({
-      sessionId: 's1',
+      sessionId: asHostSessionId('s1'),
       agentOptions: { provider: 'p', model: 'm' },
     });
     handle.agent.followup(userText('q1'));
@@ -216,7 +218,7 @@ describe('fake host · failure paths', () => {
     const [agentErrors, disposeA] = collector<{ error: { name?: string; message?: string; code?: string } }>(host, 'agent/error');
 
     const handle = await host.services.agents.create({
-      sessionId: 's1',
+      sessionId: asHostSessionId('s1'),
       agentOptions: { provider: 'p', model: 'm' },
     });
     handle.agent.followup(userText('hi'));
@@ -257,7 +259,7 @@ describe('fake host · failure paths', () => {
     const [events, disposeE] = collector<{ type: string; data?: { reason?: { kind?: string } } }>(host, 'session/event');
 
     const handle = await host.services.agents.create({
-      sessionId: 's1',
+      sessionId: asHostSessionId('s1'),
       agentOptions: { provider: 'p', model: 'm' },
     });
     handle.agent.followup(userText('hi'));
@@ -285,20 +287,20 @@ describe('fake host · workspace & registry', () => {
     expect(ws.path).toBe('/tmp/ws-a');
     expect(ws.sessionIds).toEqual([]);
 
-    await ws.attachSession('s1');
+    await ws.attachSession(asHostSessionId('s1'));
     expect(ws.sessionIds).toEqual(['s1']);
 
-    await ws.detachSession('s1');
+    await ws.detachSession(asHostSessionId('s1'));
     expect(ws.sessionIds).toEqual([]);
   });
 
   it('exposes a mutable archivedSessionIds array shared with the registry', async () => {
     // 探针实测：archivedSessionIds 可直读（数组），includes 判归档
     const host = makeFakeDshHost();
-    host.archivedSessionIds.push('old-session');
+    host.archivedSessionIds.push(asHostSessionId('old-session'));
 
-    expect(host.services.workspaceRegistry.archivedSessionIds.includes('old-session')).toBe(true);
-    expect(host.services.workspaceRegistry.archivedSessionIds.includes('s1')).toBe(false);
+    expect(host.services.workspaceRegistry.archivedSessionIds.includes(asHostSessionId('old-session'))).toBe(true);
+    expect(host.services.workspaceRegistry.archivedSessionIds.includes(asHostSessionId('s1'))).toBe(false);
   });
 
   it('reports model selection from setModelSelection', () => {
@@ -315,7 +317,7 @@ describe('fake host · workspace & registry', () => {
     // 探针实测返回：{ title, messageSeqs, source, eventSeq, updatedAt }
     const host = makeFakeDshHost();
 
-    const result = host.services.sessionTitle.rename({ id: 's1' }, 'imessage +8613800000000');
+    const result = host.services.sessionTitle.rename({ id: asHostSessionId('s1') } as never, 'imessage +8613800000000');
 
     expect(result.title).toBe('imessage +8613800000000');
     expect(typeof result.eventSeq).toBe('number');

@@ -11,11 +11,14 @@
 // - 失败尝试不带真实退避延迟（delayMs 仅是事件字段值）。
 
 import { randomUUID } from 'node:crypto';
+import { asHostMessageId, asHostSessionId } from '@/host/dsh-api';
 import type {
   HostAgent,
   HostAgentCancelCause,
   HostAgentHandle,
   HostAgentsService,
+  HostBareAgent,
+  HostSessionObject,
   HostAgentDefaultModelService,
   HostAssistantStreamFrame,
   HostCreateAgentInput,
@@ -60,6 +63,8 @@ export interface FakeHostLogEntry {
 }
 
 export interface FakeDshHost {
+  /** 释放一个活会话（测试模拟宿主重启：活句柄消失、持久层仍在）。 */
+  disposeAgent(sessionId: string): Promise<void>;
   readonly services: {
     readonly agents: HostAgentsService;
     readonly workspaceRegistry: HostWorkspaceRegistry;
@@ -91,7 +96,12 @@ export interface FakeDshHost {
 
 /** 构造 followup 入参消息（与真宿主的 UserMessage 形状一致，含 role）。 */
 export function userText(text: string): HostUserMessage {
-  return { id: randomUUID(), role: 'user', content: [{ type: 'text', text }], source: { kind: 'user' } };
+  return {
+    id: asHostMessageId(randomUUID()),
+    role: 'user',
+    content: [{ type: 'text', text }],
+    source: { kind: 'user' },
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -296,14 +306,20 @@ export function makeFakeDshHost(): FakeDshHost {
         status: 'idle',
         turn: 0,
       };
-      const agent: HostAgent = {
-        session: { id: sessionId },
+      const fakeSession = { id: sessionId } as unknown as HostSessionObject;
+      // 真宿主事实：get 返回的对象即增强 Agent 本体（= handle.agent），
+      // 官方类型只承诺 {id}；fake 同样在本体上直接挂 id
+      const agent: HostAgent & { id: HostSessionId } = {
+        id: sessionId,
+        session: fakeSession,
         get status() {
           return record.status;
         },
         followup(message: HostUserMessage): void {
           const script = scripts.shift() ?? { kind: 'reply', text: '', chunkPauseMs: 0 };
-          log.push({ kind: 'agent.followup', sessionId, text: message.content[0]?.text ?? '' });
+          const first = message.content[0];
+          const text = first !== undefined && 'text' in first ? first.text : '';
+          log.push({ kind: 'agent.followup', sessionId, text });
           record.run = runScript(record, script, message).finally(() => {
             record.run = undefined;
           });
@@ -331,8 +347,9 @@ export function makeFakeDshHost(): FakeDshHost {
       persistedSessions.add(sessionId); // 创建即持久化（对齐真宿主：会话日志落盘）
       return record.handle;
     },
-    get(sessionId: HostSessionId): HostAgentHandle | undefined {
-      return agents.get(sessionId)?.handle;
+    get(sessionId: HostSessionId): HostBareAgent | undefined {
+      // 对齐官方类型事实：返回增强 Agent 本体（类型收窄为判活面）
+      return agents.get(sessionId)?.handle.agent as unknown as HostBareAgent;
     },
     async resume(input: { resumeSessionId: HostSessionId }): Promise<HostAgentHandle> {
       log.push({ kind: 'agents.resume', sessionId: input.resumeSessionId });
@@ -400,7 +417,7 @@ export function makeFakeDshHost(): FakeDshHost {
       const result: HostRenameResult = {
         title,
         messageSeqs: [],
-        source: 'user',
+        source: { kind: 'user' },
         eventSeq: eventSeq++,
         updatedAt: Date.now(),
       };
@@ -412,8 +429,12 @@ export function makeFakeDshHost(): FakeDshHost {
   return {
     services: { agents: agentsService, workspaceRegistry, agentDefaultModel, sessionTitle },
     on,
+    async disposeAgent(sessionId: string) {
+      const record = agents.get(asHostSessionId(sessionId));
+      if (record) await record.handle.dispose();
+    },
     emitSessionEvent(type, data) {
-      sessionEvent(type, data, '(manual)');
+      sessionEvent(type, data, asHostSessionId('(manual)'));
     },
     scriptReply(input) {
       scripts.push({ kind: 'reply', text: input.text, chunkPauseMs: input.chunkPauseMs ?? 0 });

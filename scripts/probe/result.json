@@ -1,0 +1,1406 @@
+{
+ "startedAt": "2026-11-11T14:26:24.087Z",
+ "services": {
+  "agents": {
+   "keys": [
+    "ctx",
+    "name",
+    "turnBoundaryProjectionHandle",
+    "store",
+    "factory",
+    "initiators",
+    "initiatorRuns",
+    "initiatorState",
+    "activeInitiatorRuns",
+    "initiatorDrain",
+    "initiatorDisposal"
+   ],
+   "ctx": {
+    "keys": [
+     "fiber"
+    ],
+    "fiber": {
+     "keys": [
+      "parent",
+      "inject",
+      "runtime",
+      "uid",
+      "ctx",
+      "config",
+      "state",
+      "dispose",
+      "committed",
+      "provisions",
+      "inertia",
+      "_hooks",
+      "_disposables",
+      "context",
+      "_error",
+      "_revision",
+      "_configRevision",
+      "_effectiveConfig",
+      "_runner",
+      "_store",
+      "_release",
+      "entry"
+     ]
+    }
+   },
+   "name": {
+    "s": 6
+   },
+   "turnBoundaryProjectionHandle": {
+    "keys": [
+     "dispose",
+     "stateOf",
+     "readerFor"
+    ],
+    "dispose": {
+     "fn": "dispose"
+    },
+    "stateOf": {
+     "fn": "stateOf"
+    },
+    "readerFor": {
+     "fn": "readerFor"
+    }
+   },
+   "store": {
+    "keys": []
+   },
+   "factory": {
+    "keys": [
+     "target"
+    ],
+    "target": {
+     "keys": [
+      "ctx",
+      "name",
+      "config",
+      "ownership",
+      "runtime",
+      "modelProjectionHandle",
+      "inboxProjectionHandle"
+     ]
+    }
+   },
+   "initiators": {
+    "keys": []
+   },
+   "initiatorRuns": {
+    "keys": []
+   },
+   "initiatorState": {
+    "s": 6
+   },
+   "activeInitiatorRuns": 0
+  },
+  "workspaceRegistry": {
+   "keys": [
+    "ctx",
+    "name",
+    "table",
+    "global",
+    "state",
+    "entities",
+    "headers",
+    "sessionPaths",
+    "missingSessionPaths",
+    "invalidSessionPaths",
+    "operationTail",
+    "host"
+   ],
+   "ctx": {
+    "keys": [
+     "fiber"
+    ],
+    "fiber": {
+     "keys": [
+      "parent",
+      "inject",
+      "runtime",
+      "uid",
+      "ctx",
+      "config",
+      "state",
+      "dispose",
+      "committed",
+      "provisions",
+      "inertia",
+      "_hooks",
+      "_disposables",
+      "context",
+      "_error",
+      "_revision",
+      "_configRevision",
+      "_effectiveConfig",
+      "_runner",
+      "_store",
+      "_release",
+      "entry"
+     ]
+    }
+   },
+   "name": {
+    "s": 17
+   },
+   "table": {
+    "keys": [
+     "host",
+     "tableName",
+     "records"
+    ],
+    "host": {
+     "keys": [
+      "domainName",
+      "unit",
+      "enqueue",
+      "assertReadable",
+      "emitChanged"
+     ]
+    },
+    "tableName": {
+     "s": 10
+    },
+    "records": {
+     "keys": []
+    }
+   },
+   "global": {
+    "keys": [
+     "get",
+     "set"
+    ],
+    "get": {
+     "fn": "get"
+    },
+    "set": {
+     "fn": "set"
+    }
+   },
+   "state": {
+    "keys": [
+     "initialized",
+     "defaultWorkspaceId",
+     "workspaceIds",
+     "archivedSessionIds",
+     "pinnedSessionIds"
+    ],
+    "initialized": true,
+    "defaultWorkspaceId": {
+     "s": 36
+    },
+    "workspaceIds": {
+     "a": 8,
+     "items": [
+      {
+       "s": 36
+      },
+      {
+       "s": 36
+      },
+      {
+       "s": 36
+      }
+     ]
+    },
+    "archivedSessionIds": {
+     "a": 8,
+     "items": [
+      {
+       "s": 44
+      },
+      {
+       "s": 44
+      },
+      {
+       "s": 44
+      }
+     ]
+    },
+    "pinnedSessionIds": {
+     "a": 0,
+     "items": []
+    }
+   },
+   "entities": {
+    "keys": []
+   },
+   "headers": {
+    "keys": []
+   },
+   "sessionPaths": {
+    "keys": []
+   },
+   "missingSessionPaths": {
+    "keys": []
+   },
+   "invalidSessionPaths": {
+    "keys": []
+   },
+   "operationTail": {
+    "keys": []
+   },
+   "host": {
+    "keys": [
+     "table",
+     "candidateMatches",
+     "readSessionHeader",
+     "rememberSessionPath"
+    ],
+    "table": {
+     "fn": "table"
+    },
+    "candidateMatches": {
+     "fn": "candidateMatches"
+    },
+    "readSessionHeader": {
+     "fn": "readSessionHeader"
+    },
+    "rememberSessionPath": {
+     "fn": "rememberSessionPath"
+    }
+   }
+  },
+  "sessionTitle": {
+   "keys": [
+    "ctx",
+    "name",
+    "titleInputProjectionHandle",
+    "config",
+    "ownerFiber",
+    "registration",
+    "work",
+    "lifetime",
+    "inFlight"
+   ],
+   "ctx": {
+    "keys": [
+     "fiber"
+    ],
+    "fiber": {
+     "keys": [
+      "parent",
+      "inject",
+      "runtime",
+      "uid",
+      "ctx",
+      "config",
+      "state",
+      "dispose",
+      "committed",
+      "provisions",
+      "inertia",
+      "_hooks",
+      "_disposables",
+      "context",
+      "_error",
+      "_revision",
+      "_configRevision",
+      "_effectiveConfig",
+      "_runner",
+      "_store",
+      "_release",
+      "entry"
+     ]
+    }
+   },
+   "name": {
+    "s": 12
+   },
+   "titleInputProjectionHandle": {
+    "keys": [
+     "dispose",
+     "stateOf",
+     "readerFor"
+    ],
+    "dispose": {
+     "fn": "dispose"
+    },
+    "stateOf": {
+     "fn": "stateOf"
+    },
+    "readerFor": {
+     "fn": "readerFor"
+    }
+   },
+   "config": {
+    "keys": [
+     "fallbackMaxWords",
+     "fallbackMaxBytes",
+     "maxTitleBytes"
+    ],
+    "fallbackMaxWords": 5,
+    "fallbackMaxBytes": 40,
+    "maxTitleBytes": 80
+   },
+   "ownerFiber": {
+    "keys": [
+     "parent",
+     "inject",
+     "runtime",
+     "uid",
+     "ctx",
+     "config",
+     "state",
+     "dispose",
+     "committed",
+     "provisions",
+     "inertia",
+     "_hooks",
+     "_disposables",
+     "context",
+     "_error",
+     "_revision",
+     "_configRevision",
+     "_effectiveConfig",
+     "_runner",
+     "_store",
+     "_release",
+     "entry"
+    ],
+    "parent": {
+     "keys": []
+    },
+    "inject": {
+     "keys": [
+      "sessions",
+      "sessionProjections",
+      "agents"
+     ]
+    },
+    "runtime": {
+     "keys": [
+      "name",
+      "callback",
+      "fibers",
+      "Config"
+     ]
+    },
+    "uid": 160,
+    "ctx": {
+     "keys": [
+      "fiber"
+     ]
+    },
+    "config": {
+     "keys": [
+      "fallbackMaxWords",
+      "fallbackMaxBytes",
+      "maxTitleBytes"
+     ]
+    },
+    "state": 2,
+    "dispose": {
+     "fn": "(anon)"
+    },
+    "committed": {
+     "keys": [
+      "sessions",
+      "sessionProjections",
+      "agents"
+     ]
+    },
+    "provisions": {
+     "keys": []
+    },
+    "_hooks": {
+     "keys": []
+    },
+    "_disposables": {
+     "keys": [
+      "sn",
+      "map",
+      "weak"
+     ]
+    },
+    "context": {
+     "keys": [
+      "fiber"
+     ]
+    },
+    "_revision": 0,
+    "_configRevision": 0,
+    "_effectiveConfig": {
+     "keys": [
+      "fallbackMaxWords",
+      "fallbackMaxBytes",
+      "maxTitleBytes"
+     ]
+    },
+    "_runner": {
+     "keys": [
+      "epoch",
+      "getOuterStack",
+      "execute",
+      "collect"
+     ]
+    },
+    "_store": {
+     "keys": [
+      "sessions",
+      "sessionProjections",
+      "agents"
+     ]
+    },
+    "entry": {
+     "keys": [
+      "loader",
+      "ctx",
+      "fiber",
+      "moduleNamespace",
+      "parent",
+      "options",
+      "subgroup",
+      "subtree",
+      "_initTask",
+      "getOuterStack"
+     ]
+    }
+   },
+   "registration": {
+    "keys": [
+     "provider",
+     "active",
+     "closing"
+    ],
+    "provider": {
+     "keys": [
+      "id",
+      "automatic",
+      "generate"
+     ]
+    },
+    "active": {
+     "keys": []
+    },
+    "closing": false
+   },
+   "work": {
+    "keys": []
+   },
+   "lifetime": {
+    "keys": []
+   },
+   "inFlight": {
+    "keys": []
+   }
+  },
+  "agentPresets": {
+   "keys": [
+    "ctx",
+    "name",
+    "typertRemote",
+    "config",
+    "agentPresetProjectionHandle",
+    "owner",
+    "definitions",
+    "generations",
+    "bindings",
+    "switches"
+   ],
+   "ctx": {
+    "keys": [
+     "fiber"
+    ],
+    "fiber": {
+     "keys": [
+      "parent",
+      "inject",
+      "runtime",
+      "uid",
+      "ctx",
+      "config",
+      "state",
+      "dispose",
+      "committed",
+      "provisions",
+      "inertia",
+      "_hooks",
+      "_disposables",
+      "context",
+      "_error",
+      "_revision",
+      "_configRevision",
+      "_effectiveConfig",
+      "_runner",
+      "_store",
+      "_release",
+      "entry"
+     ]
+    }
+   },
+   "name": {
+    "s": 12
+   },
+   "typertRemote": {
+    "keys": [
+     "service",
+     "serviceKey",
+     "namespace"
+    ],
+    "service": {
+     "keys": [
+      "ctx",
+      "name",
+      "typertRemote",
+      "config",
+      "agentPresetProjectionHandle",
+      "owner",
+      "definitions",
+      "generations",
+      "bindings",
+      "switches"
+     ]
+    },
+    "serviceKey": {
+     "s": 12
+    },
+    "namespace": {
+     "s": 12
+    }
+   },
+   "config": {
+    "keys": [
+     "default",
+     "selectedDefault"
+    ],
+    "default": {
+     "s": 8
+    },
+    "selectedDefault": {
+     "keys": [
+      "get"
+     ]
+    }
+   },
+   "agentPresetProjectionHandle": {
+    "keys": [
+     "dispose",
+     "stateOf",
+     "readerFor"
+    ],
+    "dispose": {
+     "fn": "dispose"
+    },
+    "stateOf": {
+     "fn": "stateOf"
+    },
+    "readerFor": {
+     "fn": "readerFor"
+    }
+   },
+   "owner": {
+    "keys": [
+     "fiber"
+    ],
+    "fiber": {
+     "keys": [
+      "parent",
+      "inject",
+      "runtime",
+      "uid",
+      "ctx",
+      "config",
+      "state",
+      "dispose",
+      "committed",
+      "provisions",
+      "inertia",
+      "_hooks",
+      "_disposables",
+      "context",
+      "_error",
+      "_revision",
+      "_configRevision",
+      "_effectiveConfig",
+      "_runner",
+      "_store",
+      "_release",
+      "entry"
+     ]
+    }
+   },
+   "definitions": {
+    "keys": []
+   },
+   "generations": {
+    "keys": []
+   },
+   "bindings": {
+    "keys": []
+   },
+   "switches": {
+    "keys": []
+   }
+  },
+  "permissionPresets": {
+   "keys": [
+    "ctx",
+    "name",
+    "typertRemote",
+    "presets",
+    "autoAdmit",
+    "defaultSettings",
+    "permissionProjectionHandle"
+   ],
+   "ctx": {
+    "keys": [
+     "fiber"
+    ],
+    "fiber": {
+     "keys": [
+      "parent",
+      "inject",
+      "runtime",
+      "uid",
+      "ctx",
+      "config",
+      "state",
+      "dispose",
+      "committed",
+      "provisions",
+      "inertia",
+      "_hooks",
+      "_disposables",
+      "context",
+      "_error",
+      "_revision",
+      "_configRevision",
+      "_effectiveConfig",
+      "_runner",
+      "_store",
+      "_release",
+      "entry"
+     ]
+    }
+   },
+   "name": {
+    "s": 17
+   },
+   "typertRemote": {
+    "keys": [
+     "service",
+     "serviceKey",
+     "namespace"
+    ],
+    "service": {
+     "keys": [
+      "ctx",
+      "name",
+      "typertRemote",
+      "presets",
+      "autoAdmit",
+      "defaultSettings",
+      "permissionProjectionHandle"
+     ]
+    },
+    "serviceKey": {
+     "s": 17
+    },
+    "namespace": {
+     "s": 17
+    }
+   },
+   "presets": {
+    "keys": [
+     "read-only",
+     "workspace-write",
+     "danger-full-access"
+    ],
+    "read-only": {
+     "keys": [
+      "sandbox",
+      "approval"
+     ]
+    },
+    "workspace-write": {
+     "keys": [
+      "sandbox",
+      "approval"
+     ]
+    },
+    "danger-full-access": {
+     "keys": [
+      "sandbox",
+      "approval"
+     ]
+    }
+   },
+   "defaultSettings": {
+    "fn": "(anon)"
+   },
+   "permissionProjectionHandle": {
+    "keys": [
+     "dispose",
+     "stateOf",
+     "readerFor"
+    ],
+    "dispose": {
+     "fn": "dispose"
+    },
+    "stateOf": {
+     "fn": "stateOf"
+    },
+    "readerFor": {
+     "fn": "readerFor"
+    }
+   }
+  },
+  "agentDefaultModel": {
+   "keys": [
+    "ctx",
+    "name",
+    "ownerContext",
+    "config",
+    "saves"
+   ],
+   "ctx": {
+    "keys": [
+     "fiber"
+    ],
+    "fiber": {
+     "keys": [
+      "parent",
+      "inject",
+      "runtime",
+      "uid",
+      "ctx",
+      "config",
+      "state",
+      "dispose",
+      "committed",
+      "provisions",
+      "inertia",
+      "_hooks",
+      "_disposables",
+      "context",
+      "_error",
+      "_revision",
+      "_configRevision",
+      "_effectiveConfig",
+      "_runner",
+      "_store",
+      "_release",
+      "entry"
+     ]
+    }
+   },
+   "name": {
+    "s": 17
+   },
+   "ownerContext": {
+    "keys": [
+     "fiber"
+    ],
+    "fiber": {
+     "keys": [
+      "parent",
+      "inject",
+      "runtime",
+      "uid",
+      "ctx",
+      "config",
+      "state",
+      "dispose",
+      "committed",
+      "provisions",
+      "inertia",
+      "_hooks",
+      "_disposables",
+      "context",
+      "_error",
+      "_revision",
+      "_configRevision",
+      "_effectiveConfig",
+      "_runner",
+      "_store",
+      "_release",
+      "entry"
+     ]
+    }
+   },
+   "config": {
+    "keys": [
+     "provider",
+     "model",
+     "reasoningEffort"
+    ],
+    "provider": {
+     "keys": [
+      "get"
+     ]
+    },
+    "model": {
+     "keys": [
+      "get"
+     ]
+    },
+    "reasoningEffort": {
+     "keys": [
+      "get"
+     ]
+    }
+   },
+   "saves": {
+    "keys": []
+   }
+  },
+  "sessions": "throw: cannot get property \"sessions\" without inject",
+  "logger": {
+   "fn": "logger"
+  }
+ },
+ "sessionEvents": [
+  {
+   "type": "permission/preset",
+   "seq": 0,
+   "dataKeys": [
+    "preset"
+   ]
+  },
+  {
+   "type": "sandbox/mode",
+   "seq": 1,
+   "dataKeys": [
+    "mode"
+   ]
+  },
+  {
+   "type": "approval/policy",
+   "seq": 2,
+   "dataKeys": [
+    "policy"
+   ]
+  },
+  {
+   "type": "session/title",
+   "seq": 3,
+   "dataKeys": [
+    "title",
+    "messageSeqs",
+    "source"
+   ]
+  },
+  {
+   "type": "agent/inbox/spliced",
+   "seq": 4,
+   "dataKeys": [
+    "target",
+    "start",
+    "inserted"
+   ]
+  },
+  {
+   "type": "turn/start",
+   "seq": 5,
+   "dataKeys": [
+    "turn"
+   ]
+  },
+  {
+   "type": "agent/inbox/spliced",
+   "seq": 6,
+   "dataKeys": [
+    "target",
+    "start",
+    "removedCount",
+    "inserted"
+   ]
+  },
+  {
+   "type": "step/start",
+   "seq": 7,
+   "dataKeys": [
+    "turn",
+    "step"
+   ]
+  },
+  {
+   "type": "system/message",
+   "seq": 8,
+   "dataKeys": [
+    "turn",
+    "step",
+    "message"
+   ]
+  },
+  {
+   "type": "user/message",
+   "seq": 9,
+   "dataKeys": [
+    "id",
+    "role",
+    "content",
+    "source"
+   ]
+  },
+  {
+   "type": "user/message",
+   "seq": 10,
+   "dataKeys": [
+    "content",
+    "source",
+    "role",
+    "id"
+   ]
+  },
+  {
+   "type": "request/header",
+   "seq": 11,
+   "dataKeys": [
+    "header",
+    "reason"
+   ]
+  },
+  {
+   "type": "request/context",
+   "seq": 12,
+   "dataKeys": [
+    "provider",
+    "model",
+    "contextWindow",
+    "systemPromptUpdate"
+   ]
+  },
+  {
+   "type": "session-log-deepseek/delivery-accepted",
+   "seq": 13,
+   "dataKeys": [
+    "sessionId",
+    "sessionFormatVersion",
+    "throughSeq"
+   ]
+  },
+  {
+   "type": "assistant/message",
+   "seq": 14,
+   "dataKeys": [
+    "turn",
+    "step",
+    "message",
+    "usage",
+    "stream"
+   ],
+   "detail": {
+    "turn": 1,
+    "blocks": [
+     "reasoning",
+     "text"
+    ]
+   }
+  },
+  {
+   "type": "step/end",
+   "seq": 15,
+   "dataKeys": [
+    "turn",
+    "step"
+   ]
+  },
+  {
+   "type": "turn/end",
+   "seq": 16,
+   "dataKeys": [
+    "turn",
+    "reason"
+   ],
+   "detail": {
+    "turn": 1,
+    "reasonKind": "completed",
+    "reasonKeys": [
+     "kind"
+    ]
+   }
+  },
+  {
+   "type": "permission/preset",
+   "seq": 0,
+   "dataKeys": [
+    "preset"
+   ]
+  },
+  {
+   "type": "sandbox/mode",
+   "seq": 1,
+   "dataKeys": [
+    "mode"
+   ]
+  },
+  {
+   "type": "approval/policy",
+   "seq": 2,
+   "dataKeys": [
+    "policy"
+   ]
+  }
+ ],
+ "streamFrames": [
+  {
+   "frameType": "start"
+  },
+  {
+   "frameType": "chunk",
+   "chunkType": "block-start",
+   "index": 0
+  },
+  {
+   "frameType": "chunk",
+   "chunkType": "block-end",
+   "index": 1
+  },
+  {
+   "frameType": "chunk",
+   "chunkType": "block-start",
+   "index": 2
+  },
+  {
+   "frameType": "chunk",
+   "chunkType": "text-delta",
+   "textLen": 3,
+   "index": 3
+  },
+  {
+   "frameType": "chunk",
+   "chunkType": "text-delta",
+   "textLen": 2,
+   "index": 4
+  },
+  {
+   "frameType": "chunk",
+   "chunkType": "text-delta",
+   "textLen": 1,
+   "index": 5
+  },
+  {
+   "frameType": "chunk",
+   "chunkType": "text-delta",
+   "textLen": 2,
+   "index": 6
+  },
+  {
+   "frameType": "chunk",
+   "chunkType": "block-end",
+   "index": 7
+  },
+  {
+   "frameType": "chunk",
+   "chunkType": "usage",
+   "index": 8
+  },
+  {
+   "frameType": "chunk",
+   "chunkType": "finish",
+   "index": 9
+  },
+  {
+   "frameType": "end",
+   "index": 10,
+   "outcome": {
+    "kind": "committed",
+    "eventType": "assistant/message"
+   }
+  }
+ ],
+ "agentEvents": [
+  {
+   "kind": "agent/status",
+   "status": "running"
+  },
+  {
+   "kind": "agent/status",
+   "status": "idle"
+  }
+ ],
+ "serviceMethods": {
+  "agents": [
+   "turnBoundaryOf",
+   "currentInitiator",
+   "requireInitiator",
+   "withInitiator",
+   "withoutInitiator",
+   "setFactory",
+   "requireFactory",
+   "create",
+   "resume",
+   "register",
+   "enter",
+   "detachEntered",
+   "emitDisposed",
+   "announce",
+   "get",
+   "isOwnedBy",
+   "list",
+   "roots",
+   "closeInitiators",
+   "disposeInitiators",
+   "runWithInitiator",
+   "hasLifecycleAncestor",
+   "assertInitiatorsReadable",
+   "releaseReentrantInitiatorRuns",
+   "releaseInitiatorRun"
+  ],
+  "workspaceRegistry": [
+   "create",
+   "initializeDefault",
+   "get",
+   "list",
+   "delete",
+   "insertBefore",
+   "archivedSessionIds",
+   "archiveSession",
+   "unarchiveSession",
+   "pinnedSessionIds",
+   "pinSession",
+   "unpinSession",
+   "sessionKnown",
+   "stopSessionActivity",
+   "resolveByPath",
+   "createCanonical",
+   "deleteKnown",
+   "recoverPendingMutation",
+   "bootstrap",
+   "validateStoredState",
+   "rebuildEntities",
+   "replaceHeaderIndex",
+   "indexHeaders",
+   "indexHeader",
+   "listStoredHeaders",
+   "indexLiveSessions",
+   "reportFilteredCandidates",
+   "readSessionHeader",
+   "requireTable",
+   "requireState",
+   "setState",
+   "enqueueOperation"
+  ],
+  "agent": [
+   "status",
+   "setPhase",
+   "send",
+   "followup",
+   "steer",
+   "inject",
+   "cancel",
+   "runMaintenance",
+   "wakeDriver",
+   "whenIdle",
+   "throwError",
+   "kick",
+   "preStep",
+   "toolsChanged",
+   "turn",
+   "step",
+   "prepareRequest",
+   "buildRequest"
+  ]
+ },
+ "defaultModel": {
+  "keys": [
+   "provider",
+   "model"
+  ],
+  "provider": {
+   "s": 17
+  },
+  "model": {
+   "s": 14
+  }
+ },
+ "agentPresetDefault": {
+  "error": "Unknown agent preset: default",
+  "name": "RemoteError",
+  "code": "agent-preset/not-found",
+  "keys": [
+   "code",
+   "details",
+   "isDSHRemoteError",
+   "name"
+  ]
+ },
+ "workspaceCreate": {
+  "keys": [
+   "host",
+   "id",
+   "record"
+  ],
+  "host": {
+   "keys": [
+    "table",
+    "candidateMatches",
+    "readSessionHeader",
+    "rememberSessionPath"
+   ],
+   "table": {
+    "fn": "table"
+   },
+   "candidateMatches": {
+    "fn": "candidateMatches"
+   },
+   "readSessionHeader": {
+    "fn": "readSessionHeader"
+   },
+   "rememberSessionPath": {
+    "fn": "rememberSessionPath"
+   }
+  },
+  "id": {
+   "s": 36
+  },
+  "record": {
+   "keys": [
+    "path",
+    "title",
+    "sessionIds",
+    "createdAt",
+    "updatedAt"
+   ],
+   "path": {
+    "s": 34
+   },
+   "title": {
+    "s": 11
+   },
+   "sessionIds": {
+    "a": 0,
+    "items": []
+   },
+   "createdAt": {
+    "s": 24
+   },
+   "updatedAt": {
+    "s": 24
+   }
+  }
+ },
+ "workspaceMethods": [
+  "path",
+  "title",
+  "createdAt",
+  "updatedAt",
+  "sessionIds",
+  "setTitle",
+  "attachSession",
+  "insertSessionBefore",
+  "detachSession",
+  "status",
+  "mutate"
+ ],
+ "modelSelection": {
+  "keys": [
+   "provider",
+   "model"
+  ],
+  "provider": {
+   "s": 17
+  },
+  "model": {
+   "s": 14
+  }
+ },
+ "agentsCreateHandle": {
+  "keys": [
+   "hasAgent",
+   "disposeType"
+  ],
+  "hasAgent": true,
+  "disposeType": {
+   "s": 8
+  }
+ },
+ "attachSession": "ok",
+ "sessionTitle": {
+  "keys": [
+   "title",
+   "messageSeqs",
+   "source",
+   "eventSeq",
+   "updatedAt"
+  ],
+  "title": {
+   "s": 14
+  },
+  "messageSeqs": {
+   "a": 0,
+   "items": []
+  },
+  "source": {
+   "keys": [
+    "kind"
+   ]
+  },
+  "eventSeq": 3,
+  "updatedAt": 1794407184174
+ },
+ "followupQueuedAt": 327,
+ "idleAt": 1721,
+ "archivedSessionIds": {
+  "a": 8,
+  "sample": {
+   "s": 44
+  }
+ },
+ "archivedContainsProbe": false,
+ "agentsGetLive": {
+  "found": true,
+  "sessionType": "object",
+  "sessionIsId": false,
+  "sessionIdShape": {
+   "s": 51
+  },
+  "sessionKeys": [
+   "log",
+   "surfaceManager",
+   "header",
+   "inheritedEventCount",
+   "firstLiveSeq",
+   "firstLifecycleSeq",
+   "eventsSnapshot",
+   "headerFold",
+   "headerFoldSeq",
+   "contextFold",
+   "contextFoldSeq",
+   "toolHistoryProjection"
+  ],
+  "status": "idle"
+ },
+ "recreateSameId": {
+  "error": "session \"imessage-probe-65d41457-17d6-4f40-90cb-786f22b5dba7\" already exists",
+  "name": "Error",
+  "keys": []
+ },
+ "createFresh": {
+  "ok": true
+ },
+ "coldBefore": {
+  "getFound": true
+ },
+ "coldAfterDispose": {
+  "getFound": false
+ },
+ "coldResume": {
+  "ok": true,
+  "sameSession": true,
+  "status": "idle"
+ },
+ "coldResumeGhost": {
+  "error": "session \"imessage-probe-ghost-d98cfb0a-dc01-42ea-8b4c-139746674838\" not found",
+  "name": "SessionPersistenceNotFoundError",
+  "keys": [
+   "sessionId",
+   "name"
+  ]
+ },
+ "createdIds": [
+  "imessage-probe-65d41457-17d6-4f40-90cb-786f22b5dba7",
+  "imessage-probe-5ae3df4d-f24d-4461-9efe-2538c7cd285d"
+ ],
+ "status": "ok",
+ "error": null,
+ "elapsedMs": 3285,
+ "eventCounts": {
+  "session": 20,
+  "stream": 12,
+  "agent": 2
+ }
+}

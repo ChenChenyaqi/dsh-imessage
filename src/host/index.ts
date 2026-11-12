@@ -5,6 +5,11 @@
 // apply 生命周期（组装 + effect 注册停止）。
 
 import type { Context } from '@deepseek-ai/cordis';
+// 官方宿主包的 Context 类型增强（type-only；devDep 随 DSH 版本升级）
+import type {} from '@deepseek-ai/dsh-agent';
+import type {} from '@deepseek-ai/dsh-agent-default-model';
+import type {} from '@deepseek-ai/dsh-session-title';
+import type {} from '@deepseek-ai/dsh-workspace';
 import z from '@deepseek-ai/schemastery';
 
 import { resolvePaths } from '@/core/paths';
@@ -14,26 +19,13 @@ import type { ChannelEnv } from '@/host/channel';
 import { registerStatusRpc } from '@/host/rpc';
 import type { FetchRegistry } from '@/host/rpc';
 import type { DshPortServices } from '@/host/dsh-port';
-import type {
-  HostAgentDefaultModelService,
-  HostAgentsService,
-  HostSessionTitleService,
-  HostWorkspaceRegistry,
-} from '@/host/dsh-api';
 
 export const name = PLUGIN_ID;
 
-// 宿主服务的类型合并（DSH 插件惯例：消费方声明自己用到的服务面）。
-// 宿主侧 dsh-* 包的完整声明不在本包依赖里，这里以 dsh-api.ts 的子集
-// 形状声明——接口面由适配层（dsh-port）旱鸭验证，运行时行为由 inject 保证。
-declare module '@deepseek-ai/cordis' {
-  interface Context {
-    readonly agents: HostAgentsService;
-    readonly workspaceRegistry: HostWorkspaceRegistry;
-    readonly agentDefaultModel: HostAgentDefaultModelService;
-    readonly sessionTitle: HostSessionTitleService;
-  }
-}
+// 宿主服务类型来自官方包的 Context 模块增强（devDep：
+// @deepseek-ai/dsh-{agent,workspace,agent-default-model,session-title}）；
+// 我们与官方契约的兼容性由 tests/host/type-compat.test.ts 在编译期守护。
+// 官方类型面比 dsh-api.ts 子集宽（readonly/多成员），运行时行为由 inject 保证。
 
 // 探针事实：这些服务必须 inject 声明，否则 ctx 上访问直接抛错
 export const inject = ['agents', 'workspaceRegistry', 'agentDefaultModel', 'sessionTitle'];

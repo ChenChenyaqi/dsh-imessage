@@ -14,6 +14,8 @@
 
 import { describe, expect, it } from 'vitest';
 import { asSessionId } from '@/core/types/dsh';
+import { asHostSessionId } from '@/host/dsh-api';
+import type { HostAgent } from '@/host/dsh-api';
 import { makeDshPort } from '@/host/dsh-port';
 import { makeFakeDshHost } from '../helpers/fake-dsh-api';
 
@@ -98,7 +100,7 @@ describe('dsh-port · createSession', () => {
     ).rejects.toThrow('attach rejected');
     // 回滚：不留孤儿活 agent（webhook 事务语义）
     expect(host.log.map((c) => c.kind)).toContain('agents.dispose');
-    expect(host.services.agents.get(host.log[1]?.sessionId as string)).toBeUndefined();
+    expect(host.services.agents.get(asHostSessionId(String(host.log[1]?.sessionId)))).toBeUndefined();
   });
 });
 
@@ -114,7 +116,7 @@ describe('dsh-port · getSessionStatus', () => {
     // 归档集与活动状态独立（源码事实：archived gate 只冻结模型步）
     const { host, port } = makePort();
     const sessionId = await port.createSession({ workspaceDir: 'ws/a', name: 'imessage a' });
-    host.archivedSessionIds.push(String(sessionId));
+    host.archivedSessionIds.push(asHostSessionId(String(sessionId)));
 
     await expect(port.getSessionStatus(sessionId)).resolves.toBe('archived');
   });
@@ -123,7 +125,7 @@ describe('dsh-port · getSessionStatus', () => {
     const { host, port } = makePort();
     const sessionId = await port.createSession({ workspaceDir: 'ws/a', name: 'imessage a' });
     // 模拟宿主重启：活句柄消失、持久层仍在
-    await host.services.agents.get(String(sessionId))?.dispose();
+    await host.disposeAgent(String(sessionId));
 
     await expect(port.getSessionStatus(sessionId)).resolves.toBe('active');
     // 探针事实：冷会话经 resume 复活（sameSession true）
@@ -234,7 +236,7 @@ describe('dsh-port · ask', () => {
     const { host, port } = makePort();
     host.scriptReply({ text: 'revived' });
     const sessionId = await port.createSession({ workspaceDir: 'ws/a', name: 'imessage a' });
-    await host.services.agents.get(String(sessionId))?.dispose();
+    await host.disposeAgent(String(sessionId));
 
     const { text } = await collectAsk(port.ask({ sessionId, prompt: 'hi' }));
 
@@ -277,7 +279,9 @@ describe('dsh-port · ask', () => {
     const consumption = (async () => {
       for await (const _part of port.ask({ sessionId, prompt: 'hi' })) {
         // 第一片到达后从宿主侧外部取消（不经 signal）
-        host.services.agents.get(String(sessionId))?.agent.cancel({ kind: 'parent' });
+        (host.services.agents.get(asHostSessionId(String(sessionId))) as unknown as HostAgent)?.cancel({
+          kind: 'parent',
+        });
       }
     })();
 

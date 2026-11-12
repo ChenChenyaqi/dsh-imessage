@@ -14,13 +14,14 @@
 // ---------------------------------------------------------------------------
 
 /** 宿主侧会话 id：plain string（branded 转换在 dsh-port 适配层完成）。 */
-export type HostSessionId = string;
+/** 宿主 SessionId（官方 branded 类型；与 core 的 brand 不同，跨层 as 转换）。 */
+export type HostSessionId = import('@deepseek-ai/dsh-session').SessionId;
 
-/** 活会话引用（探针实测：agent.session 是 Session 对象，id 在 .id 字段）。 */
-export interface HostSessionObject {
-  readonly id: HostSessionId;
-  readonly [key: string]: unknown;
-}
+/** 宿主 MessageId（dsh-llm brand；构造时 as 转换）。 */
+export type HostMessageId = import('@deepseek-ai/dsh-llm/brand').MessageId;
+
+/** 活会话引用（官方 Session 对象，id 在 .id 字段；探针实测）。 */
+export type HostSessionObject = import('@deepseek-ai/dsh-session').Session;
 
 /** 模型选择（agentOptions；探针：agents.create 必带，无默认兜底）。 */
 export interface HostAgentOptions {
@@ -121,14 +122,9 @@ export interface HostTextBlock {
   readonly text: string;
 }
 
-export interface HostUserMessage {
-  readonly id: string;
-  /** 源码事实：createUserMessage 自动补全 role；持久化校验要求存在（探针实测：
-   *  缺 role 的消息 resume 时报 SessionPersistenceCorruptionError）。 */
-  readonly role: 'user';
-  readonly content: ReadonlyArray<HostTextBlock>;
-  readonly source: { readonly kind: string; readonly [key: string]: unknown };
-}
+/** 用户消息（官方 UserMessage；探针实测：缺 role:'user' 的消息 resume 时
+ *  报 SessionPersistenceCorruptionError，构造时必带 role）。 */
+export type HostUserMessage = import('@deepseek-ai/dsh-llm/types').UserMessage;
 
 /** 取消原因（源码事实：user/parent/hook/disposed 四态；具体形态对适配层不透明）。 */
 export type HostAgentCancelCause =
@@ -147,8 +143,9 @@ export interface HostCancelOptions {
 // ---------------------------------------------------------------------------
 
 export interface HostCreateAgentInput {
-  /** 探针：对已存在的活会话是硬错误（already exists），复用需先 get。 */
-  readonly sessionId?: HostSessionId;
+  /** 探针：对已存在的活会话是硬错误（already exists），复用需先 get。
+   * 官方类型必填（探针一致：创建必带 sessionId）。 */
+  readonly sessionId: HostSessionId;
   readonly meta?: { readonly cwd?: string; readonly agentPreset?: string };
   readonly agentOptions?: HostAgentOptions;
 }
@@ -171,10 +168,16 @@ export interface HostAgentHandle {
   dispose(): Promise<void>;
 }
 
+/** 裸 Agent 最小面（官方类型事实：agents.get 只承诺 Agent，handle 仅创建者可见；
+ * 我们仅用它判活）。 */
+export interface HostBareAgent {
+  readonly id: HostSessionId;
+}
+
 export interface HostAgentsService {
   create(input: HostCreateAgentInput): Promise<HostAgentHandle>;
-  /** 活会话返回句柄；不存在返回 undefined（探针实测）。 */
-  get(sessionId: HostSessionId): HostAgentHandle | undefined;
+  /** 活会话判活；不存在返回 undefined（探针实测；官方类型只承诺裸 Agent）。 */
+  get(sessionId: HostSessionId): HostBareAgent | undefined;
   /** 冷会话恢复（探针实测：持久存在则恢复同 id 活句柄；不存在抛
    *  SessionPersistenceNotFoundError —— 适配层判 missing 的依据）。 */
   resume(input: { readonly resumeSessionId: HostSessionId }): Promise<HostAgentHandle>;
@@ -207,10 +210,13 @@ export interface HostAgentDefaultModelService {
 }
 
 /** 探针实测返回形状（同步调用）。 */
+/** 标题来源（官方 SessionTitleSource：fallback/provider/user 三态）。 */
+export type HostTitleSource = import('@deepseek-ai/dsh-session-title').SessionTitleSource;
+
 export interface HostRenameResult {
   readonly title: string;
   readonly messageSeqs: ReadonlyArray<number>;
-  readonly source: string;
+  readonly source: HostTitleSource;
   readonly eventSeq: number;
   readonly updatedAt: number;
 }
@@ -238,3 +244,17 @@ export interface HostEventPayloads {
 }
 
 export type HostEventName = keyof HostEventPayloads;
+
+// ---------------------------------------------------------------------------
+// branded 转换（官方 brand 与 core brand 标签不同；跨层边界显式 as）
+// ---------------------------------------------------------------------------
+
+/** raw string → 宿主 SessionId（branded）。 */
+export function asHostSessionId(raw: string): HostSessionId {
+  return raw as HostSessionId;
+}
+
+/** raw string → 宿主 MessageId（branded）。 */
+export function asHostMessageId(raw: string): HostMessageId {
+  return raw as HostMessageId;
+}

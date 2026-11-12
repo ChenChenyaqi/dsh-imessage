@@ -1,0 +1,4 @@
+# dsh-imessage Step 0 探针 overlay：插入真机探针插件
+- insert:
+    - id: dsh-imessage-probe
+      name: ./probe-plugin.mjs
