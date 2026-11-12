@@ -46,6 +46,11 @@ function makeCtx() {
     effect(fn: () => () => unknown) {
       disposers.push(fn());
     },
+    // 模拟 cordis 动态注入：服务已挂载时立即同步回调（真宿主服务就绪
+    // 后异步回调；对本测同步即等价）
+    inject(names: readonly string[], callback: () => unknown) {
+      if (names.includes('connection')) void callback();
+    },
     connection: {
       fetch: {
         register(definition: { path: string; fetch: RouteHandler }) {

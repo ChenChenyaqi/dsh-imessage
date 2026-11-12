@@ -28,6 +28,8 @@ export const name = PLUGIN_ID;
 // 官方类型面比 dsh-api.ts 子集宽（readonly/多成员），运行时行为由 inject 保证。
 
 // 探针事实：这些服务必须 inject 声明，否则 ctx 上访问直接抛错
+// 探针事实：这些服务必须 inject 声明，否则 ctx 上访问直接抛错；
+// connection 不在此列——部分宿主无该服务，走动态注入降级（见 apply）
 export const inject = ['agents', 'workspaceRegistry', 'agentDefaultModel', 'sessionTitle'];
 
 /** 插件配置（宿主设置页经 Config schema 自动渲染并写回 patch）。 */
@@ -78,14 +80,21 @@ export function apply(ctx: Context, config: Config, overrides: Partial<ChannelEn
   ctx.effect(() => () => channel.stop());
 
   // 最小管理面：POST /api/dsh-imessage/status（只读快照）。
-  // connection 服务缺失时降级为无管理面（不阻断通道运行）
-  const connection = (ctx as unknown as { connection?: { fetch?: FetchRegistry } }).connection;
-  if (connection?.fetch !== undefined) {
-    const disposeRpc = registerStatusRpc(connection.fetch, {
-      status: () => channel.status(),
-      stateFile: (env.paths ?? resolvePaths()).stateFile,
-      allowlist: config.allowlist ?? [],
+  // cordis 探针事实：ctx 上访问未 inject 的服务属性会抛错，且静态 inject
+  // 在宿主无该服务时会让插件静默等待（永不激活）；用动态注入——服务
+  // 就绪才挂 RPC，无 connection 的宿主优雅降级（通道照常运行）
+  if (typeof ctx.inject === 'function') {
+    ctx.inject(['connection'], () => {
+      // 回调触发时服务已注入 ctx（cordis 惯例：闭包直取）
+      const fetchRegistry = (ctx as unknown as { connection?: { fetch?: FetchRegistry } }).connection
+        ?.fetch;
+      if (fetchRegistry === undefined) return;
+      const disposeRpc = registerStatusRpc(fetchRegistry, {
+        status: () => channel.status(),
+        stateFile: (env.paths ?? resolvePaths()).stateFile,
+        allowlist: config.allowlist ?? [],
+      });
+      ctx.effect(() => () => disposeRpc());
     });
-    ctx.effect(() => () => disposeRpc());
   }
 }
