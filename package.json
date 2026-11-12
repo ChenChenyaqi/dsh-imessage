@@ -34,11 +34,12 @@
     "prepack": "pnpm build",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
+    "e2e": "playwright test",
     "test:report": "vitest run --coverage --coverage.reporter=text --coverage.reporter=text-summary",
+    "test:report:ai": "node scripts/coverage-report.mjs",
     "lint": "eslint .",
     "check": "pnpm typecheck && pnpm lint && pnpm build && pnpm test",
-    "prepare": "lefthook install || true",
-    "test:report:ai": "node scripts/coverage-report.mjs"
+    "prepare": "lefthook install || true"
   },
   "devDependencies": {
     "@commitlint/cli": "^21.2.4",
@@ -54,6 +55,7 @@
     "@deepseek-ai/dsh-workspace": "0.2.2-rc.2",
     "@deepseek-ai/schemastery": "^3.19.0",
     "@eslint/js": "^10.0.1",
+    "@playwright/test": "^1.65.0",
     "@types/node": "^24.19.2",
     "@types/react": "~18.3.31",
     "@types/react-dom": "^18.3.7",

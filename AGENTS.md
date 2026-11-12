@@ -92,6 +92,20 @@
 - 会话：`router.session-created`、`router.orphan-session`
 - 空批不打点（否则 2 秒一条心跳刷爆日志）；新增事件请遵守此原则
 
+## 真机 e2e 纪律
+
+真机测试（`pnpm e2e`，Playwright + 系统 Chrome）必须满足三条：
+
+- **隔离**：`DSH_HOME` 与 `DSH_IMESSAGE_HOME` 都指向 `mkdtemp` 临时目录，
+  真实 `~/.dsh`、`~/.dsh-imessage` 一字不动；白名单填假号码，不产生真实消息。
+- **清理**：杀进程组（`detached` + `kill(-pid)`）→ 删临时目录 → 断言目录已消失；
+  启动前 `sweepLeftovers()` 扫掉上次被强杀留下的残留。
+- **不钉宿主内部版本**：例如首启提示靠 `welcomeNoticeVersion` 常量判断，
+  该常量随 DSH 升级会漂；e2e 用 UI 自己的关闭控件关弹窗，不硬编码版本号。
+
+e2e 不纳入 `pnpm check`（需要真宿主 + Chrome），单独跑；`e2e/` 目录不单独建包，
+测试放 `tests/e2e/`，配置在根 `playwright.config.ts`。
+
 ## 协作
 
 - 设计遇到分叉：列出选项、各自取舍与倾向，由维护者拍板，不擅自定案。

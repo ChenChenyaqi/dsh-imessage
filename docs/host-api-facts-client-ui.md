@@ -102,7 +102,20 @@ ctx.effect(() => ctx.slots.inject('settings.section', () => ctx.slots.register(
 槽位和 `settings.section` 槽位都必须由客户端插件自己注册组件。这就是为什么
 Host-only 插件在任何界面都看不到配置。
 
-## 6. 探测方法论（以后复用）
+## 6. 隔离环境会多出两道门禁（e2e 必须处理）
+
+用临时 `DSH_HOME` 起 web profile 时，客户端会弹两个带遮罩的模态框，挡住所有点击：
+
+1. **Preview Notice**：首启提示，按钮 `Continue`。它把"已读"写进
+   `ui-settings-general` 的 `welcomeNoticeVersion`。
+2. **Get started**：未登录引导（`aria-label="Close"` 可关，Escape 也能关）。
+
+坑：`welcomeNoticeVersion` 的常量随 DSH 版本漂（源码 HEAD 是 `2026-09-28.1`，
+本机 app 0.2.2-rc.1 认的是 `2026-08-13.1`）。在 e2e 里预先写这个配置来跳过弹窗
+**不可靠**；正确做法是点它自己的关闭控件（`Continue` / `Close` / Escape），
+行为与版本无关。
+
+## 7. 探测方法论（以后复用）
 
 1. 干净 web profile 副本 + `dsh plugin add <repo>` + patch 写我们的 config
 2. `DSH_IMESSAGE_HOME=<临时目录>` 起实例（隔离真实 state.json，避免与桌面实例

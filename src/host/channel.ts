@@ -129,7 +129,11 @@ export function startImessageChannel(
   function applyHotConfig(patch: HotConfigPatch): void {
     const changed: string[] = [];
     if (patch.locale !== undefined && patch.locale !== live.locale) changed.push('locale');
-    if (patch.allowlist !== undefined) changed.push('allowlist');
+    // 白名单按元素比较：顺序即用户输入顺序，长度或任一位不同才算变
+    const sameAllowlist = patch.allowlist !== undefined
+      && patch.allowlist.length === live.allowlist.length
+      && patch.allowlist.every((entry, index) => entry === live.allowlist[index]);
+    if (patch.allowlist !== undefined && !sameAllowlist) changed.push('allowlist');
     if (patch.locale !== undefined) live.locale = patch.locale;
     if (patch.allowlist !== undefined) live.allowlist = patch.allowlist;
     // 运行中的 pipeline 用时读 deps：直接改字段即热生效

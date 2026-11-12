@@ -75,13 +75,14 @@ ConfigField → form.set() → settings.mutate RPC → configEditor.edit()
 `src/client/index.ts`：`export const inject = ['slots','locale','configForms']`、
 注册 `settings.section`、注册 zh/en 字典。
 
-### Step 5 · 真机联调 + 收尾
+### Step 5 · 真机联调 + 收尾（✅ 已完成 2026-11-12）
 chrome-devtools 脚本化验收：
 1. 设置 → iMessage 菜单存在
 2. 改白名单 → 保存 → 日志 `channel.config-updated`（新数量）
 3. 重启 DSH → `channel.started` 的 `allowlist` 是新值 → 持久化闭环
 4. 白名单外号码发消息 → `message-skipped not-allowlisted`（策略真生效）
-产出 `docs/CHECKLIST-settings-ui.md`。
+产出：真机 e2e 脚本 `tests/e2e/settings-ui.spec.ts`（`pnpm e2e`，约 4.5 秒，
+隔离临时 DSH_HOME 并自动清理）。
 
 ## 3. 风险与应对
 

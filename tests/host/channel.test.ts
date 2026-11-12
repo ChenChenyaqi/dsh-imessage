@@ -370,6 +370,19 @@ describe('channel · hot config update', () => {
     await channel.stop();
   });
 
+  it('reports only the fields that actually changed', async () => {
+    // 日志是排查证据：没变的字段不该出现在 changed 里（否则误导排查）
+    const env = makeEnv();
+    const channel = env.start();
+    await waitFor(() => env.logLines.some((l) => l.event === 'channel.started'), 2000);
+
+    channel.updateConfig({ locale: 'zh', allowlist: ['+8613800000000'] });
+
+    const updated = env.logLines.find((l) => l.event === 'channel.config-updated');
+    expect(updated).toMatchObject({ locale: 'zh', allowlistCount: 1, changed: [] });
+    await channel.stop();
+  });
+
   it('applies a locale-only patch without touching the allowlist', async () => {
     const env = makeEnv();
     const channel = env.start();
