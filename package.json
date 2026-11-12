@@ -5,6 +5,16 @@
   "type": "module",
   "license": "MIT",
   "main": "./lib/index.js",
+  "exports": {
+    ".": {
+      "types": "./lib/index.d.ts",
+      "default": "./lib/index.js"
+    },
+    "./client": {
+      "default": "./lib/client.js"
+    },
+    "./package.json": "./package.json"
+  },
   "publishConfig": {
     "access": "public"
   },
@@ -36,6 +46,7 @@
     "@deepseek-ai/cordis": "^4.1.0",
     "@deepseek-ai/dsh-agent": "0.2.2-rc.2",
     "@deepseek-ai/dsh-agent-default-model": "0.2.2-rc.2",
+    "@deepseek-ai/dsh-client-ui-slots": "0.0.1-rc.1",
     "@deepseek-ai/dsh-llm": "0.2.2-rc.2",
     "@deepseek-ai/dsh-session": "0.2.2-rc.2",
     "@deepseek-ai/dsh-session-title": "0.2.2-rc.2",
@@ -43,10 +54,12 @@
     "@deepseek-ai/schemastery": "^3.19.0",
     "@eslint/js": "^10.0.1",
     "@types/node": "^24.19.2",
+    "@types/react": "~18.3.31",
     "@vitest/coverage-v8": "^5.1.0",
     "esbuild": "^0.28.2",
     "eslint": "^10.14.0",
     "lefthook": "^2.2.2",
+    "react": "^18.3.1",
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.72.1",
     "vitest": "^5.1.0"
@@ -54,6 +67,12 @@
   "dsh": {
     "bundle": {
       "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-settings"
+      ]
     }
   },
   "pnpm": {
