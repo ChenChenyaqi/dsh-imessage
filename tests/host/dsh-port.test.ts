@@ -23,13 +23,14 @@ import { makeFakeDshHost } from '../helpers/fake-dsh-api';
 // 组装
 // ---------------------------------------------------------------------------
 
-function makePort() {
+function makePort(options: { askTimeoutMs?: number } = {}) {
   const host = makeFakeDshHost();
   const mkdirCalls: string[] = [];
   const port = makeDshPort({
     services: host.services,
     events: host, // fake 的 on 与真宿主 ctx.on 同签名
     dataRoot: '/data/root',
+    ...(options.askTimeoutMs === undefined ? {} : { askTimeoutMs: options.askTimeoutMs }),
     // 注入 no-op mkdir：只记录路径，不真建目录
     mkdir: async (dir) => {
       mkdirCalls.push(dir);
@@ -268,6 +269,82 @@ describe('dsh-port · ask', () => {
     await new Promise((resolve) => setImmediate(resolve));
     expect(host.listenerCount('session/event')).toBe(0);
     expect(host.listenerCount('agent/assistant-stream')).toBe(0);
+  });
+
+  it('rejects with a TIMEOUT error when the turn never ends', async () => {
+    // 真机事故回归（2026-11-12）：turn/end 收不到 → 流永不结束 →
+    // 通道被单条消息永久堵死。必须有超时兜底。
+    const { host, port } = makePort({ askTimeoutMs: 80 });
+    host.scriptHang({ text: '半截回复' });
+    const sessionId = await port.createSession({ workspaceDir: 'ws/a', name: 'imessage a' });
+
+    const failure = await collectAsk(port.ask({ sessionId, prompt: 'hi' })).catch((e: unknown) => e);
+
+    expect(failure).toMatchObject({ code: 'TIMEOUT' });
+  });
+
+  it('cancels the host turn after a timeout so it stops burning tokens', async () => {
+    const { host, port } = makePort({ askTimeoutMs: 80 });
+    host.scriptHang({ text: '半截' });
+    const sessionId = await port.createSession({ workspaceDir: 'ws/a', name: 'imessage a' });
+
+    await collectAsk(port.ask({ sessionId, prompt: 'hi' })).catch(() => undefined);
+
+    // 超时后宿主侧 turn 被取消（官方类型只承诺裸 Agent，故按运行时面收窄）
+    const live = host.services.agents.get(asHostSessionId(String(sessionId))) as unknown as HostAgent;
+    await live.whenIdle();
+    expect(host.log.some((c) => c.kind === 'agent.cancel')).toBe(true);
+  });
+
+  it('accepts the next ask after a timed-out turn', async () => {
+    // 超时后不能污染后续问答（监听器已卸载、无残留队列）
+    const { host, port } = makePort({ askTimeoutMs: 80 });
+    host.scriptHang({ text: '半截' });
+    const sessionId = await port.createSession({ workspaceDir: 'ws/a', name: 'imessage a' });
+    await collectAsk(port.ask({ sessionId, prompt: 'hi' })).catch(() => undefined);
+
+    host.scriptReply({ text: '好', chunkPauseMs: 0 });
+    const second = await collectAsk(port.ask({ sessionId, prompt: 'again' }));
+
+    expect(second.text).toBe('好');
+    expect(host.listenerCount('session/event')).toBe(0);
+  });
+
+  it('ignores session events belonging to another session', async () => {
+    const { host, port } = makePort();
+    host.scriptReply({ text: '收到', chunkPauseMs: 30 });
+    const sessionId = await port.createSession({ workspaceDir: 'ws/a', name: 'imessage a' });
+
+    const parts: string[] = [];
+    for await (const part of port.ask({ sessionId, prompt: 'hi' })) {
+      parts.push(part);
+      // 他会话的收口事件不能终结本轮
+      host.emitSessionEvent('turn/end', { turn: 1, reason: { kind: 'completed' } }, 'other-session');
+      host.emitSessionEvent('turn/start', { turn: 99 }, 'other-session');
+    }
+
+    expect(parts.join('')).toBe('收到');
+  });
+
+  it('ignores a late turn/end from an earlier turn', async () => {
+    // 超时/取消的上一轮可能迟到收口：不能让它收掉本轮
+    const { host, port } = makePort();
+    const sessionId = await port.createSession({ workspaceDir: 'ws/a', name: 'imessage a' });
+    // 先跑完一轮（turn=1），本轮即 turn=2
+    host.scriptReply({ text: '第一轮', chunkPauseMs: 0 });
+    await collectAsk(port.ask({ sessionId, prompt: 'first' }));
+    host.scriptReply({ text: '本轮回复', chunkPauseMs: 30 });
+
+    const parts: string[] = [];
+    for await (const part of port.ask({ sessionId, prompt: 'hi' })) {
+      parts.push(part);
+      const key = String(sessionId);
+      // 旧轮（turn=1）迟到的收口 + 重复的 turn/start
+      host.emitSessionEvent('turn/end', { turn: 1, reason: { kind: 'aborted' } }, key);
+      host.emitSessionEvent('turn/start', { turn: 1 }, key);
+    }
+
+    expect(parts.join('')).toBe('本轮回复');
   });
 
   it('rejects when the host cancels the turn externally', async () => {

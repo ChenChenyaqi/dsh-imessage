@@ -160,6 +160,18 @@ describe('apply · wiring', () => {
     for (const dispose of disposers) void dispose();
   });
 
+  it('skips the route when the context exposes no inject API', () => {
+    // 防御分支：极简/自定义宿主可能没有 ctx.inject
+    const { ctx, disposers, routes } = makeCtx();
+    // 不能展开 ctx（会触发 connection 的抛错 getter），直接删掉 inject
+    delete (ctx as { inject?: unknown }).inject;
+
+    apply(ctx as never, { locale: 'zh', allowlist: [] }, { probe: failingProbe });
+
+    expect(routes).toEqual([]);
+    expect(disposers).toHaveLength(1); // 仅 channel.stop
+  });
+
   it('treats a non-en locale as zh', () => {
     const { ctx, disposers } = makeCtx();
     // schema 层是宽松 string：非法值应在 apply 处收窄为 zh（i18n 回退一致）

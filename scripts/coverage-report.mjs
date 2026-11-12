@@ -36,8 +36,8 @@ const KNOWN_SKIP = [
   { file: 'host/channel.ts', line: 113, why: 'default openChatDb hits real chat.db (tests inject memory db)' },
   { file: 'host/channel.ts', line: 123, why: 'default makeSender hits real osascript (tests inject fake)' },
   { file: 'host/rpc.ts', line: 126, why: 'defensive fallback: missing host header' },
-  { file: 'host/dsh-port.ts', line: 202, why: 'defensive fallback: abort signal without reason' },
-  { file: 'host/dsh-port.ts', line: 210, why: 'defensive fallback: malformed turn/end error event' },
+  { file: 'host/dsh-port.ts', line: 234, why: 'defensive fallback: abort signal without reason' },
+  { file: 'host/dsh-port.ts', line: 235, why: 'defensive fallback: malformed turn/end error event' },
 ];
 
 const sections = [];

@@ -54,7 +54,17 @@ interface FailureScript {
   readonly failure: HostLlmFailure;
 }
 
-type Script = ReplyScript | FailureScript;
+/**
+ * 卡死脚本：开 turn、吐半截字幕，但**永不发 turn/end**。
+ * 模拟真机事故（2026-11-12）：事件参数形状不匹配时流永不收口，
+ * 通道被单条消息永久堵死。
+ */
+interface HangScript {
+  readonly kind: 'hang';
+  readonly text: string;
+}
+
+type Script = ReplyScript | FailureScript | HangScript;
 
 /** fake 对外的调用台账（断言用）。 */
 export interface FakeHostLogEntry {
@@ -74,11 +84,13 @@ export interface FakeDshHost {
   /** 对齐 ctx.on 的事件订阅：返回卸载函数。 */
   on<E extends HostEventName>(event: E, listener: (...args: HostEventPayloads[E]) => void): () => void;
   /** 手动发射一条持久事件（测试自定义事件用）。 */
-  emitSessionEvent(type: string, data: Record<string, unknown>): void;
+  emitSessionEvent(type: string, data: Record<string, unknown>, sessionId?: string): void;
   /** 编排 followup 后的成功回复（FIFO 消耗）。 */
   scriptReply(input: { readonly text: string; readonly chunkPauseMs?: number }): void;
   /** 编排 followup 后的失败收场（探针实测模式）。 */
   scriptFailure(input: { readonly attempts: number; readonly failure: HostLlmFailure }): void;
+  /** 下一轮永不收口（只发 turn/start + 半截字幕，不发 turn/end）。 */
+  scriptHang(input: { readonly text: string }): void;
   /** 下一次 agents.create 抛错（一次性）。 */
   failNextCreate(error: Error): void;
   /** 下一次 workspace.attachSession 抛错（一次性，适配层回滚测试用）。 */
@@ -155,13 +167,24 @@ export function makeFakeDshHost(): FakeDshHost {
     return () => set.delete(entry);
   }
 
+  // 真宿主事实（源码 + 官方类型）：事件参数是对象不是字符串——
+  // session/event 首参 Session 对象（.id），assistant-stream/status/error
+  // 的 agent 是 Agent 对象（.id）。fake 必须同样传对象，否则"字符串比较"
+  // 这类 bug 在单测里全绿、真机全废（2026-11-12 真实事故）。
+  function sessionRef(sessionId: HostSessionId): HostSessionObject {
+    return { id: sessionId } as unknown as HostSessionObject;
+  }
+  function agentRef(sessionId: HostSessionId): HostBareAgent {
+    return { id: sessionId } as unknown as HostBareAgent;
+  }
+
   function sessionEvent(type: string, data: Record<string, unknown>, sessionId: HostSessionId): void {
     const event = { type, seq: eventSeq++, data } as HostSessionEvent;
-    emit('session/event', sessionId, event);
+    emit('session/event', sessionRef(sessionId), event);
   }
 
   function streamFrame(sessionId: HostSessionId, frame: HostAssistantStreamFrame): void {
-    emit('agent/assistant-stream', { agent: sessionId, frame });
+    emit('agent/assistant-stream', { agent: agentRef(sessionId), frame });
   }
 
   // -- followup 脚本执行 ---------------------------------------------------
@@ -175,8 +198,11 @@ export function makeFakeDshHost(): FakeDshHost {
   async function runScript(record: AgentRecord, script: Script, message: HostUserMessage): Promise<void> {
     const sessionId = record.handle.agent.session.id;
     const turn = ++record.turn;
+    // 真宿主事实：cancel 只作用于**当前活动 turn**；上一轮遗留的取消标记
+    // 不能泄漏到新一轮（否则被取消/超时过的一次问话会连带取消下一次）
+    record.cancelRequested = undefined;
     record.status = 'running';
-    emit('agent/status', { agent: sessionId, status: 'running' });
+    emit('agent/status', { agent: agentRef(sessionId), status: 'running' });
 
     // 入箱 + 开 turn + 领取（探针实测顺序）
     sessionEvent('agent/inbox/spliced', { target: 'inbox', start: 0, inserted: [message] }, sessionId);
@@ -189,9 +215,21 @@ export function makeFakeDshHost(): FakeDshHost {
       extra?.();
       sessionEvent('turn/end', { turn, reason }, sessionId);
       record.status = 'idle';
-      emit('agent/status', { agent: sessionId, status: 'idle' });
+      emit('agent/status', { agent: agentRef(sessionId), status: 'idle' });
       for (const resolve of record.idleWaiters.splice(0)) resolve();
     };
+
+    if (script.kind === 'hang') {
+      streamFrame(sessionId, { type: 'start', attemptId: randomUUID(), revision: 1, turn, step: 1 });
+      streamFrame(sessionId, {
+        type: 'chunk',
+        chunk: { type: 'text-delta', text: script.text },
+      } as HostAssistantStreamFrame);
+      // 刻意不主动收口；只有被 cancel 时才像真宿主那样以 aborted 收尾
+      while (!cancelled()) await pause(5);
+      finishTurn({ kind: 'aborted' });
+      return;
+    }
 
     if (script.kind === 'reply') {
       const attemptId = randomUUID();
@@ -275,7 +313,7 @@ export function makeFakeDshHost(): FakeDshHost {
     finishTurn({ kind: 'error', error: script.failure }, () => {
       // agent/error 事件与 turn 收口同步发生（探针：LlmError + message）
       emit('agent/error', {
-        agent: sessionId,
+        agent: agentRef(sessionId),
         turn,
         step: 1,
         error: { name: 'LlmError', message: script.failure.message, code: script.failure.code },
@@ -433,14 +471,17 @@ export function makeFakeDshHost(): FakeDshHost {
       const record = agents.get(asHostSessionId(sessionId));
       if (record) await record.handle.dispose();
     },
-    emitSessionEvent(type, data) {
-      sessionEvent(type, data, asHostSessionId('(manual)'));
+    emitSessionEvent(type, data, sessionId) {
+      sessionEvent(type, data, asHostSessionId(sessionId ?? '(manual)'));
     },
     scriptReply(input) {
       scripts.push({ kind: 'reply', text: input.text, chunkPauseMs: input.chunkPauseMs ?? 0 });
     },
     scriptFailure(input) {
       scripts.push({ kind: 'failure', ...input });
+    },
+    scriptHang(input) {
+      scripts.push({ kind: 'hang', text: input.text });
     },
     failNextCreate(error) {
       failNext = error;

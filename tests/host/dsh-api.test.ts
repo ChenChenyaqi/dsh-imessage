@@ -331,8 +331,8 @@ describe('fake host · event bus', () => {
   it('delivers events to listeners until disposed', async () => {
     const host = makeFakeDshHost();
     const seen: string[] = [];
-    // session/event 是两参回调 (session, event)，与真宿主一致
-    const dispose = host.on('session/event', (_session: string, e: { type: string }) => seen.push(e.type));
+    // session/event 是两参回调 (Session 对象, event)，与真宿主一致
+    const dispose = host.on('session/event', (_session, e) => seen.push(e.type));
 
     host.emitSessionEvent('custom/one', {});
     dispose();

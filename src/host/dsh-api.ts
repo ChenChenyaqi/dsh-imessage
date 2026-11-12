@@ -231,16 +231,15 @@ export interface HostSessionTitleService {
 // ---------------------------------------------------------------------------
 
 export interface HostEventPayloads {
-  /** 两参回调（源码事实：(session, event)）。 */
-  'session/event': [session: HostSessionId, event: HostSessionEvent];
-  'agent/assistant-stream': [{ agent: HostSessionId; frame: HostAssistantStreamFrame }];
-  'agent/status': [{ agent: HostSessionId; status: 'idle' | 'running' }];
-  'agent/error': [{
-    agent: HostSessionId;
-    turn?: number;
-    step?: number;
-    error: { readonly name?: string; readonly message?: string; readonly code?: string };
-  }];
+  /** 两参回调；首参是 **Session 对象**（不是 id 字符串）——
+   *  官方签名 `(session: Session, event: SessionEvent)`。
+   *  2026-11-12 事故：按字符串比较导致 turn/end 永不匹配、流永不收口。 */
+  'session/event': [session: HostSessionObject, event: HostSessionEvent];
+  /** `{ agent: Agent; frame }`——agent 是 **Agent 对象**（id 在 .id）。 */
+  'agent/assistant-stream': [{ agent: HostBareAgent; frame: HostAssistantStreamFrame }];
+  'agent/status': [{ agent: HostBareAgent; status: 'idle' | 'running' }];
+  /** 官方 error 为 unknown；需要字段时在消费处收窄。 */
+  'agent/error': [{ agent: HostBareAgent; turn: number; step: number; error: unknown }];
 }
 
 export type HostEventName = keyof HostEventPayloads;

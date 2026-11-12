@@ -95,7 +95,17 @@
 | `agent/assistant-stream` | `{agent, frame: AssistantStreamFrame}` | **token 级流**（进程内瞬时，不持久） | :393-401 |
 | `agent/inbox/inserted` / `claimed` / `discarded` | `{agent, message, ...}` | 收件箱变化 | :344-373 |
 | `agent/error` | `{agent, turn, step, error}` | step/turn 失败的实时通知（error 原样对象） | :412-430 |
-| `session/event` | `(session, event: SessionEvent)` | 每条持久事件提交后即发（fire-and-forget） | core/session/src/index.ts:73-85 |
+| `session/event` | `(session: Session 对象, event: SessionEvent)` | 每条持久事件提交后即发（fire-and-forget） | core/session/src/index.ts:73-85 |
+
+> **参数形状实测警告（2026-11-12 事故）**：`session/event` 的首参是
+> **Session 对象**（id 在 `.id`），`agent/assistant-stream`/`agent/status`/
+> `agent/error` 的 `agent` 是 **Agent 对象**（id 在 `.id`）——都不是 id 字符串。
+> 按字符串比较会让事件全部被丢弃：拿不到字幕、`turn/end` 永不匹配、
+> 流永不收口（表现为"DSH 里 AI 回复了，iMessage 收不到"）。
+> 守护：`tests/host/type-compat.test.ts` 对事件参数做编译期兼容断言。
+>
+> **缺口记录**：Step 0 探针当时只记录了 `event` 的形状，忽略了 `session` 参数，
+> 导致该事实未被发现。探针需记录回调**所有**参数的运行时形状（ts 类型 + 关键字段）。
 
 **`AssistantStreamFrame` 三帧**（runtime-types.ts:155-168；生产者 `packages/core/agent-loop/src/assistant-stream.ts:53-111`）：
 

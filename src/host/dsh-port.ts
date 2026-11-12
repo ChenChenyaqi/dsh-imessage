@@ -16,7 +16,7 @@ import { mkdir as fsMkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { asSessionId } from '@/core/types/dsh';
 import type { AskInput, AskStream, DshPort, SessionId, SessionStatus } from '@/core/types/dsh';
-import type { HostAgent, HostMessageId, HostSessionId } from '@/host/dsh-api';
+import type { HostAgent, HostMessageId, HostSessionId, HostSessionObject } from '@/host/dsh-api';
 import type {
   HostAgentsService,
   HostAgentDefaultModelService,
@@ -54,6 +54,9 @@ export interface DshPortServices {
   readonly sessionTitle: HostSessionTitleService;
 }
 
+/** 单次 ask 的收口上限：宿主走失 turn/end 时兜底，防单条消息永久堵死通道。 */
+export const DEFAULT_ASK_TIMEOUT_MS = 180_000;
+
 export interface DshPortDeps {
   readonly services: DshPortServices;
   /** 事件源：真宿主传 ctx（ctx.on），测试传 fake host（签名一致）。 */
@@ -62,6 +65,8 @@ export interface DshPortDeps {
   readonly dataRoot: string;
   /** 递归建目录（默认真 fs；测试注入 no-op）。 */
   readonly mkdir?: (dir: string) => Promise<void>;
+  /** 单次 ask 收口上限（默认 DEFAULT_ASK_TIMEOUT_MS）。 */
+  readonly askTimeoutMs?: number;
 }
 
 /** 事件订阅源（宿主 ctx.on 的最小面；与 fake 的 on 同签名）。 */
@@ -152,15 +157,28 @@ export function makeDshPort(deps: DshPortDeps): DshPort {
       let settled = false;
       let wake: () => void = () => undefined;
 
-      const onEvent = (session: string, event: HostSessionEvent): void => {
-        if (session !== id || event.type !== 'turn/end') return;
-        queue.push({ kind: 'turn-end', reason: (event.data as { reason?: unknown }).reason });
+      // 官方签名：session 是 Session 对象（不是 id 字符串）。
+      // 按 turn 编号隔离：超时/取消的上一轮可能迟到 turn/end，不能让它
+      // 收掉本轮（否则上一次的 aborted 会污染下一次问答）。
+      let myTurn: number | undefined;
+      const onEvent = (session: HostSessionObject, event: HostSessionEvent): void => {
+        if (session.id !== id) return;
+        const data = event.data as { turn?: number; reason?: unknown };
+        if (event.type === 'turn/start') {
+          // 本轮 turn 编号：进入后第一�� turn/start 即本轮
+          if (myTurn === undefined && typeof data.turn === 'number') myTurn = data.turn;
+          return;
+        }
+        if (event.type !== 'turn/end') return;
+        if (myTurn === undefined || data.turn !== myTurn) return; // 迟到的旧轮收口：忽略
+        queue.push({ kind: 'turn-end', reason: data.reason });
         settled = true;
         wake();
       };
+      // 官方 payload：{ agent: Agent 对象, frame }
       const onFrame = (payload: HostEventPayloads['agent/assistant-stream'][number]): void => {
-        const { agent: agentId, frame } = payload;
-        if (agentId !== id || frame.type !== 'chunk') return;
+        const { agent: subject, frame } = payload;
+        if (subject.id !== id || frame.type !== 'chunk') return;
         const chunk = frame.chunk;
         if (chunk.type === 'text-delta' && typeof chunk.text === 'string') {
           queue.push({ kind: 'delta', text: chunk.text });
@@ -175,6 +193,15 @@ export function makeDshPort(deps: DshPortDeps): DshPort {
         agent.cancel({ kind: 'user' });
         wake();
       };
+
+      // 兜底超时：宿主走失 turn/end 时把队列标记为收口并唤醒，
+      // 由循环抛 TIMEOUT（否则流永不结束，通道被这条消息堵死）
+      const timer = setTimeout(() => {
+        settled = true;
+        // 取消宿主侧 turn：不让它继续跑（烧 token、污染会话记录）
+        agent.cancel({ kind: 'user' });
+        wake();
+      }, deps.askTimeoutMs ?? DEFAULT_ASK_TIMEOUT_MS);
 
       const detach = new Set<() => void>();
       detach.add(deps.events.on('session/event', onEvent));
@@ -212,9 +239,14 @@ export function makeDshPort(deps: DshPortDeps): DshPort {
             }
             return; // completed / blocked / max-tokens：正常收口
           }
-          if (settled && queue.length === 0) return;
+          if (settled && queue.length === 0) {
+            // 不变量：settled 只由 turn/end（队列有项）或超时定时器产生，
+            // 故走到这里必然是没有 turn/end 的超时收口
+            throw new DshAskError({ message: 'ask timed out waiting for turn/end', code: 'TIMEOUT' });
+          }
         }
       } finally {
+        clearTimeout(timer);
         for (const dispose of detach) dispose();
       }
     })();
