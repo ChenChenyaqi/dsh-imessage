@@ -33,7 +33,7 @@ interface Harness {
   readonly state: () => import('@/core/types/state').ChannelState;
   readonly sleeps: number[];
   readonly fetchCursors: number[];
-  readonly logLines: Array<{ level: string; event: string }>;
+  readonly logLines: Array<{ level: string; event: string; fields?: Record<string, unknown> }>;
   setMaxRowId(n: number): void;
   /** 一次性注入下一次落盘失败（claim persist 同步抛错 → fatal 分支）。 */
   failNextSave(): void;
@@ -70,11 +70,12 @@ function makeHarness(initialMaxRowId = 4): Harness {
   const logLines: Harness['logLines'] = [];
   let maxRowId = initialMaxRowId;
 
+  // 记录字段：链路日志的断言依赖 guid/key/chars/耗时等
   const log: Logger = {
     debug: () => {},
-    info: (event) => logLines.push({ level: 'info', event }),
-    warn: (event) => logLines.push({ level: 'warn', event }),
-    error: (event) => logLines.push({ level: 'error', event }),
+    info: (event, fields) => logLines.push({ level: 'info', event, ...(fields === undefined ? {} : { fields }) }),
+    warn: (event, fields) => logLines.push({ level: 'warn', event, ...(fields === undefined ? {} : { fields }) }),
+    error: (event, fields) => logLines.push({ level: 'error', event, ...(fields === undefined ? {} : { fields }) }),
   };
 
   return {
@@ -173,6 +174,110 @@ describe('pipeline · happy path', () => {
 });
 
 // ---------------------------------------------------------------------------
+// 全链路可观测性（可定位"卡在哪一步"）
+// ---------------------------------------------------------------------------
+
+/** 取出某个事件的字段（断言用）。 */
+function fieldsOf(h: Harness, event: string): Record<string, unknown> | undefined {
+  return h.logLines.find((l) => l.event === event)?.fields;
+}
+
+describe('pipeline · trace logs', () => {
+  it('records fetch → claim → ask → reply-sent → done for one message', async () => {
+    const h = makeHarness();
+    h.feed([R5({ text: '在吗' })]);
+    h.port.queueAsk({ chunks: ['你好'] });
+
+    await h.run();
+
+    const events = h.logLines.map((l) => l.event);
+    // 顺序即链路：一眼能看出停在哪一步
+    expect(events).toEqual([
+      'pipeline.cursor-initialized',
+      'pipeline.fetch',
+      'pipeline.message-claimed',
+      'pipeline.ask-start',
+      'pipeline.ask-done',
+      'pipeline.reply-sent',
+      'pipeline.message-done',
+    ]);
+
+    expect(fieldsOf(h, 'pipeline.fetch')).toMatchObject({ fetched: 1 });
+    expect(fieldsOf(h, 'pipeline.message-claimed')).toMatchObject({
+      guid: 'm5',
+      rowId: 5,
+      key: '+8613800000000',
+      chars: 2,
+    });
+    // 耗时字段存在且为数字（首字延迟 + 总耗时）
+    const asked = fieldsOf(h, 'pipeline.ask-done');
+    expect(typeof asked?.['firstDeltaMs']).toBe('number');
+    expect(typeof asked?.['totalMs']).toBe('number');
+    expect(fieldsOf(h, 'pipeline.reply-sent')).toMatchObject({ parts: 1, chars: 2 });
+    expect(fieldsOf(h, 'pipeline.message-done')).toMatchObject({ guid: 'm5', rowId: 5 });
+  });
+
+  it('records a skipped message with the reason (answers "why no reply")', async () => {
+    const h = makeHarness();
+    h.feed([
+      makeRow({
+        rowid: 6, guid: 'm6', text: '陌生人',
+        handleText: '+8613900000000', chatGuid: 'iMessage;-;+8613900000000',
+      }),
+    ]);
+
+    await h.run();
+
+    expect(fieldsOf(h, 'pipeline.message-skipped')).toMatchObject({
+      guid: 'm6',
+      rowId: 6,
+      reason: 'not-allowlisted',
+    });
+    // 白名单拒绝不进入 ask 链路
+    expect(h.logLines.some((l) => l.event === 'pipeline.ask-start')).toBe(false);
+  });
+
+  it('records already-seen skips separately from allowlist rejections', async () => {
+    const h = makeHarness();
+    h.mutate((s) => ({ ...s, cursor: 4, seenIds: ['m5'] }));
+    h.feed([R5()]);
+
+    await h.run();
+
+    expect(fieldsOf(h, 'pipeline.message-skipped')).toMatchObject({ reason: 'already-seen' });
+  });
+
+  it('reports firstDeltaMs as null when the reply stream yields nothing', async () => {
+    const h = makeHarness();
+    h.feed([R5()]);
+    h.port.queueAsk({ chunks: [] }); // 空回复：没有首字
+
+    await h.run();
+
+    expect(fieldsOf(h, 'pipeline.ask-done')).toMatchObject({ firstDeltaMs: null, chars: 0 });
+  });
+
+  it('does not log fetch for an empty batch (no 2s heartbeat noise)', async () => {
+    const h = makeHarness();
+    await h.run();
+
+    expect(h.logLines.some((l) => l.event === 'pipeline.fetch')).toBe(false);
+  });
+
+  it('never writes message text into the log (privacy)', async () => {
+    const h = makeHarness();
+    h.feed([R5({ text: '我的银行卡密码是123456' })]);
+    h.port.queueAsk({ chunks: ['收到'] });
+
+    await h.run();
+
+    const dump = JSON.stringify(h.logLines);
+    expect(dump).not.toContain('银行卡');
+    expect(dump).not.toContain('收到');
+  });
+});
+
+// ---------------------------------------------------------------------------
 // 崩溃 / 重启恢复（两次 run = 重启）
 // ---------------------------------------------------------------------------
 
@@ -213,7 +318,7 @@ describe('pipeline · send failure swallows (no retry, no duplicate)', () => {
     expect(result).toEqual({ reason: 'aborted', processed: 1 });
     expect(h.state().cursor).toBe(5);
     expect(h.state().seenIds).toEqual(['m5']); // claim 保留
-    expect(h.logLines).toContainEqual({ level: 'warn', event: 'pipeline.send-failed' });
+    expect(h.logLines).toContainEqual(expect.objectContaining({ level: 'warn', event: 'pipeline.send-failed' }));
   });
 });
 
@@ -228,7 +333,7 @@ describe('pipeline · permission loss stops the loop', () => {
     expect(result).toEqual({ reason: 'permission-stopped', processed: 1 });
     expect(h.state().cursor).toBe(5);
     expect(h.state().seenIds).toEqual(['m5']);
-    expect(h.logLines).toContainEqual({ level: 'error', event: 'pipeline.permission-stopped' });
+    expect(h.logLines).toContainEqual(expect.objectContaining({ level: 'error', event: 'pipeline.permission-stopped' }));
   });
 });
 
@@ -331,7 +436,7 @@ describe('pipeline · bookkeeping', () => {
     const result = await h.run();
 
     expect(result).toEqual({ reason: 'fetch-exhausted', processed: 0 });
-    expect(h.logLines).toContainEqual({ level: 'error', event: 'pipeline.fetch-exhausted' });
+    expect(h.logLines).toContainEqual(expect.objectContaining({ level: 'error', event: 'pipeline.fetch-exhausted' }));
     expect(h.sleeps).toHaveLength(9); // 第 10 次失败直接终止，不再等待
     // 退避节奏：10 → 20 → 40 → …，第 5 次起夹逼在 60s
     expect(h.sleeps.slice(0, 5)).toEqual([10, 20, 40, 80, 160]);
@@ -373,7 +478,7 @@ describe('pipeline · ask retry budget', () => {
     expect(h.sender.sent).toEqual([
       { kind: 'system', address: '+8613800000000', text: UNAVAILABLE_TEXT },
     ]);
-    expect(h.logLines).toContainEqual({ level: 'warn', event: 'pipeline.retry-exhausted' });
+    expect(h.logLines).toContainEqual(expect.objectContaining({ level: 'warn', event: 'pipeline.retry-exhausted' }));
 
     // 后续新消息正常处理（不因历史耗尽受影响）
     h.feed([makeRow({ rowid: 6, guid: 'm6', text: '新消息' })]);
@@ -394,7 +499,7 @@ describe('pipeline · ask retry budget', () => {
     // 终态已落盘，告知失败仅留痕
     expect(h.state().cursor).toBe(5);
     expect(h.state().seenIds).toEqual(['m5']);
-    expect(h.logLines).toContainEqual({ level: 'warn', event: 'pipeline.notify-failed' });
+    expect(h.logLines).toContainEqual(expect.objectContaining({ level: 'warn', event: 'pipeline.notify-failed' }));
   });
 
   it('stops with permission-stopped if the notification hits a permission error', async () => {
@@ -527,7 +632,7 @@ describe('pipeline · edge coverage', () => {
 
     expect(result).toEqual({ reason: 'fatal', processed: 0 });
     expect(h.state().seenIds).toEqual([]); // 账本未被污染
-    expect(h.logLines).toContainEqual({ level: 'error', event: 'pipeline.fatal' });
+    expect(h.logLines).toContainEqual(expect.objectContaining({ level: 'error', event: 'pipeline.fatal' }));
   });
 
   it('persists the piggybacked cursor at batch tail for an all-skipped batch', async () => {

@@ -104,6 +104,13 @@ export function startImessageChannel(
     };
   }
 
+  // 探测通过：把真实探测结果留痕（权限问题的第一现场）
+  log.info('channel.probe-ok', {
+    chatDbPath: probe.chatDbPath,
+    disk: probe.disk.ok,
+    automation: probe.automation.ok,
+  });
+
   // -- 打开 chat.db（探测与打开之间的竞态单独归因） ------------------
   const dbPath = env.chatDbPath ?? defaultChatDbPath();
   let db: DatabaseSync;
@@ -158,6 +165,15 @@ export function startImessageChannel(
     },
   );
 
+  // 启动成功：一行交代生效配置 + 起始水位（排查"配置到底生效没"）
+  log.info('channel.started', {
+    locale: config.locale ?? 'zh',
+    allowlistCount: (config.allowlist ?? []).length,
+    intervalMs: config.intervalMs ?? null,
+    maxBackoffMs: config.maxBackoffMs ?? null,
+    cursor: loadState(stateFile).cursor ?? readMaxRowId(db) ?? 0,
+  });
+
   // pipeline 的 fatal 形态：RunResult 或 reject（首启 cursor-init 落盘
   // 在循环 try 外）——两种都收敛为 stopped 状态，不区分展示
   let status: ChannelStatus = { phase: 'running' };
@@ -167,6 +183,7 @@ export function startImessageChannel(
       if (result.reason !== 'aborted') {
         log.warn('channel.stopped-unexpectedly', { reason: result.reason });
       }
+      log.info('channel.stopped', { reason: result.reason, processed: result.processed });
       return result;
     },
     (error: unknown) => {
@@ -175,6 +192,7 @@ export function startImessageChannel(
       const reason = controller.signal.aborted ? 'aborted' : 'fatal';
       status = { phase: 'stopped', reason };
       if (reason === 'fatal') log.error('channel.fatal', { error: detail });
+      log.info('channel.stopped', { reason });
       throw error;
     },
   );
@@ -185,6 +203,8 @@ export function startImessageChannel(
   const stop = async (): Promise<void> => {
     if (stopped) return;
     stopped = true;
+    // 卸载/禁用/宿主关闭都走这里：先留痕再中止
+    log.info('channel.stop-requested');
     controller.abort();
     try {
       await settled;

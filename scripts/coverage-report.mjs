@@ -38,6 +38,11 @@ const KNOWN_SKIP = [
   { file: 'host/rpc.ts', line: 126, why: 'defensive fallback: missing host header' },
   { file: 'host/dsh-port.ts', line: 234, why: 'defensive fallback: abort signal without reason' },
   { file: 'host/dsh-port.ts', line: 235, why: 'defensive fallback: malformed turn/end error event' },
+  { file: 'core/router/pipeline.ts', line: 121, why: 'defensive: abort always carries a reason' },
+  { file: 'core/router/pipeline.ts', line: 127, why: 'defensive: abort always carries a reason' },
+  { file: 'core/router/pipeline.ts', line: 190, why: 'defensive: thrown values are Errors' },
+  { file: 'core/router/pipeline.ts', line: 197, why: 'defensive: thrown values are Errors' },
+  { file: 'core/router/pipeline.ts', line: 221, why: 'defensive: thrown values are Errors' },
 ];
 
 const sections = [];

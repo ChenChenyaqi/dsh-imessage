@@ -253,6 +253,61 @@ describe('channel · lifecycle', () => {
 });
 
 // ---------------------------------------------------------------------------
+// 生命周期可观测性（加载/启动/停止各一行，定位"卡在哪一步"）
+// ---------------------------------------------------------------------------
+
+describe('channel · lifecycle logs', () => {
+  it('records probe-ok then started with the effective config', async () => {
+    const env = makeEnv();
+
+    const channel = env.start();
+    await waitFor(() => env.logLines.some((l) => l.event === 'channel.started'), 2000);
+    await channel.stop();
+
+    expect(env.logLines).toContainEqual(
+      expect.objectContaining({ level: 'info', event: 'channel.probe-ok' }),
+    );
+    const started = env.logLines.find((l) => l.event === 'channel.started');
+    // 启动行必须能一眼看出生效配置（白名单事故的教训）
+    expect(started).toMatchObject({
+      level: 'info',
+      allowlistCount: 1,
+      intervalMs: expect.any(Number),
+    });
+    expect(started).toHaveProperty('cursor');
+  });
+
+  it('records stop-requested and stopped with the stop reason', async () => {
+    const env = makeEnv();
+    const channel = env.start();
+    await waitFor(() => env.logLines.some((l) => l.event === 'channel.started'), 2000);
+
+    await channel.stop();
+
+    expect(env.logLines).toContainEqual(
+      expect.objectContaining({ level: 'info', event: 'channel.stop-requested' }),
+    );
+    expect(env.logLines).toContainEqual(
+      expect.objectContaining({ level: 'info', event: 'channel.stopped', reason: 'aborted' }),
+    );
+  });
+
+  it('never writes message text into the log (privacy)', async () => {
+    const env = makeEnv();
+    env.host.scriptReply({ text: '收到啦' });
+    const channel = env.start();
+    await waitFor(() => env.logLines.some((l) => l.event === 'pipeline.cursor-initialized'), 1000);
+    env.insertAfterStart('私密内容', 'PRIV-1');
+    await waitFor(() => env.sender.sent.length > 0, 12_000);
+    await channel.stop();
+
+    const dump = JSON.stringify(env.logLines);
+    expect(dump).not.toContain('私密内容');
+    expect(dump).not.toContain('收到啦');
+  }, 15_000);
+});
+
+// ---------------------------------------------------------------------------
 // 端到端
 // ---------------------------------------------------------------------------
 
