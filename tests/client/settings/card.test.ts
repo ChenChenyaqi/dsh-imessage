@@ -18,7 +18,7 @@ import {
   saveSucceeded,
   setAllowlistDraft,
   setLocaleDraft,
-} from '@/client/settings-card';
+} from '@/client/settings/card';
 
 const TEXT = { saveFailed: 'save failed' };
 const PHONE = '+8613800000000';

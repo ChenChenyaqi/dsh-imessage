@@ -1,4 +1,7 @@
-// 设置卡片纯逻辑（Step 2）：白名单文本 ↔ 数组、语言选项、校验、提交。
+// 设置卡片状态机（纯逻辑，零 React、零宿主依赖）。
+//
+// 只做「值 ↔ 状态」的纯变换：白名单文本 ↔ 数组、语言选项、校验、dirty
+// 判定、保存失败收敛。controller（订阅宿主/发写入）在 controller.ts。
 //
 // 刻意不碰 React：组件只做渲染与事件转发，所有判断都在这里单测。
 // 对齐 core 的事实：
@@ -139,6 +142,14 @@ function derive(state: SettingsCardState, saved: {
     warning: entries.length === 0 ? 'empty' : null,
     canSave: !state.saving && !hasInvalid && (localeDirty || allowlistDirty),
   };
+}
+
+/** 用已保存基准重算派生字段（宿主快照变化后调用）。 */
+export function withDerived(
+  state: SettingsCardState,
+  saved: { locale: LocaleOption; allowlist: readonly string[] },
+): SettingsCardState {
+  return derive(state, saved);
 }
 
 /** 改语言草稿。 */

@@ -24,9 +24,13 @@ afterAll(() => {
   for (const dir of tempRoots) rmSync(dir, { recursive: true, force: true });
 });
 
-/** 平台模块表里我们能解析到的真实模块（其余给空桩）。 */
+/** 平台模块表桩：react 用真包，primitives 用最小桩（它是浏览器包，node 直载带 CSS）。 */
 const PLATFORM_TABLE: Record<string, unknown> = {
   react: require_('react'),
+  'react/jsx-runtime': require_('react/jsx-runtime'),
+  '@deepseek-ai/dsh-client-ui-primitives': {
+    Button: () => null,
+  },
 };
 
 interface LoadedRow {
@@ -102,10 +106,15 @@ describe('client bundle · build', () => {
     await buildClientBundle({ root, outfile });
     const code = readFileSync(outfile, 'utf8');
 
-    // react 必须走注入的 require（平台模块表共享实例），不能打进产物
-    expect(code).toContain('require("react")');
+    // 平台模块必须走注入的 require（共享实例），不能打进产物
+    expect(code).toContain('require("react/jsx-runtime")');
+    expect(code).toContain('require("@deepseek-ai/dsh-client-ui-primitives")');
     expect(code).not.toContain('react-dom');
     for (const spec of PLATFORM_EXTERNALS) expect(code).not.toContain(`node_modules/${spec}`);
+    // 产物里出现的每一个 require 目标都必须是平台表内的模块
+    const required = [...code.matchAll(/require\("([^"]+)"\)/gu)].map((match) => match[1]);
+    expect(required.length).toBeGreaterThan(0);
+    for (const spec of required) expect(PLATFORM_EXTERNALS).toContain(spec);
   });
 
   it('never pulls node builtins into the browser bundle', async () => {
