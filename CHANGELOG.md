@@ -6,6 +6,22 @@
 
 ### Added
 
+- **M4 · 插件宿主（MVP 完成 ✅ 2026-11-13）**：cordis apply 生命周期 +
+  Config schema（volatile 热更）、DshPort 的 apiProxy 适配、status 只读
+  RPC（无 connection 服务宿主优雅降级）、官方类型包编译期兼容守护；
+  desktop profile 软链真机验收（一问一答、24h 稳定、重启不丢不重）
+- **设置页**（客户端 UI 插件，`dsh.client` 双面包）：iMessage 卡片——
+  系统提示语言、白名单（标签式增删 + 实时校验）、分段回复（开关 +
+  最大分段数 + 延时系数）；UI 保存原子写 patch 并热生效；关闭设置页
+  即丢弃未保存草稿
+- **分段回复可配置**：默认关（整段直发零等待）；开启时按行分段、
+  超上限并入末段、打字延迟 × 系数（乘后夹逼 ≤5s；0 = 分段不延时）；
+  每段前均等待（含末段，真人连发节奏）
+- **全链路日志**：生命周期（probe/started/stop）+ 单条消息链路
+  （fetch→claim→ask→reply→done）；配置热更留痕；正文永不入日志
+- **真机 e2e**：Playwright + 系统 Chrome，隔离 DSH_HOME 自动清理，
+  ~4 秒跑完设置页全流程
+
 - **M3 · 内核接线**：DshPort 契约与可编程 fake、session-router（懒验证三态/
   预绑定事务/串行锁）、gate（白名单 + 幂等 claim/unmark）、pipeline
   （at-most-once 状态机、ask 重试预算、send 失败不重试、权限失效停机、

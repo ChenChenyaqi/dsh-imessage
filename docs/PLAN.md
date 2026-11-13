@@ -72,14 +72,68 @@ src/
 - pipeline：组装单向流；轮询调度、abort、单条消息失败不中断循环；**ask 重试预算（定案 B+）**：单进程内 3 连败 → 吞 + 系统告知（不堵塞通道），重启清零；**崩溃语义定案：at-most-once（防重复 > 防丢）**——claim 先落盘，崩溃窗口内可能吞一条（用户重发即愈），绝不重复回复；send 失败不重试不重复回复（定案）
 - **验收**：fake DshPort 的内核集成测试全链路绿；崩溃/重启恢复测试（不重为硬保证，不丢在 at-most-once 窗口内让位于防重复）✅ 2026-11 完成，224 测试全绿（DshPort 契约 + fake、session-router、gate、pipeline、崩溃恢复矩阵）
 
-### M4 · 插件宿主 → **MVP 完成**
+### M4 · 插件宿主 → **MVP 完成 ✅ 2026-11-13**
 - host/cordis：apply() 生命周期；DshPort 的 apiProxy 适配（session.create/rename/history/ask 流式回复）
 - 最小管理 RPC（连接/权限状态，供设置页用）
 - pnpm link 进 desktop profile 真机联调
-- **验收**：desktop 内安装后，白名单手机号一问一答稳定；连续运行 24h；重启不丢不重
+- **验收**：desktop 内安装后，白名单手机号一问一答稳定；连续运行 24h；重启不丢不重 ✅（24h 观察无 error，cursor 一致，见日志体检记录）
 - **切换流程**：上线前先停 dsh-im 的 iMessage bot（避免双端抢消息），白名单手动迁移
+- **超额完成**：设置页客户端 UI（语言/白名单/分段回复，volatile 热更）、
+  全链路结构化日志、Playwright 真机 e2e（隔离宿主 ~4s）、官方类型包兼容守护
 
-### M5+ · 迭代池（顺序到时排）
+### M5 · 人设（agent preset，优先）✅ 方案定案 2026-11-13
+- **内置预设包（方案 A：双包同仓）**：`preset/` 子目录独立本地包
+  （`dsh.bundle.patch`），大肥鱼人设原样搬入（`dsh-persona` prefix/suffix +
+  工具组合，id `dafeiyu`）；预设零代码、纯补丁层；后续探针验证单包
+  双条目（main + bundle.patch）后可合并为方案 B
+- **选择机制**：Config 加 `agentPreset`（volatile，默认 `dafeiyu`）；
+  `DshPort.createSession` 走 compose 路径把预设 id 传进会话创建
+  （DSH 事实：composition 创建时定格，`agent-preset/locked`；只传
+  `meta.agentPreset` 不会应用组合——必须 compose）
+- **降级链**：roster 无 `dafeiyu`（预设包未装）→ 回退宿主默认 +
+  `channel.started` 标注 `presetFallback`；设置页下拉同步隐藏
+- **设置页**：预设下拉（name + 默认标记 + broken 置灰，动态读 roster）；
+  更换仅对新会话生效（hint 说明；会话记忆在工作区文件，不丢）
+- **开工探针**：① `agentPresets` 服务注入语义（动态 get 降级）
+  ② compose 路径：registry 直连 setup vs `session.create` RPC
+  ③ 方案 B 单包双条目可行性（顺手，不阻塞 A）
+- 验收：真机装插件+预设两包，新会话以大肥鱼人设回复；卸预设包后
+  自动回退宿主默认并留痕；设置页切换预设只影响新会话
+
+### M6 · 媒体收发（对齐 dsh-im v5.10.0 后的主线，先实测再写码）
+- **收图**：chat.db attachment JOIN → 导出转码（HEIC 自动转 JPEG，sips 可注入）；
+  图片以内容块进 ask，不注入标注与文件清单（dsh-im ce9d0a52/5e6e1698 定案）
+- **发图/发文件**：osascript 附件发送；**附件暂存**是关键坑——必须落在
+  Messages 可读的临时目录、且在 Messages 摄取完成前不得删除
+  （dsh-im 602ff8a6/f636c845 连续两修）；引用展示用 Messages 自己的副本
+  而非源文件（95a571f0）
+- **引用回复**：接收侧线程化引用回复归一化（91501597）；回复引用携带
+  对方消息里的图片（33466aac）
+- 验收：真机收发图/文件各一条；HEIC 转码；附件不残留
+
+### M7 · 身份与上下文
+- 把"正在跟谁说话"（白名单号码 → 联系人名/自定义称呼）注入会话上下文
+  （dsh-im 7fe9f4be）；联系人来源与隐私边界开工时定案
+- 评估：贴纸集等轻量上下文（c90abcda）是否纳入
+
+### M8 · 命令与交互打磨
+- slash 命令回执合并为单条气泡（47def401）；/help 全量列命令（eb657c57）
+- 产品定案项：system 路径的 `[dsh] ` 前缀去留（dsh-im 已移除机器人前缀
+  642ad21b；我们当前定案是保留以区分系统消息——需重审）
+
+### M9 · 主动关怀（独立产品方向，需单独设计再排期）
+- spontaneous outreach：情绪/动机/安静时段（ac986877）；
+  every 区间硬上限（a47098a5）、强制唤醒绕过安静窗且节奏中性
+  （df8a26c3/0979ebeb）、slash 不重置安静钟（0e8b2969）
+- 主动外发可携带文件（ef0d2af6）；后台轮次（日程提醒）中继到绑定会话
+  （0facfec5/d2132d01）
+- 复杂度高、与 DSH 后台任务机制耦合深：开题前先出设计文档拍板
+
+### 已覆盖、无需规划（对照 dsh-im v5.10.0 后提交）
+分段发送 + 拟人延迟（我们且已可配置）；显式白名单（bb96f094）；
+策略拒绝留痕（4b264fc4，我们的 message-skipped 日志）；单文件链路日志
+（269fa94e）；设置页保存免重启（b6f29820）；workspace 重复建会话
+（08aae795，我们的 session-router 预绑定事务设计已规避）
 - P1：收图（HEIC→JPEG via sips）、引用回复注入 prompt、发文件（macOS 26 `send POSIX file`）、`/help` `/new` `/sessions` `/bind` 命令（`/sessions` 只列发起者 bindHistory 内的会话、`/bind` 只能切到台账内目标；切换手机号绑定的 DSH 会话，记忆跟会话走、工作区不变）、联系人备注上下文、会话标题
 - P2：companion（scheduler / motives / mood / controller，状态持久化）、表情包上下文、设置页 UI（权限引导 / 白名单 / 参数表单热更新 / **会话绑定可视化切换**）、模型选择
 
