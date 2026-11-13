@@ -23,7 +23,10 @@ import {
   save,
   saveFailed,
   saveSucceeded,
+  setChunkedDraft,
+  setDelayFactorDraft,
   setLocaleDraft,
+  setMaxChunksDraft,
   updateAddDraft,
 } from '@/client/settings/card';
 
@@ -232,6 +235,124 @@ describe('settings card · remove entry', () => {
   });
 });
 
+describe('settings card · chunked replies', () => {
+  it('defaults the style fields from the host snapshot', () => {
+    const state = initialState({ value: { locale: 'zh', allowlist: [PHONE] } });
+
+    expect(state.chunked).toEqual({ draft: false, dirty: false });
+    expect(state.maxChunks.draft).toBe('8');
+    expect(state.delayFactor.draft).toBe('1');
+    expect(state.maxChunksError).toBe(false);
+    expect(state.delayFactorError).toBe(false);
+  });
+
+  it('reads configured values back', () => {
+    const state = initialState({
+      value: { locale: 'zh', allowlist: [PHONE], chunkedReplies: true, maxChunks: 3, delayFactor: 0 },
+    });
+
+    expect(state.chunked.draft).toBe(true);
+    expect(state.maxChunks.draft).toBe('3');
+    expect(state.delayFactor.draft).toBe('0');
+  });
+
+  it('toggling on marks dirty and becomes savable', () => {
+    const state = initialState({ value: { locale: 'zh', allowlist: [PHONE] } });
+
+    const next = setChunkedDraft(state, true, saved);
+
+    expect(next.chunked.dirty).toBe(true);
+    expect(next.canSave).toBe(true);
+  });
+
+  it('rejects invalid maxChunks drafts while chunking is on', () => {
+    // 1..50 的整数才合法：0 / 负数 / 小数 / 非数字都不行
+    const base = setChunkedDraft(initialState({ value: { locale: 'zh', allowlist: [PHONE] } }), true, saved);
+    for (const bad of ['0', '-1', '2.5', 'abc', '']) {
+      expect(setMaxChunksDraft(base, bad, saved).maxChunksError).toBe(true);
+    }
+    // 合法边界
+    expect(setMaxChunksDraft(base, '1', saved).maxChunksError).toBe(false);
+    expect(setMaxChunksDraft(base, '50', saved).maxChunksError).toBe(false);
+  });
+
+  it('rejects invalid delayFactor drafts while chunking is on', () => {
+    // 0..5 的数字（小数可以）；0 = 分段不延时
+    const base = setChunkedDraft(initialState({ value: { locale: 'zh', allowlist: [PHONE] } }), true, saved);
+    for (const bad of ['-0.1', '5.5', 'abc', '']) {
+      expect(setDelayFactorDraft(base, bad, saved).delayFactorError).toBe(true);
+    }
+    expect(setDelayFactorDraft(base, '0', saved).delayFactorError).toBe(false);
+    expect(setDelayFactorDraft(base, '2.5', saved).delayFactorError).toBe(false);
+    expect(setDelayFactorDraft(base, '5', saved).delayFactorError).toBe(false);
+  });
+
+  it('blocks saving while a style field is invalid', () => {
+    const base = setChunkedDraft(initialState({ value: { locale: 'zh', allowlist: [PHONE] } }), true, saved);
+    const invalid = setMaxChunksDraft(base, 'abc', saved);
+
+    expect(invalid.canSave).toBe(false);
+    expect(setMaxChunksDraft(invalid, '8', saved).canSave).toBe(true);
+  });
+
+  it('clears style errors when chunking is toggled off', () => {
+    // 开关关掉后子输入不可见，残留的校验错误必须清掉（否则保存被永久卡死）
+    const base = setChunkedDraft(initialState({ value: { locale: 'zh', allowlist: [PHONE] } }), true, saved);
+    const invalid = setMaxChunksDraft(base, 'abc', saved);
+
+    const off = setChunkedDraft(invalid, false, saved);
+
+    expect(off.maxChunksError).toBe(false);
+    expect(off.delayFactorError).toBe(false);
+    // 关回原值 = 不再 dirty
+    expect(off.chunked.dirty).toBe(false);
+    expect(off.canSave).toBe(false);
+  });
+
+  it('does not validate number fields while chunking is off', () => {
+    // 关着的时候草稿里是什么都无所谓（输入框都不可见）
+    const state = setMaxChunksDraft(initialState({ value: { locale: 'zh', allowlist: [PHONE] } }), 'abc', saved);
+
+    expect(state.maxChunksError).toBe(false);
+  });
+
+  it('save writes all three style fields in one mutation', async () => {
+    const { form, calls } = makeForm(true);
+    const state = setDelayFactorDraft(
+      setMaxChunksDraft(
+        setChunkedDraft(initialState({ value: { locale: 'zh', allowlist: [PHONE] } }), true, saved),
+        '5',
+        saved,
+      ),
+      '0',
+      saved,
+    );
+
+    await save(
+      { form, texts: TEXT, readSnapshot: () => ({}) },
+      state,
+      saved,
+    );
+
+    expect(calls[0]).toContainEqual({ op: 'set', path: ['chunkedReplies'], value: true });
+    expect(calls[0]).toContainEqual({ op: 'set', path: ['maxChunks'], value: 5 });
+    expect(calls[0]).toContainEqual({ op: 'set', path: ['delayFactor'], value: 0 });
+  });
+
+  it('refuses to write while a style field is invalid', async () => {
+    const { form, calls } = makeForm(true);
+    const state = setMaxChunksDraft(
+      setChunkedDraft(initialState({ value: { locale: 'zh', allowlist: [PHONE] } }), true, saved),
+      'abc',
+      saved,
+    );
+
+    await save({ form, texts: TEXT, readSnapshot: () => ({}) }, state, saved);
+
+    expect(calls).toHaveLength(0);
+  });
+});
+
 describe('settings card · saving', () => {
   it('writes locale and allowlist in one atomic mutation', async () => {
     const { form, calls } = makeForm(true);
@@ -251,6 +372,9 @@ describe('settings card · saving', () => {
     expect(calls[0]).toEqual([
       { op: 'set', path: ['locale'], value: 'zh' },
       { op: 'set', path: ['allowlist'], value: [PHONE, PHONE_2] },
+      { op: 'set', path: ['chunkedReplies'], value: false },
+      { op: 'set', path: ['maxChunks'], value: 8 },
+      { op: 'set', path: ['delayFactor'], value: 1 },
     ]);
     // 成功后以新快照为准：dirty 归零、错误清空
     expect(next.allowlist.dirty).toBe(false);

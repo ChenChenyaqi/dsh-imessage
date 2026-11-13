@@ -14,6 +14,12 @@ export interface PluginConfig {
   readonly locale: 'zh' | 'en';
   /** chat.db 轮询间隔（毫秒）。 */
   readonly pollIntervalMs: number;
+  /** 分段回复开关（默认关：整段直发、零等待）。 */
+  readonly chunkedReplies: boolean;
+  /** 最大分段数（超出部分并入最后一段；1..50）。 */
+  readonly maxChunks: number;
+  /** 延时系数（0 = 分段但不延时；0..5，1 = 实测节奏原速）。 */
+  readonly delayFactor: number;
 }
 
 /** 各字段默认值（Schemastery schema 的 default 与此保持一致）。 */
@@ -21,4 +27,7 @@ export const DEFAULT_CONFIG: PluginConfig = Object.freeze({
   allowlist: [],
   locale: 'zh',
   pollIntervalMs: 2000,
+  chunkedReplies: false,
+  maxChunks: 8,
+  delayFactor: 1,
 });

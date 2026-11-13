@@ -19,7 +19,10 @@ import {
   beginAdd,
   initialState,
   removeEntry,
+  setChunkedDraft,
+  setDelayFactorDraft,
   setLocaleDraft,
+  setMaxChunksDraft,
   updateAddDraft,
   type SettingsCardState,
 } from '@/client/settings/card';
@@ -40,6 +43,13 @@ const text = {
   invalidNumber: 'Not a valid phone number (needs country code, e.g. +8613800000000)',
   duplicateNumber: 'This number is already in the list',
   removeEntry: 'Remove',
+  chunkedLabel: 'Chunked replies',
+  chunkedHint: 'On: split into bubbles with human pacing. Off: send as one message.',
+  maxChunksLabel: 'Max chunks',
+  maxChunksErrorText: 'Must be an integer between 1 and 50',
+  delayFactorLabel: 'Delay factor',
+  delayFactorHint: '0 = chunks without delay',
+  delayFactorErrorText: 'Must be a number between 0 and 5 (0 = no delay)',
   confirmAdd: 'Add',
   cancel: 'Cancel',
   save: 'Save',
@@ -92,6 +102,9 @@ function makeProps(state: SettingsCardState, overrides: Record<string, unknown> 
     onConfirmAdd: vi.fn(),
     onCancelAdd: vi.fn(),
     onRemoveEntry: vi.fn(),
+    onChunkedChange: vi.fn(),
+    onMaxChunksChange: vi.fn(),
+    onDelayFactorChange: vi.fn(),
     onSave: vi.fn(),
     ...overrides,
   };
@@ -270,6 +283,80 @@ describe('settings card view · add row', () => {
 
     expect(textOf(tree)).not.toContain(text.invalidNumber);
     expect(textOf(tree)).not.toContain(text.duplicateNumber);
+  });
+});
+
+/** 开启分段且已改动的状态。 */
+function chunkedState(): SettingsCardState {
+  return setChunkedDraft(initialState({ value: { locale: 'zh', allowlist: [PHONE] } }), true, saved);
+}
+
+describe('settings card view · chunked replies', () => {
+  it('renders the toggle with its hint and no number inputs when off', () => {
+    const tree = SettingsCardView(makeProps(initialState({ value: { locale: 'zh', allowlist: [PHONE] } })));
+
+    const checkbox = find(tree, 'input')[0];
+    expect(checkbox?.props['type']).toBe('checkbox');
+    expect(checkbox?.props['checked']).toBe(false);
+    expect(textOf(tree)).toContain(text.chunkedHint);
+    // 子配置项不出现（收起）
+    expect(textOf(tree)).not.toContain(text.maxChunksLabel);
+    expect(textOf(tree)).not.toContain(text.delayFactorLabel);
+  });
+
+  it('forwards toggle changes', () => {
+    const onChunkedChange = vi.fn();
+    const tree = SettingsCardView(makeProps(initialState({ value: { locale: 'zh', allowlist: [PHONE] } }), { onChunkedChange }));
+
+    const checkbox = find(tree, 'input').find((input) => input.props['type'] === 'checkbox');
+    (checkbox!.props['onChange'] as (event: { target: { checked: boolean } }) => void)({ target: { checked: true } });
+
+    expect(onChunkedChange).toHaveBeenCalledWith(true);
+  });
+
+  it('shows both number inputs with values when on', () => {
+    const tree = SettingsCardView(makeProps(chunkedState()));
+
+    expect(textOf(tree)).toContain(text.maxChunksLabel);
+    expect(textOf(tree)).toContain(text.delayFactorLabel);
+    const numbers = find(tree, Input).filter((input) => input.props['type'] === 'number');
+    expect(numbers.map((input) => input.props['value'])).toEqual(['8', '1']);
+  });
+
+  it('forwards number input edits', () => {
+    const onMaxChunksChange = vi.fn();
+    const onDelayFactorChange = vi.fn();
+    const tree = SettingsCardView(makeProps(chunkedState(), { onMaxChunksChange, onDelayFactorChange }));
+
+    const numbers = find(tree, Input).filter((input) => input.props['type'] === 'number');
+    (numbers[0]!.props['onChange'] as (event: { target: { value: string } }) => void)({ target: { value: '5' } });
+    expect(onMaxChunksChange).toHaveBeenCalledWith('5');
+    (numbers[1]!.props['onChange'] as (event: { target: { value: string } }) => void)({ target: { value: '0' } });
+    expect(onDelayFactorChange).toHaveBeenCalledWith('0');
+  });
+
+  it('shows red validation under the number inputs and disables saving', () => {
+    const state = setMaxChunksDraft(chunkedState(), 'abc', saved);
+    const tree = SettingsCardView(makeProps(state));
+
+    expect(textOf(tree)).toContain(text.maxChunksErrorText);
+    const saveButton = find(tree, Button).find((button) => textOf(button) === text.save);
+    expect(saveButton?.props['disabled']).toBe(true);
+  });
+
+  it('shows the delay factor validation message for a bad factor', () => {
+    const state = setDelayFactorDraft(chunkedState(), '9', saved);
+    const tree = SettingsCardView(makeProps(state));
+
+    expect(textOf(tree)).toContain(text.delayFactorErrorText);
+  });
+
+  it('hides validation messages when the toggle is off', () => {
+    // 开关关掉 = 子输入不可见 = 校验错误也不该出现
+    const state = setChunkedDraft(setMaxChunksDraft(chunkedState(), 'abc', saved), false, saved);
+    const tree = SettingsCardView(makeProps(state));
+
+    expect(textOf(tree)).not.toContain(text.maxChunksErrorText);
   });
 });
 

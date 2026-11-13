@@ -28,7 +28,7 @@
 import type { ChatDbRow } from '../imessage/chatdb';
 import { normalizeRows } from '../imessage/normalize';
 import type { ImessageSender, SendError } from '../imessage/sender';
-import { sendHumanized } from '../imessage/humanize';
+import { sendHumanized, LEGACY_STYLE, type ReplyStyle } from '../imessage/humanize';
 import type { Logger } from '../log/jsonl';
 import type { AccessPolicy } from '../types/policy';
 import type { DshPort } from '../types/dsh';
@@ -59,6 +59,8 @@ export interface PipelineDeps {
   readonly sessionSwitchedText: string;
   /** 重试耗尽告知文案（i18n 已渲染）。 */
   readonly replyUnavailableText: string;
+  /** 回复风格（分段开关/上限/延时系数）。用时读 → UI 热改立即生效。 */
+  readonly replyStyle?: () => ReplyStyle;
   readonly loadState: () => ChannelState;
   readonly saveState: (state: ChannelState) => void;
   readonly log?: Pick<Logger, 'info' | 'warn' | 'error'>;
@@ -175,7 +177,12 @@ export async function runPipeline(
       });
       const sendStart = now();
       // 打字延迟等待复用注入的 sleep（测试假钟；生产同款 abort 语义）
-      const parts = await sendHumanized(sender, key, reply, { signal, deps: { sleep } });
+      // 风格与时序同源热更：不注入时保留历史行为（分段、不封顶、原速）
+      const parts = await sendHumanized(sender, key, reply, {
+        signal,
+        deps: { sleep },
+        style: deps.replyStyle?.() ?? LEGACY_STYLE,
+      });
       log?.info('pipeline.reply-sent', {
         guid,
         parts,

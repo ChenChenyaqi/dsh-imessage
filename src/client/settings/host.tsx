@@ -47,6 +47,9 @@ export function CardHost(props: CardHostProps) {
       onConfirmAdd={() => props.controller.confirmAdd()}
       onCancelAdd={() => props.controller.cancelAdd()}
       onRemoveEntry={(index: number) => props.controller.removeEntry(index)}
+      onChunkedChange={(value: boolean) => props.controller.setChunkedDraft(value)}
+      onMaxChunksChange={(value: string) => props.controller.setMaxChunksDraft(value)}
+      onDelayFactorChange={(value: string) => props.controller.setDelayFactorDraft(value)}
       onSave={() => void props.controller.save()}
     />
   );

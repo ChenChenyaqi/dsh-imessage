@@ -18,7 +18,10 @@ import {
   readLocale,
   removeEntry,
   save,
+  setChunkedDraft,
+  setDelayFactorDraft,
   setLocaleDraft,
+  setMaxChunksDraft,
   updateAddDraft,
   withDerived,
   type CardTexts,
@@ -46,6 +49,9 @@ export interface CardController {
   confirmAdd(): void;
   cancelAdd(): void;
   removeEntry(index: number): void;
+  setChunkedDraft(value: boolean): void;
+  setMaxChunksDraft(value: string): void;
+  setDelayFactorDraft(value: string): void;
   /** 丢弃草稿回到宿主已保存值（视图卸载时调用：关页 = 不保存）。 */
   reset(): void;
   save(): Promise<void>;
@@ -74,7 +80,13 @@ export function createCardController(deps: {
   /** 已保存基准（dirty 比较用）。 */
   const savedNow = () => {
     const snapshot = deps.form.getSnapshot();
-    return { locale: readLocale(snapshot), allowlist: readAllowlist(snapshot) };
+    return {
+      locale: readLocale(snapshot),
+      allowlist: readAllowlist(snapshot),
+      chunkedReplies: snapshot.value?.['chunkedReplies'] === true,
+      maxChunks: typeof snapshot.value?.['maxChunks'] === 'number' ? snapshot.value?.['maxChunks'] as number : 8,
+      delayFactor: typeof snapshot.value?.['delayFactor'] === 'number' ? snapshot.value?.['delayFactor'] as number : 1,
+    };
   };
 
   // 宿主推来新值：重算 dirty，但保留用户正在编辑的草稿（不冲掉输入）
@@ -86,6 +98,9 @@ export function createCardController(deps: {
         ...next,
         locale: state.locale.dirty ? state.locale : next.locale,
         allowlist: state.allowlist.dirty ? state.allowlist : next.allowlist,
+        chunked: state.chunked.dirty ? state.chunked : next.chunked,
+        maxChunks: state.maxChunks.dirty ? state.maxChunks : next.maxChunks,
+        delayFactor: state.delayFactor.dirty ? state.delayFactor : next.delayFactor,
         adding: state.adding,
         saving: state.saving,
         error: state.error,
@@ -126,6 +141,18 @@ export function createCardController(deps: {
     },
     removeEntry(index) {
       state = removeEntry(state, index, savedNow());
+      emit();
+    },
+    setChunkedDraft(value) {
+      state = setChunkedDraft(state, value, savedNow());
+      emit();
+    },
+    setMaxChunksDraft(value) {
+      state = setMaxChunksDraft(state, value, savedNow());
+      emit();
+    },
+    setDelayFactorDraft(value) {
+      state = setDelayFactorDraft(state, value, savedNow());
       emit();
     },
     reset() {

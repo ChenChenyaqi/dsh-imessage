@@ -200,6 +200,9 @@ describe('settings card · mounted', () => {
     expect(app.form.writes).toEqual([[
       { op: 'set', path: ['locale'], value: 'zh' },
       { op: 'set', path: ['allowlist'], value: [PHONE, '+8613900000000'] },
+      { op: 'set', path: ['chunkedReplies'], value: false },
+      { op: 'set', path: ['maxChunks'], value: 8 },
+      { op: 'set', path: ['delayFactor'], value: 1 },
     ]]);
     app.unmount();
   });
@@ -244,6 +247,9 @@ describe('settings card · mounted', () => {
     expect(app.form.writes).toEqual([[
       { op: 'set', path: ['locale'], value: 'en' },
       { op: 'set', path: ['allowlist'], value: [PHONE] },
+      { op: 'set', path: ['chunkedReplies'], value: false },
+      { op: 'set', path: ['maxChunks'], value: 8 },
+      { op: 'set', path: ['delayFactor'], value: 1 },
     ]]);
     app.unmount();
   });
@@ -269,6 +275,27 @@ describe('settings card · mounted', () => {
 
     // 未保存的删除被丢弃：两个 chip 都在
     expect(Array.from(reopened.querySelectorAll('button[aria-label="删除"]'))).toHaveLength(2);
+    app.unmount();
+  });
+
+  it('writes the chunked replies style when toggled on and saved', async () => {
+    const app = mount({ allowlist: [PHONE] });
+
+    await act(async () => {
+      const box = app.container.querySelector('input[type="checkbox"]') as HTMLInputElement;
+      const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'checked')?.set;
+      setter?.call(box, true);
+      box.dispatchEvent(new Event('click', { bubbles: true }));
+    });
+    await act(async () => {
+      findButton(app.container, '保存').click();
+    });
+
+    // 一次提交带全部三个风格字段（数字以数字写入）
+    const write = app.form.writes.at(-1) as Array<{ op: string; path: string[]; value: unknown }>;
+    expect(write).toContainEqual({ op: 'set', path: ['chunkedReplies'], value: true });
+    expect(write).toContainEqual({ op: 'set', path: ['maxChunks'], value: 8 });
+    expect(write).toContainEqual({ op: 'set', path: ['delayFactor'], value: 1 });
     app.unmount();
   });
 

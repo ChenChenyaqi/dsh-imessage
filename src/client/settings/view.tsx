@@ -27,6 +27,13 @@ export interface SettingsCardText {
   readonly invalidNumber: string;
   readonly duplicateNumber: string;
   readonly removeEntry: string;
+  readonly chunkedLabel: string;
+  readonly chunkedHint: string;
+  readonly maxChunksLabel: string;
+  readonly maxChunksErrorText: string;
+  readonly delayFactorLabel: string;
+  readonly delayFactorHint: string;
+  readonly delayFactorErrorText: string;
   readonly save: string;
   readonly saving: string;
   readonly loading: string;
@@ -41,6 +48,9 @@ export interface SettingsCardViewProps {
   readonly onConfirmAdd: () => void;
   readonly onCancelAdd: () => void;
   readonly onRemoveEntry: (index: number) => void;
+  readonly onChunkedChange: (value: boolean) => void;
+  readonly onMaxChunksChange: (value: string) => void;
+  readonly onDelayFactorChange: (value: string) => void;
   readonly onSave: () => void;
 }
 
@@ -197,6 +207,57 @@ export function SettingsCardView(props: SettingsCardViewProps) {
           </div>
         )}
         <span style={hintStyle}>{text.allowlistHint}</span>
+      </div>
+
+      <div style={fieldStyle}>
+        <label style={{ ...labelStyle, display: 'flex', alignItems: 'center', gap: '8px' }}>
+          {/* 原生 checkbox：primitives 没有 Switch；样式走令牌 */}
+          <input
+            type="checkbox"
+            checked={state.chunked.draft}
+            style={{ accentColor: 'var(--dsw-alias-label-primary)' }}
+            onChange={(event: ChangeEvent<HTMLInputElement>) => {
+              props.onChunkedChange(event.target.checked);
+            }}
+          />
+          {text.chunkedLabel}
+        </label>
+        <span style={hintStyle}>{text.chunkedHint}</span>
+        {state.chunked.draft && (
+          <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+            <label style={{ ...fieldStyle, flex: '1 1 120px', marginBottom: 0 }}>
+              <span style={labelStyle}>{text.maxChunksLabel}</span>
+              <Input
+                type="number"
+                min={1}
+                max={50}
+                step={1}
+                value={state.maxChunks.draft}
+                aria-invalid={state.maxChunksError}
+                onChange={(event: ChangeEvent<HTMLInputElement>) => {
+                  props.onMaxChunksChange(event.target.value);
+                }}
+              />
+              {state.maxChunksError && <p style={errorStyle}>{text.maxChunksErrorText}</p>}
+            </label>
+            <label style={{ ...fieldStyle, flex: '1 1 120px', marginBottom: 0 }}>
+              <span style={labelStyle}>{text.delayFactorLabel}</span>
+              <Input
+                type="number"
+                min={0}
+                max={5}
+                step={0.1}
+                value={state.delayFactor.draft}
+                aria-invalid={state.delayFactorError}
+                onChange={(event: ChangeEvent<HTMLInputElement>) => {
+                  props.onDelayFactorChange(event.target.value);
+                }}
+              />
+              <span style={hintStyle}>{text.delayFactorHint}</span>
+              {state.delayFactorError && <p style={errorStyle}>{text.delayFactorErrorText}</p>}
+            </label>
+          </div>
+        )}
       </div>
 
       {state.error !== null && <p style={errorStyle}>{state.error}</p>}

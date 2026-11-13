@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  capParts,
   computeTypingDelayMs,
   defaultSleep,
   HUMANIZE_DEFAULTS,
@@ -132,6 +133,7 @@ describe('sendHumanized', () => {
     expect(h.sends.every((s) => s.address === '+8613800000000')).toBe(true);
     // 首段 '第一行'（3 字）：rand(600,1800)=1200 + 750 打字 = 1950，jitter 1
     // 第二段 '第二行'（3 字）：250 + 750 = 1000，jitter 1
+    // 每段前都等待（含末段）：真人连发两条之间也有打字间隔（定案 A）
     expect(h.sleeps).toEqual([1950, 1000]);
   });
 
@@ -142,7 +144,7 @@ describe('sendHumanized', () => {
       random: () => 0.5,
     });
     expect(h.sends.map((s) => s.text)).toEqual(['看：', '```js\nconst a=1;\n```']);
-    expect(h.sleeps[1]).toBe(550); // 粘贴延迟
+    expect(h.sleeps[1]).toBe(550); // 末段（代码块）同样有粘贴延迟
   });
 
   it('propagates send failures after earlier parts already went out', async () => {
@@ -165,6 +167,113 @@ describe('sendHumanized', () => {
     ).rejects.toThrow();
     expect(h.sends).toHaveLength(0);
     expect(h.sleeps).toHaveLength(0);
+  });
+});
+
+describe('capParts', () => {
+  it('merges the overflow tail into the last chunk', () => {
+    // 5 段限 3 段：前 2 段原样，剩余 3 段合并进最后一段（换行连接）
+    expect(capParts(['a', 'b', 'c', 'd', 'e'], 3)).toEqual(['a', 'b', 'c\nd\ne']);
+  });
+
+  it('keeps the list as-is when within the cap', () => {
+    expect(capParts(['a', 'b'], 8)).toEqual(['a', 'b']);
+  });
+
+  it('tolerates a cap of one (everything merges)', () => {
+    expect(capParts(['a', 'b', 'c'], 1)).toEqual(['a\nb\nc']);
+  });
+});
+
+describe('sendHumanized · reply style', () => {
+  it('unchunked style sends the whole text as one part with zero delay', async () => {
+    const h = makeHarness();
+    const n = await sendHumanized(h.sender, '+861', '第一行\n第二行\n第三行', {
+      deps: h.deps,
+      style: { chunked: false, maxChunks: 8, delayFactor: 1 },
+    });
+
+    expect(n).toBe(1);
+    // 整段原文一条发出，不做任何等待
+    expect(h.sends.map((s) => s.text)).toEqual(['第一行\n第二行\n第三行']);
+    expect(h.sleeps).toEqual([]);
+  });
+
+  it('chunked style caps the part count at maxChunks', async () => {
+    const h = makeHarness();
+    const n = await sendHumanized(h.sender, '+861', '一\n二\n三\n四\n五', {
+      deps: h.deps,
+      random: () => 0.5,
+      style: { chunked: true, maxChunks: 2, delayFactor: 1 },
+    });
+
+    expect(n).toBe(2);
+    expect(h.sends.map((s) => s.text)).toEqual(['一', '二\n三\n四\n五']);
+  });
+
+  it('delayFactor 0 sends chunked parts with no waits at all', async () => {
+    const h = makeHarness();
+    await sendHumanized(h.sender, '+861', '一\n二\n三', {
+      deps: h.deps,
+      style: { chunked: true, maxChunks: 8, delayFactor: 0 },
+    });
+
+    expect(h.sends).toHaveLength(3);
+    expect(h.sleeps).toEqual([]);
+  });
+
+  it('caps the scaled delay back at maxDelayMs', async () => {
+    // 真机 bug：系数 5 × 夹逼后的 5000ms = 25s 等待（夹逼发生在乘之前）。
+    // 语义修正：系数作用于打字节奏，但任何一段的等待不超过节奏上限本身
+    const h = makeHarness();
+    await sendHumanized(h.sender, '+861', '这一段很长很长很长很长很长很长\n二', {
+      deps: h.deps,
+      random: () => 0.5,
+      style: { chunked: true, maxChunks: 8, delayFactor: 5 },
+    });
+
+    // 每段都等待（定案 A）：
+    // 首段基线被夹到 5000ms；×5 后必须再夹回 5000ms（而不是 25000）
+    // 末段 '二' 1 字：250 + 250 = 500 ×5 = 2500（未触上限）
+    expect(h.sleeps).toEqual([5_000, 2_500]);
+  });
+
+  it('delayFactor scales the computed delay (2x here)', async () => {
+    const h = makeHarness();
+    await sendHumanized(h.sender, '+861', '一行文\n两行文', {
+      deps: h.deps,
+      random: () => 0.5,
+      style: { chunked: true, maxChunks: 8, delayFactor: 2 },
+    });
+
+    // 算式（jitter=1，random 固定 0.5）：
+    // 首段 '一行文' 3 字：rand(600,1800)=1200 + 750 = 1950 ×2 = 3900
+    // 第二段 '两行文' 3 字：250 + 750 = 1000 ×2 = 2000
+    expect(h.sleeps).toEqual([3900, 2000]);
+  });
+
+  it('waits before every part including the last one', async () => {
+    // 定案 A：真人连发多条气泡，每条之间都有打字间隔——末段也不例外
+    // （此前"末段免等待"是为 25s 放大 bug 打的补丁；夹逼修正后不再需要）
+    const h = makeHarness();
+    await sendHumanized(h.sender, '+861', '一\n二\n三', {
+      deps: h.deps,
+      random: () => 0.5,
+    });
+
+    expect(h.sends).toHaveLength(3);
+    expect(h.sleeps).toHaveLength(3);
+  });
+
+  it('default style keeps the legacy chunked behavior', async () => {
+    const h = makeHarness();
+    const n = await sendHumanized(h.sender, '+861', '一\n二', {
+      deps: h.deps,
+      random: () => 0.5,
+    });
+
+    expect(n).toBe(2);
+    expect(h.sleeps.length).toBe(2);
   });
 });
 

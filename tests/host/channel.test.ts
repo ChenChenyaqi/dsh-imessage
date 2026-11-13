@@ -54,6 +54,9 @@ interface EnvOptions {
     allowlist?: readonly string[];
     intervalMs?: number;
     maxBackoffMs?: number;
+    chunkedReplies?: boolean;
+    maxChunks?: number;
+    delayFactor?: number;
   };
   /** 覆盖 openDb（模拟 db 打不开的 start-failed 路径；可抛非 Error）。 */
   openDbThrows?: unknown;
@@ -368,6 +371,42 @@ describe('channel · hot config update', () => {
       changed: ['locale', 'allowlist'],
     });
     await channel.stop();
+  });
+
+  it('hot-swaps the reply style, echoes it in the log, and exposes the live value', async () => {
+    const env = makeEnv();
+    const channel = env.start();
+    await waitFor(() => env.logLines.some((l) => l.event === 'channel.started'), 2000);
+
+    channel.updateConfig({ chunkedReplies: true, maxChunks: 5, delayFactor: 0 });
+
+    const updated = env.logLines.find((l) => l.event === 'channel.config-updated');
+    // changed 只列真正变了的字段（与白名单/语言同款精度）
+    expect(updated).toMatchObject({
+      chunkedReplies: true,
+      maxChunks: 5,
+      delayFactor: 0,
+      changed: ['chunkedReplies', 'maxChunks', 'delayFactor'],
+    });
+    expect(channel.currentStyle()).toEqual({ chunked: true, maxChunks: 5, delayFactor: 0 });
+    await channel.stop();
+  });
+
+  it('starts with the configured reply style and echoes it in the started log', async () => {
+    const env = makeEnv({
+      config: { allowlist: ['+8613800000000'], chunkedReplies: true, maxChunks: 3, delayFactor: 2 },
+    });
+
+    const channel = env.start();
+    await waitFor(() => env.logLines.some((l) => l.event === 'channel.started'), 2000);
+    await channel.stop();
+
+    expect(channel.currentStyle()).toEqual({ chunked: true, maxChunks: 3, delayFactor: 2 });
+    expect(env.logLines.find((l) => l.event === 'channel.started')).toMatchObject({
+      chunkedReplies: true,
+      maxChunks: 3,
+      delayFactor: 2,
+    });
   });
 
   it('reports only the fields that actually changed', async () => {

@@ -135,6 +135,45 @@ test('settings card edits the allowlist and the system message language', async 
     mark('locale saved');
   });
 
+  await test.step('chunked replies toggle persists the style fields', async () => {
+    // 默认关：只有开关，没有数字输入
+    const toggle = card.locator('input[type="checkbox"]');
+    await expect(toggle).not.toBeChecked();
+    await expect(card.getByRole('spinbutton')).toHaveCount(0);
+
+    // 开启后出现两个子输入；改值保存
+    await toggle.check();
+    await expect(card.getByRole('spinbutton')).toHaveCount(2);
+    await card.getByLabel('Max chunks').fill('5');
+    await card.getByLabel('Delay factor').fill('0');
+    await save.click();
+
+    await expect.poll(() => host.readPatch(), { timeout: 15_000 })
+      .toMatch(/chunkedReplies:\s*true/u);
+    await expect.poll(() => host.readPatch(), { timeout: 15_000 })
+      .toMatch(/maxChunks:\s*5/u);
+    await expect.poll(() => host.readPatch(), { timeout: 15_000 })
+      .toMatch(/delayFactor:\s*0/u);
+  });
+
+  await test.step('an invalid style field blocks the save', async () => {
+    // type=number 的输入框拒收非数字文本：走原生 setter + input 事件
+    // 把 'abc' 塞进 React 状态（真机里 IME/脚本路径也会产生这种草稿）
+    const field = card.getByLabel('Max chunks');
+    await field.evaluate((node) => {
+      const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set;
+      setter?.call(node, 'abc');
+      node.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+
+    await expect(card.getByText('Must be an integer between 1 and 50')).toBeVisible();
+    await expect(save).toBeDisabled();
+
+    // 修好后恢复
+    await field.fill('8');
+    await expect(save).toBeEnabled();
+  });
+
   await test.step('an invalid number shows red validation and blocks adding and saving', async () => {
     await openAdd();
     await addField().fill('not-a-number');

@@ -42,6 +42,12 @@ export interface Config {
   readonly intervalMs?: number;
   /** 退避上限 ms（默认 60s）。 */
   readonly maxBackoffMs?: number;
+  /** 分段回复开关（默认关：整段直发、零等待）。 */
+  readonly chunkedReplies?: boolean | { get(): boolean };
+  /** 最大分段数（默认 8；1..50）。 */
+  readonly maxChunks?: number | { get(): number };
+  /** 延时系数（默认 1；0 = 分段不延时，0..5）。 */
+  readonly delayFactor?: number | { get(): number };
 }
 
 // volatile（DSH settings 事实）：设置页只渲染 volatile 字段；改动经
@@ -51,6 +57,9 @@ export interface Config {
 export const Config = z.object({
   locale: z.string().default('zh').volatile(),
   allowlist: z.array(z.string()).default([]).volatile(),
+  chunkedReplies: z.boolean().default(false).volatile(),
+  maxChunks: z.number().step(1).min(1).max(50).default(8).volatile(),
+  delayFactor: z.number().min(0).max(5).default(1).volatile(),
   intervalMs: z.number().step(1).min(1).default(2000),
   maxBackoffMs: z.number().step(1).min(1).default(60000),
 });
@@ -89,6 +98,9 @@ export function apply(ctx: Context, config: Config, overrides: Partial<ChannelEn
       // volatile 字段在真 loader 下是活引用（readVolatile 取当前值）
       locale: readVolatile(config.locale) === 'en' ? 'en' : 'zh',
       allowlist: readVolatile(config.allowlist) ?? [],
+      chunkedReplies: readVolatile(config.chunkedReplies) ?? false,
+      maxChunks: readVolatile(config.maxChunks) ?? 8,
+      delayFactor: readVolatile(config.delayFactor) ?? 1,
       intervalMs: config.intervalMs,
       maxBackoffMs: config.maxBackoffMs,
     },
@@ -106,6 +118,9 @@ export function apply(ctx: Context, config: Config, overrides: Partial<ChannelEn
         channel.updateConfig({
           locale: readVolatile(config.locale) === 'en' ? 'en' : 'zh',
           allowlist: readVolatile(config.allowlist) ?? [],
+          chunkedReplies: readVolatile(config.chunkedReplies) ?? false,
+          maxChunks: readVolatile(config.maxChunks) ?? 8,
+          delayFactor: readVolatile(config.delayFactor) ?? 1,
         });
       } catch (err) {
         console.error('[dsh-imessage] volatile update failed:', err);

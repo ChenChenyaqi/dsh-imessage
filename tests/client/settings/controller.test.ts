@@ -180,6 +180,20 @@ describe('card controller · editing', () => {
     expect(listener.mock.calls.length).toBeGreaterThanOrEqual(2);
   });
 
+  it('delegates the chunked replies fields', () => {
+    const { controller } = makeController({ allowlist: [PHONE] });
+
+    controller.setChunkedDraft(true);
+    controller.setMaxChunksDraft('5');
+    controller.setDelayFactorDraft('0');
+
+    const state = controller.getSnapshot();
+    expect(state.chunked.draft).toBe(true);
+    expect(state.maxChunks.draft).toBe('5');
+    expect(state.delayFactor.draft).toBe('0');
+    expect(state.canSave).toBe(true);
+  });
+
   it('reset discards unsaved drafts and re-reads the host snapshot', () => {
     // 关闭设置页 = 丢弃草稿：重开必须看到宿主已保存值，不是旧草稿
     const { controller } = makeController({ allowlist: [PHONE] });
@@ -226,6 +240,9 @@ describe('card controller · saving', () => {
     expect(fake.writes[0]).toEqual([
       { op: 'set', path: ['locale'], value: 'zh' },
       { op: 'set', path: ['allowlist'], value: [PHONE, '+8613900000000'] },
+      { op: 'set', path: ['chunkedReplies'], value: false },
+      { op: 'set', path: ['maxChunks'], value: 8 },
+      { op: 'set', path: ['delayFactor'], value: 1 },
     ]);
   });
 

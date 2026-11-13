@@ -11,6 +11,8 @@
 import type { DatabaseSync } from 'node:sqlite';
 import type { Locale } from '@/core/i18n';
 import { makeT } from '@/core/i18n';
+import type { ReplyStyle } from '@/core/imessage/humanize';
+import { DEFAULT_CONFIG } from '@/core/types/config';
 import type { ImessageSender } from '@/core/imessage/sender';
 import { makeSender } from '@/core/imessage/sender';
 import { defaultChatDbPath, nodeProbeDeps, probeEnvironment } from '@/core/imessage/env';
@@ -37,6 +39,12 @@ export interface ChannelConfig {
   readonly allowlist?: readonly string[];
   readonly intervalMs?: number;
   readonly maxBackoffMs?: number;
+  /** 分段回复开关（缺省 false：整段直发、零等待）。 */
+  readonly chunkedReplies?: boolean;
+  /** 最大分段数（缺省 8）。 */
+  readonly maxChunks?: number;
+  /** 延时系数（缺省 1；0 = 分段不延时）。 */
+  readonly delayFactor?: number;
 }
 
 /** 装配环境：宿主面必填，macOS IO 可注入（默认 node 实现）。 */
@@ -75,6 +83,9 @@ export type ChannelStatus =
 export interface HotConfigPatch {
   readonly locale?: Locale;
   readonly allowlist?: readonly string[];
+  readonly chunkedReplies?: boolean;
+  readonly maxChunks?: number;
+  readonly delayFactor?: number;
 }
 
 export interface ChannelHandle {
@@ -84,6 +95,8 @@ export interface ChannelHandle {
   updateConfig(patch: HotConfigPatch): void;
   /** 当前生效白名单（RPC 活读；probe-failed 通道也可答）。 */
   currentAllowlist(): readonly string[];
+  /** 当前生效回复风格（RPC 活读；probe-failed 通道也可答）。 */
+  currentStyle(): ReplyStyle;
   /** 停止：abort → 等收尾 → 关库。幂等。 */
   stop(): Promise<void>;
 }
@@ -103,11 +116,17 @@ export function startImessageChannel(
     allowlist: readonly string[];
     intervalMs?: number;
     maxBackoffMs?: number;
+    style: ReplyStyle;
   } = {
     locale: config.locale ?? 'zh',
     allowlist: config.allowlist ?? [],
     intervalMs: config.intervalMs,
     maxBackoffMs: config.maxBackoffMs,
+    style: {
+      chunked: config.chunkedReplies ?? false,
+      maxChunks: config.maxChunks ?? DEFAULT_CONFIG.maxChunks,
+      delayFactor: config.delayFactor ?? DEFAULT_CONFIG.delayFactor,
+    },
   };
 
   // 可变 deps：运行中通道才登记（probe-failed 保持 undefined，热更新仅记录）
@@ -117,6 +136,7 @@ export function startImessageChannel(
       policy: { allowlist: readonly string[] };
       sessionSwitchedText: string;
       replyUnavailableText: string;
+      replyStyle: () => ReplyStyle;
     } | undefined;
   } = { current: undefined };
 
@@ -136,6 +156,24 @@ export function startImessageChannel(
     if (patch.allowlist !== undefined && !sameAllowlist) changed.push('allowlist');
     if (patch.locale !== undefined) live.locale = patch.locale;
     if (patch.allowlist !== undefined) live.allowlist = patch.allowlist;
+    if (patch.chunkedReplies !== undefined && patch.chunkedReplies !== live.style.chunked) {
+      changed.push('chunkedReplies');
+    }
+    if (patch.maxChunks !== undefined && patch.maxChunks !== live.style.maxChunks) {
+      changed.push('maxChunks');
+    }
+    if (patch.delayFactor !== undefined && patch.delayFactor !== live.style.delayFactor) {
+      changed.push('delayFactor');
+    }
+    if (patch.chunkedReplies !== undefined
+      || patch.maxChunks !== undefined
+      || patch.delayFactor !== undefined) {
+      live.style = {
+        chunked: patch.chunkedReplies ?? live.style.chunked,
+        maxChunks: patch.maxChunks ?? live.style.maxChunks,
+        delayFactor: patch.delayFactor ?? live.style.delayFactor,
+      };
+    }
     // 运行中的 pipeline 用时读 deps：直接改字段即热生效
     if (mutableDeps.current !== undefined) {
       const t = makeT(live.locale);
@@ -146,6 +184,9 @@ export function startImessageChannel(
     log.info('channel.config-updated', {
       locale: live.locale,
       allowlistCount: live.allowlist.length,
+      chunkedReplies: live.style.chunked,
+      maxChunks: live.style.maxChunks,
+      delayFactor: live.style.delayFactor,
       changed,
     });
   }
@@ -161,6 +202,7 @@ export function startImessageChannel(
       status: () => ({ phase: 'probe-failed', probe }),
       updateConfig: (patch) => applyHotConfig(patch),
       currentAllowlist: () => live.allowlist,
+      currentStyle: () => live.style,
       stop: async () => undefined,
     };
   }
@@ -184,6 +226,7 @@ export function startImessageChannel(
       status: () => ({ phase: 'start-failed', error: detail }),
       updateConfig: (patch) => applyHotConfig(patch),
       currentAllowlist: () => live.allowlist,
+      currentStyle: () => live.style,
       stop: async () => undefined,
     };
   }
@@ -215,6 +258,7 @@ export function startImessageChannel(
     policy: { allowlist: config.allowlist ?? [] },
     sessionSwitchedText: t('session.switched'),
     replyUnavailableText: t('reply.unavailable'),
+    replyStyle: () => live.style,
     loadState: () => loadState(stateFile),
     saveState: (state: Parameters<typeof saveState>[1]) => saveState(stateFile, state),
     log,
@@ -232,6 +276,9 @@ export function startImessageChannel(
     locale: config.locale ?? 'zh',
     allowlist: config.allowlist ?? [],
     allowlistCount: (config.allowlist ?? []).length,
+    chunkedReplies: live.style.chunked,
+    maxChunks: live.style.maxChunks,
+    delayFactor: live.style.delayFactor,
     intervalMs: config.intervalMs ?? null,
     maxBackoffMs: config.maxBackoffMs ?? null,
     cursor: loadState(stateFile).cursor ?? readMaxRowId(db) ?? 0,
@@ -281,6 +328,7 @@ export function startImessageChannel(
     status: () => status,
     updateConfig: (patch) => applyHotConfig(patch),
     currentAllowlist: () => live.allowlist,
+    currentStyle: () => live.style,
     stop,
   };
 }

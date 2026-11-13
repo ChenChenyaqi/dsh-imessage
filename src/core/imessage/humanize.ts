@@ -2,6 +2,7 @@
 //
 // 分段哲学（dsh-im 验证过的事实，D7）：一行 = 一条气泡（iMessage 原生
 // 习惯）；空行丢弃；代码块（``` 围栏）整体保留永不切断（用户复制友好）。
+// 每段前都等待（含末段）：真人连发多条气泡，条与条之间也有打字间隔。
 //
 // 延迟参数（dsh-im 实测节奏，数值直接借用）：
 // - 首段前 600–1800ms（「思考」）；
@@ -62,6 +63,35 @@ export function splitReplyParts(text: string): string[] {
   }
   if (block) parts.push(block.join('\n'));
   return parts.length > 0 ? parts : [text.trim()];
+}
+
+// ---------------------------------------------------------------------------
+// 回复风格（配置驱动：分段开关 / 最大分段数 / 延时系数）
+// ---------------------------------------------------------------------------
+
+/** 一条回复的发送风格。 */
+export interface ReplyStyle {
+  /** false = 整段一条直发、零等待；true = 按分段哲学切气泡。 */
+  readonly chunked: boolean;
+  /** 分段数上限：超出部分换行并入最后一段（0/负数视为 1）。 */
+  readonly maxChunks: number;
+  /** 延时系数：计算出的延迟 × 系数；0 = 分段但不等待。 */
+  readonly delayFactor: number;
+}
+
+/** 未注入风格时的默认（保留历史行为：分段、不设上限、原速延迟）。 */
+export const LEGACY_STYLE: ReplyStyle = Object.freeze({
+  chunked: true,
+  maxChunks: Number.POSITIVE_INFINITY,
+  delayFactor: 1,
+});
+
+/** 分段数封顶：超出上限的段落并入最后一段（换行连接，内容不丢）。 */
+export function capParts(parts: readonly string[], maxChunks: number): string[] {
+  const cap = Math.max(1, Math.floor(maxChunks));
+  if (parts.length <= cap) return [...parts];
+  const head = parts.slice(0, cap - 1);
+  return [...head, parts.slice(cap - 1).join('\n')];
 }
 
 // ---------------------------------------------------------------------------
@@ -128,12 +158,15 @@ export interface SendHumanizedOptions extends DelayOptions {
   readonly signal?: AbortSignal;
   readonly deps?: HumanizeDeps;
   readonly random?: () => number;
+  /** 回复风格（默认 LEGACY_STYLE：分段、不封顶、原速延迟）。 */
+  readonly style?: ReplyStyle;
 }
 
 /**
- * 拟人化发送：分段 → 每段「等待（打字节奏）→ 发送」。
- * 返回发出的段数。发送失败（SendError）直接向上抛——已发出的段无法
- * 撤回，重试/放弃策略归 M3 pipeline。
+ * 拟人化发送：按风格分段 → 每段「等待（打字节奏 × 系数）→ 发送」。
+ * 关闭分段时整段一条直发、零等待。返回发出的段数。
+ * 发送失败（SendError）直接向上抛——已发出的段无法撤回，重试/放弃
+ * 策略归 pipeline。
  */
 export async function sendHumanized(
   sender: ImessageSender,
@@ -142,19 +175,34 @@ export async function sendHumanized(
   options: SendHumanizedOptions = {},
 ): Promise<number> {
   const deps = options.deps ?? { sleep: defaultSleep };
-  const parts = splitReplyParts(text);
-  let isFirst = true;
-  for (const part of parts) {
+  const style = options.style ?? LEGACY_STYLE;
+  // 不分段：整段一条、零等待（含首段思考延迟也不做）
+  if (!style.chunked) {
     if (options.signal?.aborted) {
       throw options.signal.reason ?? new Error('humanized send aborted');
     }
-    const delay = computeTypingDelayMs(part, {
-      isFirst,
+    await sender.sendText(address, text.trim());
+    return 1;
+  }
+  const parts = capParts(splitReplyParts(text), style.maxChunks);
+  for (let index = 0; index < parts.length; index += 1) {
+    const part = parts[index]!;
+    if (options.signal?.aborted) {
+      throw options.signal.reason ?? new Error('humanized send aborted');
+    }
+    const base = computeTypingDelayMs(part, {
+      isFirst: index === 0,
       random: options.random,
     });
-    await deps.sleep(delay, options.signal);
+    // 系数先乘、再夹回节奏上限：clamp 只发生在乘之前会让大系数把
+    // 单段等待放大到上限的 N 倍（真机踩过：系数 5 → 25s）
+    const delay = Math.min(
+      HUMANIZE_DEFAULTS.maxDelayMs,
+      Math.round(base * style.delayFactor),
+    );
+    // 系数 0 = 分段但不等待：连 sleep 调用都不发生
+    if (delay > 0) await deps.sleep(delay, options.signal);
     await sender.sendText(address, part);
-    isFirst = false;
   }
   return parts.length;
 }

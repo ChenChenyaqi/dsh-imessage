@@ -7,6 +7,13 @@ describe('DEFAULT_CONFIG', () => {
     expect(DEFAULT_CONFIG.allowlist).toEqual([]);
   });
 
+  it('defaults to unchunked replies with a capped-chunking style ready', () => {
+    // 默认关闭：整段直发、零等待（拟人分段是显式开启的选项）
+    expect(DEFAULT_CONFIG.chunkedReplies).toBe(false);
+    expect(DEFAULT_CONFIG.maxChunks).toBe(8);
+    expect(DEFAULT_CONFIG.delayFactor).toBe(1);
+  });
+
   it('defaults to zh locale and a 2s poll interval', () => {
     expect(DEFAULT_CONFIG.locale).toBe('zh');
     expect(DEFAULT_CONFIG.pollIntervalMs).toBe(2000);
@@ -23,6 +30,9 @@ describe('PluginConfig type shape', () => {
       allowlist: ['+8613800000000'],
       locale: 'en',
       pollIntervalMs: 5000,
+      chunkedReplies: true,
+      maxChunks: 5,
+      delayFactor: 0,
     };
     expect(config.allowlist).toHaveLength(1);
   });

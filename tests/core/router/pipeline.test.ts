@@ -42,6 +42,8 @@ interface Harness {
   swapPolicy(allowlist: readonly string[]): void;
   /** 运行中热更换"暂不回复"文案（模拟 UI 改语言）。 */
   swapUnavailableText(text: string): void;
+  /** 运行中热换回复风格（模拟 UI 改分段开关）。 */
+  swapReplyStyle(style: import('@/core/imessage/humanize').ReplyStyle): void;
 }
 
 type ChannelStateDraft = import('@/core/types/state').ChannelState;
@@ -129,6 +131,10 @@ function makeHarness(initialMaxRowId = 4): Harness {
     },
     swapUnavailableText: (text) => {
       (deps as { replyUnavailableText: string }).replyUnavailableText = text;
+    },
+    swapReplyStyle: (style) => {
+      (deps as { replyStyle: () => import('@/core/imessage/humanize').ReplyStyle }).replyStyle
+        = () => style;
     },
     feed(rows) {
       fetchPlan.push({ kind: 'rows', rows });
@@ -363,6 +369,61 @@ describe('pipeline · hot config swap', () => {
       address: '+8613800000000',
       text: NEW_TEXT,
     });
+  });
+});
+
+describe('pipeline · reply style', () => {
+  it('unchunked style sends a multi-line reply as one message with no typing waits', async () => {
+    const h = makeHarness();
+    h.swapReplyStyle({ chunked: false, maxChunks: 8, delayFactor: 1 });
+    h.feed([R5({ text: '在吗' })]);
+    h.port.queueAsk({ chunks: ['一\n二\n三'] });
+
+    await h.run();
+
+    // 整段一条发出；等待里只剩轮询/退避量级（≤10ms），没有打字延迟
+    expect(h.sender.sent.filter((x) => x.kind === 'text')).toEqual([
+      { kind: 'text', address: '+8613800000000', text: '一\n二\n三' },
+    ]);
+    expect(h.sleeps.every((ms) => ms <= 10)).toBe(true);
+  });
+
+  it('chunked style with zero delay sends parts without typing waits', async () => {
+    const h = makeHarness();
+    h.swapReplyStyle({ chunked: true, maxChunks: 8, delayFactor: 0 });
+    h.feed([R5({ text: '在吗' })]);
+    h.port.queueAsk({ chunks: ['一\n二\n三'] });
+
+    await h.run();
+
+    // 分段仍发生（三条气泡），但零等待
+    expect(h.sender.sent.filter((x) => x.kind === 'text')).toHaveLength(3);
+    expect(h.sleeps.every((ms) => ms <= 10)).toBe(true);
+  });
+
+  it('caps the part count from the hot-swapped style', async () => {
+    const h = makeHarness();
+    h.swapReplyStyle({ chunked: true, maxChunks: 2, delayFactor: 0 });
+    h.feed([R5({ text: '在吗' })]);
+    h.port.queueAsk({ chunks: ['一\n二\n三\n四'] });
+
+    await h.run();
+
+    const texts = h.sender.sent.filter((x) => x.kind === 'text');
+    expect(texts).toHaveLength(2);
+    expect(texts[1]?.text).toBe('二\n三\n四');
+  });
+
+  it('defaults to the legacy chunked behavior when no style is provided', async () => {
+    const h = makeHarness();
+    h.feed([R5({ text: '在吗' })]);
+    h.port.queueAsk({ chunks: ['一\n二'] });
+
+    await h.run();
+
+    // 未注入风格 = 旧行为（分段 + 打字延迟），已有行为不回退
+    expect(h.sender.sent.filter((x) => x.kind === 'text')).toHaveLength(2);
+    expect(h.sleeps.some((ms) => ms > 10)).toBe(true);
   });
 });
 
