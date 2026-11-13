@@ -9,13 +9,17 @@
 // 时序与订阅（何时读、何时写、何时通知）。
 
 import {
+  beginAdd,
   beginSave,
+  cancelAdd,
+  confirmAdd,
   initialState,
   readAllowlist,
   readLocale,
+  removeEntry,
   save,
-  setAllowlistDraft,
   setLocaleDraft,
+  updateAddDraft,
   withDerived,
   type CardTexts,
   type FieldOp,
@@ -37,7 +41,13 @@ export interface CardController {
   getSnapshot(): SettingsCardState;
   subscribe(listener: () => void): () => void;
   setLocaleDraft(value: string): void;
-  setAllowlistDraft(value: string): void;
+  beginAdd(): void;
+  updateAddDraft(value: string): void;
+  confirmAdd(): void;
+  cancelAdd(): void;
+  removeEntry(index: number): void;
+  /** 丢弃草稿回到宿主已保存值（视图卸载时调用：关页 = 不保存）。 */
+  reset(): void;
   save(): Promise<void>;
   dispose(): void;
 }
@@ -76,6 +86,7 @@ export function createCardController(deps: {
         ...next,
         locale: state.locale.dirty ? state.locale : next.locale,
         allowlist: state.allowlist.dirty ? state.allowlist : next.allowlist,
+        adding: state.adding,
         saving: state.saving,
         error: state.error,
       },
@@ -97,8 +108,28 @@ export function createCardController(deps: {
       state = setLocaleDraft(state, value, savedNow());
       emit();
     },
-    setAllowlistDraft(value) {
-      state = setAllowlistDraft(state, value, savedNow());
+    beginAdd() {
+      state = beginAdd(state);
+      emit();
+    },
+    updateAddDraft(value) {
+      state = updateAddDraft(state, value);
+      emit();
+    },
+    confirmAdd() {
+      state = confirmAdd(state, savedNow());
+      emit();
+    },
+    cancelAdd() {
+      state = cancelAdd(state);
+      emit();
+    },
+    removeEntry(index) {
+      state = removeEntry(state, index, savedNow());
+      emit();
+    },
+    reset() {
+      state = initialState(deps.form.getSnapshot());
       emit();
     },
     async save() {

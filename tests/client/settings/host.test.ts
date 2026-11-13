@@ -118,18 +118,59 @@ function mount(options: { locale?: string; allowlist?: string[] } = {}) {
   act(() => {
     root.render(component({}));
   });
-  return { ...env, container, unmount: () => act(() => root.unmount()) };
+  return {
+    ...env,
+    container,
+    unmount: () => act(() => root.unmount()),
+    /** 只卸载视图（controller 存活）：模拟用户关掉设置页。 */
+    unmountView: () => act(() => root.unmount()),
+    /** 重新挂载视图：模拟用户重新打开设置页，返回新容器。 */
+    remountView: () => {
+      const next = document.createElement('div');
+      document.body.append(next);
+      const nextRoot = createRoot(next);
+      act(() => {
+        nextRoot.render(component({}));
+      });
+      return next;
+    },
+  };
 }
 
 afterEach(() => {
   document.body.innerHTML = '';
 });
 
+/** 按可见文字找按钮（chip 的删除按钮是纯 ×，不能按位置猜）。 */
+function findButton(container: HTMLElement, label: string): HTMLButtonElement {
+  const button = Array.from(container.querySelectorAll('button'))
+    .find((item) => item.textContent?.trim() === label);
+  if (!button) throw new Error(`button not found: ${label}`);
+  return button as HTMLButtonElement;
+}
+
+/** 走「添加号码」流输入一个号码（打开 → 输入 → 确认）。 */
+async function addNumber(app: ReturnType<typeof mount>, input: string): Promise<void> {
+  await act(async () => {
+    findButton(app.container, '添加号码').click();
+  });
+  await act(async () => {
+    const field = app.container.querySelector('input') as HTMLInputElement;
+    const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set;
+    setter?.call(field, input);
+    field.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  await act(async () => {
+    findButton(app.container, '添加').click();
+  });
+}
+
 describe('settings card · mounted', () => {
-  it('renders the saved allowlist from the host form', () => {
+  it('renders the saved allowlist as chips (no textarea)', () => {
     const app = mount({ allowlist: [PHONE] });
 
-    expect(app.container.querySelector('textarea')?.value).toBe(PHONE);
+    expect(app.container.textContent).toContain(PHONE);
+    expect(app.container.querySelector('textarea')).toBeNull();
     expect(Array.from(app.container.querySelectorAll('option'), (option) => option.value))
       .toEqual(['zh', 'en']);
     app.unmount();
@@ -144,17 +185,12 @@ describe('settings card · mounted', () => {
     app.unmount();
   });
 
-  it('writes both fields when the user saves', async () => {
+  it('writes both fields when the user adds a number and saves', async () => {
     const app = mount({ allowlist: [PHONE] });
-    const textarea = app.container.querySelector('textarea') as HTMLTextAreaElement;
 
-    await act(async () => {
-      // React 受控组件：必须走原生 setter + input 事件
-      const setter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value')?.set;
-      setter?.call(textarea, `${PHONE}\n+8613900000000`);
-      textarea.dispatchEvent(new Event('input', { bubbles: true }));
-    });
-    const save = app.container.querySelector('button') as HTMLButtonElement;
+    await addNumber(app, '+8613900000000');
+
+    const save = findButton(app.container, '保存');
     expect(save.disabled).toBe(false);
 
     await act(async () => {
@@ -175,19 +211,19 @@ describe('settings card · mounted', () => {
       app.form.push({ allowlist: ['+8613900000000'] });
     });
 
-    expect(app.container.querySelector('textarea')?.value).toBe('+8613900000000');
+    expect(app.container.textContent).toContain('+8613900000000');
     app.unmount();
   });
 
   it('switches our own copy when the interface language changes', async () => {
     const app = mount({ locale: 'zh', allowlist: [PHONE] });
-    expect(app.container.textContent).toContain('回复语言');
+    expect(app.container.textContent).toContain('系统提示语言');
 
     await act(async () => {
       app.setLocale('en');
     });
 
-    expect(app.container.textContent).toContain('Reply language');
+    expect(app.container.textContent).toContain('System message language');
     app.unmount();
   });
 
@@ -201,7 +237,7 @@ describe('settings card · mounted', () => {
       select.dispatchEvent(new Event('change', { bubbles: true }));
     });
     await act(async () => {
-      (app.container.querySelector('button') as HTMLButtonElement).click();
+      findButton(app.container, '保存').click();
     });
 
     // 回复语言由我们自己的 config 字段决定，与界面语言无关
@@ -212,18 +248,51 @@ describe('settings card · mounted', () => {
     app.unmount();
   });
 
-  it('blocks saving while an entry cannot be parsed', async () => {
-    const app = mount({ allowlist: [PHONE] });
-    const textarea = app.container.querySelector('textarea') as HTMLTextAreaElement;
+  it('discards unsaved edits when the dialog unmounts and is reopened', async () => {
+    // 真机 bug 复现：删了 chip 没保存就关设置页，重开竟看不到该号码
+    // （重启 DSH 又在）——根因是 controller 比视图活得久，草稿被带回来。
+    // 定案：视图卸载时 reset 回宿主已保存值。
+    const app = mount({ allowlist: [PHONE, '+8613900000000'] });
 
     await act(async () => {
-      const setter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value')?.set;
-      setter?.call(textarea, 'nope');
-      textarea.dispatchEvent(new Event('input', { bubbles: true }));
+      // 删除第一个 chip（aria-label=删除 的第一个按钮）
+      const remove = Array.from(app.container.querySelectorAll('button'))
+        .find((item) => item.getAttribute('aria-label') === '删除');
+      remove?.click();
+    });
+    // 删除后只剩一个 chip（提示文案含示例号码，不能按文本断言）
+    expect(Array.from(app.container.querySelectorAll('button[aria-label="删除"]'))).toHaveLength(1);
+
+    // 关闭再重开（同一 controller，只有视图重新挂载）
+    app.unmountView();
+    const reopened = app.remountView();
+
+    // 未保存的删除被丢弃：两个 chip 都在
+    expect(Array.from(reopened.querySelectorAll('button[aria-label="删除"]'))).toHaveLength(2);
+    app.unmount();
+  });
+
+  it('blocks adding and saving while the draft cannot be parsed', async () => {
+    const app = mount({ allowlist: [PHONE] });
+
+    await act(async () => {
+      findButton(app.container, '添加号码').click();
+    });
+    await act(async () => {
+      const field = app.container.querySelector('input') as HTMLInputElement;
+      const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set;
+      setter?.call(field, 'nope');
+      field.dispatchEvent(new Event('input', { bubbles: true }));
     });
 
-    expect(textarea.getAttribute('aria-invalid')).toBe('true');
-    expect((app.container.querySelector('button') as HTMLButtonElement).disabled).toBe(true);
+    // 红色校验文案出现在输入框下面，保存按钮同时被禁用
+    expect(app.container.textContent).toContain('无法识别的号码');
+    expect(findButton(app.container, '保存').disabled).toBe(true);
+    // 确认添加也不入列
+    await act(async () => {
+      findButton(app.container, '添加').click();
+    });
+    expect(app.container.textContent).not.toContain('nope');
     app.unmount();
   });
 });

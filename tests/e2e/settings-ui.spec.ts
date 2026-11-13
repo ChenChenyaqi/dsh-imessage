@@ -54,7 +54,7 @@ const mark = (label: string): void => {
   console.log(`[e2e +${((Date.now() - t0) / 1000).toFixed(1)}s] ${label}`);
 };
 
-test('settings card edits the allowlist and the reply language', async ({ page }) => {
+test('settings card edits the allowlist and the system message language', async ({ page }) => {
   await test.step('client half boots without activation failures', async () => {
     await page.goto(host.url);
     const booted = await page.evaluate(() =>
@@ -66,7 +66,9 @@ test('settings card edits the allowlist and the reply language', async ({ page }
 
   const card = page.locator('[data-dsh-imessage-card]');
   const save = card.getByRole('button', { name: 'Save' });
-  const textarea = card.getByRole('textbox');
+  // 方案 A：平时没有输入框，点「Add number」才展开一行
+  const openAdd = () => card.getByRole('button', { name: 'Add number' }).click();
+  const addField = () => card.getByRole('textbox');
 
   await test.step('settings dialog exposes the iMessage section with host values', async () => {
     // An isolated DSH_HOME is signed out, so first-run gates appear.
@@ -80,13 +82,22 @@ test('settings card edits the allowlist and the reply language', async ({ page }
 
     await expect(card).toBeVisible();
     await expect(card.getByRole('combobox')).toHaveValue('zh');
-    await expect(textarea).toHaveValue(PHONE);
+    // 已有号码渲染成 chip（不是输入框）：号码可见 + 恰好一个删除按钮
+    await expect(card).toContainText(PHONE);
+    await expect(card.getByRole('button', { name: 'Remove' })).toHaveCount(1);
+    await expect(card.getByRole('textbox')).toHaveCount(0);
     await expect(save).toBeDisabled();
     mark('settings opened, values prefilled');
   });
 
   await test.step('saving the allowlist persists it and hot-updates the channel', async () => {
-    await textarea.fill(`${PHONE}\n${PHONE_2}`);
+    await openAdd();
+    await addField().fill(PHONE_2);
+    await card.getByRole('button', { name: 'Add', exact: true }).click();
+    // 输入行收起，新号码以 chip 出现（两个条目两个删除按钮）
+    await expect(card.getByRole('textbox')).toHaveCount(0);
+    await expect(card).toContainText(PHONE_2);
+    await expect(card.getByRole('button', { name: 'Remove' })).toHaveCount(2);
     await expect(save).toBeEnabled();
     await save.click();
 
@@ -99,6 +110,22 @@ test('settings card edits the allowlist and the reply language', async ({ page }
     mark('allowlist saved');
   });
 
+  await test.step('closing the dialog without saving discards edits', async () => {
+    // 真机 bug 回归：删 chip 不保存就关设置页，重开必须看到已保存值
+    await card.getByRole('button', { name: 'Remove' }).first().click();
+    await expect(card.getByRole('button', { name: 'Remove' })).toHaveCount(1);
+
+    await page.getByRole('dialog').getByRole('button', { name: 'Close' }).click();
+    await expect(card).toHaveCount(0);
+    await page.getByRole('button', { name: 'Account menu' }).click();
+    await page.getByRole('menuitem', { name: 'Settings' }).click();
+    await page.getByRole('dialog').getByRole('button', { name: 'iMessage', exact: true }).click();
+
+    await expect(card.getByRole('button', { name: 'Remove' })).toHaveCount(2);
+    await expect(save).toBeDisabled();
+    mark('reopen discards unsaved deletion');
+  });
+
   await test.step('saving the reply language persists locale=en', async () => {
     await card.getByRole('combobox').selectOption('en');
     await expect(save).toBeEnabled();
@@ -108,12 +135,23 @@ test('settings card edits the allowlist and the reply language', async ({ page }
     mark('locale saved');
   });
 
-  await test.step('an unparseable number blocks the save', async () => {
-    await textarea.fill('not-a-number');
+  await test.step('an invalid number shows red validation and blocks adding and saving', async () => {
+    await openAdd();
+    await addField().fill('not-a-number');
 
-    await expect(textarea).toHaveAttribute('aria-invalid', 'true');
+    // 红色校验文案出现在输入框下面
+    await expect(card.getByText('Not a valid phone number')).toBeVisible();
+    await expect(addField()).toHaveAttribute('aria-invalid', 'true');
     await expect(save).toBeDisabled();
-    await expect(card.getByText('Some numbers cannot be parsed')).toBeVisible();
+
+    // 确认添加也不入列（列表里不出现非法文本）
+    await card.getByRole('button', { name: 'Add', exact: true }).click();
+    await expect(card).not.toContainText('not-a-number');
+    // 输入行保持打开，修好后即可恢复
+    await addField().fill(PHONE);
+    await expect(card.getByText('Not a valid phone number')).toHaveCount(0);
+    await card.getByRole('button', { name: 'Add', exact: true }).click();
+    await expect(card).not.toContainText('Not a valid phone number');
     mark('invalid input rejected');
   });
 });

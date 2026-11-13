@@ -1,27 +1,32 @@
-// 设置卡片视图（Step 3）：纯渲染，零 hook、零副作用。
+// 设置卡片纯视图（无 hook：state 与回调全部由 controller 层注入）。
 //
-// 为什么无 hook：state 由 settings-card.ts 的 controller 提供，组件只做
-// 「state + 回调 → 元素树」。这样单测能直接调用组件遍历元素树断言，
-// 不需要 jsdom；渲染细节交由真机无障碍树验收。
+// 白名单按方案 A 渲染：条目 = Pill + 删除按钮；「添加号码」按钮按需展开
+// 一行输入（平时没有输入框）；校验不过的错误文案直接显示在输入框下面。
 //
-// 组件选型（真机事实）：宿主共享的 primitives 只有 Button / Input / StateDot
-// / Pill / Tooltip / Menu，没有表单字段组件。因此两个字段用原生
-// select / textarea，样式只用 DSH 设计令牌（--dsw-alias-*），不引第三方
-// CSS，也不进 lightningcss 流程（客户端 bundle 只带 JS）。
+// 组件选型（真机事实）：宿主共享的 primitives 只有 Button / Input /
+// StateDot / Pill / Tooltip / Menu，没有表单字段组件。语言下拉用原生
+// select，样式只用 DSH 设计令牌（--dsw-alias-*），不引第三方。
 
-import type { CSSProperties, ChangeEvent } from 'react';
+import { type CSSProperties, type ChangeEvent, type KeyboardEvent } from 'react';
 
-import { Button } from '@deepseek-ai/dsh-client-ui-primitives';
+import { Button, Input, Pill } from '@deepseek-ai/dsh-client-ui-primitives';
 
 import { LOCALE_OPTIONS, type SettingsCardState } from './card';
 
-/** 视图文案（由入口从 i18n 渲染后注入，视图不硬编码语言）。 */
+/** view 需要的词条（i18n 注入，真机来自 texts.ts）。 */
 export interface SettingsCardText {
   readonly localeLabel: string;
+  readonly localeHint: string;
   readonly allowlistLabel: string;
   readonly allowlistHint: string;
   readonly emptyWarn: string;
   readonly invalidWarn: string;
+  readonly addNumber: string;
+  readonly confirmAdd: string;
+  readonly cancel: string;
+  readonly invalidNumber: string;
+  readonly duplicateNumber: string;
+  readonly removeEntry: string;
   readonly save: string;
   readonly saving: string;
   readonly loading: string;
@@ -31,7 +36,11 @@ export interface SettingsCardViewProps {
   readonly state: SettingsCardState;
   readonly text: SettingsCardText;
   readonly onLocaleChange: (value: string) => void;
-  readonly onAllowlistChange: (value: string) => void;
+  readonly onBeginAdd: () => void;
+  readonly onUpdateAddDraft: (value: string) => void;
+  readonly onConfirmAdd: () => void;
+  readonly onCancelAdd: () => void;
+  readonly onRemoveEntry: (index: number) => void;
   readonly onSave: () => void;
 }
 
@@ -54,7 +63,7 @@ const hintStyle: CSSProperties = {
   fontSize: '12px',
 };
 
-/** 原生控件的共用样式。 */
+/** 原生 select 的共用样式。 */
 const controlStyle: CSSProperties = {
   color: 'var(--dsw-alias-label-primary)',
   background: 'var(--dsw-alias-bg-layer-2)',
@@ -70,18 +79,55 @@ const controlStyle: CSSProperties = {
 const errorStyle: CSSProperties = {
   color: 'var(--dsw-alias-state-error-primary)',
   fontSize: '12px',
+  margin: 0,
+};
+
+const warnStyle: CSSProperties = {
+  color: 'var(--dsw-alias-state-warn-primary)',
+  fontSize: '12px',
+};
+
+/** chip 列表：自动换行的一行行条目。 */
+const chipsStyle: CSSProperties = {
+  display: 'flex',
+  flexWrap: 'wrap',
+  gap: '6px',
+};
+
+const chipStyle = (invalid: boolean): CSSProperties => ({
+  color: invalid
+    ? 'var(--dsw-alias-state-error-primary)'
+    : 'var(--dsw-alias-label-primary)',
+});
+
+/** chip 内的删除小按钮（无文字，只有 × 与 aria-label）。 */
+const chipRemoveStyle: CSSProperties = {
+  border: 'none',
+  background: 'transparent',
+  color: 'inherit',
+  padding: '0 0 0 4px',
+  cursor: 'pointer',
+  fontSize: '12px',
+  lineHeight: 1,
+};
+
+/** 新增行：输入 + 确认/取消。 */
+const addRowStyle: CSSProperties = {
+  display: 'flex',
+  gap: '6px',
+  alignItems: 'center',
 };
 
 /**
  * 渲染设置卡片。
- * @param props - controller 状态、文案与三个回调。
+ * @param props - controller 状态、文案与七个回调。
  * @returns 元素树（未挂载）。
  */
 export function SettingsCardView(props: SettingsCardViewProps) {
   if (!props.state.ready) return <p style={hintStyle}>{props.text.loading}</p>;
 
-  const invalid = props.state.entries.some((entry) => entry.key === null);
   const { state, text } = props;
+  const hasInvalidEntry = state.entries.some((entry) => entry.key === null);
 
   return (
     <div style={{ maxWidth: '520px' }} data-dsh-imessage-card="">
@@ -99,44 +145,66 @@ export function SettingsCardView(props: SettingsCardViewProps) {
             <option key={value} value={value}>{value === 'zh' ? '中文' : 'English'}</option>
           ))}
         </select>
+        <span style={hintStyle}>{text.localeHint}</span>
       </label>
 
-      <label style={fieldStyle}>
+      <div style={fieldStyle}>
         <span style={labelStyle}>{text.allowlistLabel}</span>
-        <textarea
-          value={state.allowlist.draft}
-          rows={4}
-          spellCheck={false}
-          aria-invalid={invalid}
-          style={{
-            ...controlStyle,
-            resize: 'vertical',
-            minHeight: '84px',
-            fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
-            ...(invalid ? { borderColor: 'var(--dsw-alias-state-error-primary)' } : {}),
-          }}
-          onChange={(event: ChangeEvent<HTMLTextAreaElement>) => {
-            props.onAllowlistChange(event.target.value);
-          }}
-        />
-        <span style={hintStyle}>{text.allowlistHint}</span>
-        {state.warning === 'empty'
-          ? <span style={{ ...hintStyle, color: 'var(--dsw-alias-state-warn-primary)' }}>{text.emptyWarn}</span>
-          : null}
-        {invalid ? <span style={errorStyle}>{text.invalidWarn}</span> : null}
-      </label>
+        {state.entries.length === 0 && state.adding.active === false && (
+          <p style={warnStyle}>{text.emptyWarn}</p>
+        )}
+        <div style={chipsStyle}>
+          {state.entries.map((entry, index) => (
+            <Pill key={entry.raw} style={chipStyle(entry.key === null)}>
+              {entry.raw}
+              <Button
+                aria-label={text.removeEntry}
+                variant="ghost"
+                style={chipRemoveStyle}
+                onClick={() => props.onRemoveEntry(index)}
+              >
+                ×
+              </Button>
+            </Pill>
+          ))}
+        </div>
+        {hasInvalidEntry && <p style={errorStyle}>{text.invalidWarn}</p>}
 
-      {state.error === null
-        ? null
-        : <p role="status" style={{ ...errorStyle, marginBottom: '12px' }}>{state.error}</p>}
+        {state.adding.active ? (
+          <div style={fieldStyle}>
+            <div style={addRowStyle}>
+              <Input
+                value={state.adding.input}
+                aria-invalid={state.adding.error !== null}
+                placeholder={text.allowlistHint}
+                onChange={(event: ChangeEvent<HTMLInputElement>) => {
+                  props.onUpdateAddDraft(event.target.value);
+                }}
+                onKeyDown={(event: KeyboardEvent) => {
+                  if (event.key === 'Enter') props.onConfirmAdd();
+                  if (event.key === 'Escape') props.onCancelAdd();
+                }}
+              />
+              <Button onClick={() => props.onConfirmAdd()}>{text.confirmAdd}</Button>
+              <Button variant="ghost" onClick={() => props.onCancelAdd()}>{text.cancel}</Button>
+            </div>
+            {state.adding.error === 'invalid' && <p style={errorStyle}>{text.invalidNumber}</p>}
+            {state.adding.error === 'duplicate' && <p style={errorStyle}>{text.duplicateNumber}</p>}
+          </div>
+        ) : (
+          <div>
+            <Button variant="ghost" onClick={() => props.onBeginAdd()}>{text.addNumber}</Button>
+          </div>
+        )}
+        <span style={hintStyle}>{text.allowlistHint}</span>
+      </div>
+
+      {state.error !== null && <p style={errorStyle}>{state.error}</p>}
 
       <Button
         variant="primary"
-        size="sm"
         disabled={!state.canSave || state.saving}
-        onClick={() => {
-          props.onSave();
-        }}
+        onClick={() => props.onSave()}
       >
         {state.saving ? text.saving : text.save}
       </Button>

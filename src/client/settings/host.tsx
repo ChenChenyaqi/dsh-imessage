@@ -4,7 +4,7 @@
 // 因此它单独成文件：纯视图保持无 hook（元素树可直接断言），状态机保持
 // 无 React（node 单测），只有这一层需要真渲染器（jsdom / 真机）。
 
-import { useSyncExternalStore } from 'react';
+import { useEffect, useSyncExternalStore } from 'react';
 
 import type { HostLocale } from '../host';
 import type { CardController } from './controller';
@@ -33,13 +33,20 @@ export function CardHost(props: CardHostProps) {
     (listener) => props.locale.subscribe(listener),
     () => props.locale.getSnapshot().active,
   );
+  // controller 比视图活得久（apply 期建、插件卸载才销毁）：关设置页必须
+  // 丢弃未保存草稿，否则重开看到的是旧草稿、重启又变回来（真机 bug）。
+  useEffect(() => () => props.controller.reset(), [props.controller]);
 
   return (
     <SettingsCardView
       state={state}
       text={settingsTexts(localeId)}
       onLocaleChange={(value: string) => props.controller.setLocaleDraft(value)}
-      onAllowlistChange={(value: string) => props.controller.setAllowlistDraft(value)}
+      onBeginAdd={() => props.controller.beginAdd()}
+      onUpdateAddDraft={(value: string) => props.controller.updateAddDraft(value)}
+      onConfirmAdd={() => props.controller.confirmAdd()}
+      onCancelAdd={() => props.controller.cancelAdd()}
+      onRemoveEntry={(index: number) => props.controller.removeEntry(index)}
       onSave={() => void props.controller.save()}
     />
   );

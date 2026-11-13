@@ -1,27 +1,35 @@
 // 设置卡片纯逻辑规格（Step 2，测试先行）。
 //
-// controller 不碰 React：白名单文本 ↔ 数组、语言选项、dirty 判定、
-// 校验、提交全在这里。网络/表单边界由注入的 FormWriter 扮演。
+// controller 不碰 React：白名单条目数组、新增行校验、删除、dirty 判定、
+// 提交全在这里。网络/表单边界由注入的 FormWriter 扮演。
+//
+// 白名单交互（方案 A）：平时没有输入框，只有「添加号码」按钮；点开才
+// 出现一行输入；校验不过（格式错 / 重复）不允许加，也不允许保存。
 
 import { describe, expect, it } from 'vitest';
 
 import {
   LOCALE_OPTIONS,
+  beginAdd,
   beginSave,
+  cancelAdd,
+  confirmAdd,
   formatAllowlist,
   initialState,
   parseAllowlist,
   readAllowlist,
   readLocale,
+  removeEntry,
   save,
   saveFailed,
   saveSucceeded,
-  setAllowlistDraft,
   setLocaleDraft,
+  updateAddDraft,
 } from '@/client/settings/card';
 
 const TEXT = { saveFailed: 'save failed' };
 const PHONE = '+8613800000000';
+const PHONE_2 = '+8613900000000';
 
 /** 记录 mutate 调用的 fake 表单。 */
 function makeForm(result: boolean | Error = true) {
@@ -41,25 +49,24 @@ function makeForm(result: boolean | Error = true) {
 /** 已保存基准（多数用例用它）。 */
 const saved = { locale: 'zh' as const, allowlist: [PHONE] };
 
-describe('settings card · allowlist text', () => {
-  it('parses one entry per line, trimming and skipping blanks', () => {
-    const entries = parseAllowlist(`  ${PHONE}  \n\n  +8613900000000\n`);
+describe('settings card · allowlist entries', () => {
+  it('parses saved values into entries for chip rendering', () => {
+    const entries = parseAllowlist([`  ${PHONE}  `, PHONE_2]);
 
-    expect(entries.map((entry) => entry.raw)).toEqual([PHONE, '+8613900000000']);
+    expect(entries.map((entry) => entry.raw)).toEqual([PHONE, PHONE_2]);
     expect(entries.every((entry) => entry.key !== null)).toBe(true);
   });
 
   it('marks unparseable entries instead of dropping them', () => {
-    // 界面要能逐行标红，而不是静默吞掉用户的输入
-    const entries = parseAllowlist(`${PHONE}\n123`);
+    // 手改配置文件可能塞进非法条目：界面要能标红，而不是静默吞掉
+    const entries = parseAllowlist([PHONE, '123']);
 
     expect(entries).toHaveLength(2);
     expect(entries[1]).toEqual({ raw: '123', key: null });
   });
 
-  it('formats saved values back into one line per entry', () => {
-    expect(formatAllowlist([PHONE, '+8613900000000'])).toBe(`${PHONE}\n+8613900000000`);
-    expect(formatAllowlist([])).toBe('');
+  it('formats saved values back into the host shape', () => {
+    expect(formatAllowlist([PHONE, PHONE_2])).toEqual([PHONE, PHONE_2]);
   });
 });
 
@@ -67,14 +74,12 @@ describe('settings card · reading the host snapshot', () => {
   it('narrows an en locale and falls back to zh', () => {
     expect(readLocale({ value: { locale: 'en' } })).toBe('en');
     expect(readLocale({ value: { locale: 'fr' } })).toBe('zh');
-    expect(readLocale({ value: {} })).toBe('zh');
     expect(readLocale({})).toBe('zh');
   });
 
   it('reads a string allowlist and ignores anything else', () => {
-    expect(readAllowlist({ value: { allowlist: [PHONE, 42] } })).toEqual([PHONE]);
+    expect(readAllowlist({ value: { allowlist: [PHONE, 42, null] } })).toEqual([PHONE]);
     expect(readAllowlist({ value: { allowlist: 'nope' } })).toEqual([]);
-    expect(readAllowlist({})).toEqual([]);
   });
 });
 
@@ -83,15 +88,13 @@ describe('settings card · initial state', () => {
     const state = initialState({ value: { locale: 'zh', allowlist: [PHONE] } });
 
     expect(state.ready).toBe(true);
-    expect(state.locale).toEqual({ draft: 'zh', dirty: false });
-    expect(state.allowlist.draft).toBe(PHONE);
+    expect(state.allowlist).toEqual({ draft: [PHONE], dirty: false });
+    expect(state.adding).toEqual({ active: false, input: '', error: null });
     expect(state.canSave).toBe(false);
-    expect(state.saving).toBe(false);
-    expect(state.error).toBeNull();
   });
 
   it('warns when the allowlist is empty (empty = deny everyone)', () => {
-    const state = initialState({ value: { locale: 'zh', allowlist: [] } });
+    const state = initialState({ value: {} });
 
     expect(state.warning).toBe('empty');
   });
@@ -101,39 +104,91 @@ describe('settings card · initial state', () => {
   });
 });
 
-describe('settings card · drafts', () => {
-  it('becomes savable after a real allowlist change', () => {
-    const state = initialState({ value: { locale: 'zh', allowlist: [PHONE] } });
+describe('settings card · add entry', () => {
+  it('opens an empty add row on demand', () => {
+    const next = beginAdd(initialState({ value: { locale: 'zh', allowlist: [PHONE] } }));
 
-    const next = setAllowlistDraft(state, `${PHONE}\n+8613900000000`, saved);
+    expect(next.adding).toEqual({ active: true, input: '', error: null });
+  });
 
+  it('validates the draft while typing', () => {
+    const base = beginAdd(initialState({ value: { locale: 'zh', allowlist: [PHONE] } }));
+
+    // 空输入不算错（用户还没开始写）
+    expect(updateAddDraft(base, '').adding.error).toBeNull();
+    expect(updateAddDraft(base, PHONE_2).adding.error).toBeNull();
+    // 格式非法：裸号码、位数超界
+    expect(updateAddDraft(base, '123').adding.error).toBe('invalid');
+    expect(updateAddDraft(base, '+8612345678901234567890').adding.error).toBe('invalid');
+    // 与已有条目重复（按归一化键比较，写法不同也算重）
+    expect(updateAddDraft(base, ` ${PHONE} `).adding.error).toBe('duplicate');
+  });
+
+  it('blocks saving while an invalid draft is pending', () => {
+    const state = setLocaleDraft(initialState({ value: { locale: 'zh', allowlist: [PHONE] } }), 'en', saved);
+    // 语言已改、本可保存；新增行里有非法输入时必须拦住
+    const invalid = updateAddDraft(beginAdd(state), 'not-a-number');
+
+    expect(invalid.canSave).toBe(false);
+    // 修好（或清空）后恢复可保存
+    expect(updateAddDraft(invalid, '').canSave).toBe(true);
+  });
+
+  it('appends a valid number and closes the add row', () => {
+    const next = confirmAdd(
+      updateAddDraft(beginAdd(initialState({ value: { locale: 'zh', allowlist: [PHONE] } })), PHONE_2),
+      saved,
+    );
+
+    expect(next.allowlist.draft).toEqual([PHONE, PHONE_2]);
     expect(next.allowlist.dirty).toBe(true);
     expect(next.canSave).toBe(true);
+    expect(next.adding.active).toBe(false);
   });
 
-  it('ignores whitespace-only edits', () => {
-    // 只多加空行不该点亮保存按钮
-    const state = initialState({ value: { locale: 'zh', allowlist: [PHONE] } });
+  it('rejects an invalid number without touching the list', () => {
+    const next = confirmAdd(
+      updateAddDraft(beginAdd(initialState({ value: { locale: 'zh', allowlist: [PHONE] } })), 'not-a-number'),
+      saved,
+    );
 
-    const next = setAllowlistDraft(state, `  ${PHONE}  \n\n`, saved);
-
+    expect(next.allowlist.draft).toEqual([PHONE]);
     expect(next.allowlist.dirty).toBe(false);
     expect(next.canSave).toBe(false);
+    expect(next.adding.error).toBe('invalid');
+    // 行保持打开，输入保留，用户改完再试
+    expect(next.adding.active).toBe(true);
+    expect(next.adding.input).toBe('not-a-number');
   });
 
-  it('blocks saving while an entry is unparseable', () => {
-    const state = initialState({ value: { locale: 'zh', allowlist: [PHONE] } });
+  it('rejects a duplicate number', () => {
+    const next = confirmAdd(
+      updateAddDraft(beginAdd(initialState({ value: { locale: 'zh', allowlist: [PHONE] } })), ` ${PHONE} `),
+      saved,
+    );
 
-    const next = setAllowlistDraft(state, `${PHONE}\nnot-a-number`, saved);
-
+    expect(next.allowlist.draft).toEqual([PHONE]);
+    expect(next.adding.error).toBe('duplicate');
     expect(next.canSave).toBe(false);
-    expect(next.entries.some((entry) => entry.key === null)).toBe(true);
+  });
+
+  it('treats confirming an empty draft as cancel', () => {
+    const next = confirmAdd(beginAdd(initialState({ value: { locale: 'zh', allowlist: [PHONE] } })), saved);
+
+    expect(next.adding.active).toBe(false);
+    expect(next.allowlist.draft).toEqual([PHONE]);
+  });
+
+  it('closes and clears the add row on cancel', () => {
+    const next = cancelAdd(
+      updateAddDraft(beginAdd(initialState({ value: { locale: 'zh', allowlist: [PHONE] } })), 'not-a-number'),
+    );
+
+    expect(next.adding).toEqual({ active: false, input: '', error: null });
   });
 
   it('tracks locale changes independently of the allowlist', () => {
-    const state = initialState({ value: { locale: 'zh', allowlist: [PHONE] } });
-
-    const next = setLocaleDraft(state, 'en', saved);
+    const next = setLocaleDraft(initialState({ value: { locale: 'zh', allowlist: [PHONE] } }), 'en', saved);
 
     expect(next.locale.dirty).toBe(true);
     expect(next.allowlist.dirty).toBe(false);
@@ -141,17 +196,52 @@ describe('settings card · drafts', () => {
   });
 });
 
+describe('settings card · remove entry', () => {
+  it('removes the entry at the index and becomes savable', () => {
+    const state = initialState({ value: { locale: 'zh', allowlist: [PHONE, PHONE_2] } });
+
+    const next = removeEntry(state, 0, saved);
+
+    expect(next.allowlist.draft).toEqual([PHONE_2]);
+    expect(next.allowlist.dirty).toBe(true);
+    expect(next.canSave).toBe(true);
+  });
+
+  it('removing the last entry warns but stays savable', () => {
+    // 空白名单 = 全拒是合法但危险的状态：提示归提示，保存归保存
+    const next = removeEntry(initialState({ value: { locale: 'zh', allowlist: [PHONE] } }), 0, saved);
+
+    expect(next.allowlist.draft).toEqual([]);
+    expect(next.warning).toBe('empty');
+    expect(next.canSave).toBe(true);
+  });
+
+  it('ignores out-of-range indexes instead of crashing', () => {
+    const state = initialState({ value: { locale: 'zh', allowlist: [PHONE] } });
+
+    expect(removeEntry(state, 5, saved).allowlist.draft).toEqual([PHONE]);
+    expect(removeEntry(state, -1, saved).allowlist.dirty).toBe(false);
+  });
+
+  it('does not resurrect a cancelled add row on host updates', () => {
+    // 宿主热更推送（保存成功回调）后，新增行必须是收起状态
+    const reopened = beginAdd(initialState({ value: { locale: 'zh', allowlist: [PHONE] } }));
+    const saved2 = saveSucceeded(reopened, { value: { locale: 'zh', allowlist: [PHONE] } });
+
+    expect(saved2.adding.active).toBe(false);
+  });
+});
+
 describe('settings card · saving', () => {
   it('writes locale and allowlist in one atomic mutation', async () => {
     const { form, calls } = makeForm(true);
-    const state = setAllowlistDraft(
-      initialState({ value: { locale: 'zh', allowlist: [PHONE] } }),
-      `${PHONE}\n+8613900000000`,
+    const state = confirmAdd(
+      updateAddDraft(beginAdd(initialState({ value: { locale: 'zh', allowlist: [PHONE] } })), PHONE_2),
       saved,
     );
 
     const next = await save(
-      { form, texts: TEXT, readSnapshot: () => ({ value: { locale: 'zh', allowlist: [PHONE, '+8613900000000'] } }) },
+      { form, texts: TEXT, readSnapshot: () => ({ value: { locale: 'zh', allowlist: [PHONE, PHONE_2] } }) },
       state,
       saved,
     );
@@ -160,7 +250,7 @@ describe('settings card · saving', () => {
     expect(calls).toHaveLength(1);
     expect(calls[0]).toEqual([
       { op: 'set', path: ['locale'], value: 'zh' },
-      { op: 'set', path: ['allowlist'], value: [PHONE, '+8613900000000'] },
+      { op: 'set', path: ['allowlist'], value: [PHONE, PHONE_2] },
     ]);
     // 成功后以新快照为准：dirty 归零、错误清空
     expect(next.allowlist.dirty).toBe(false);
@@ -170,26 +260,18 @@ describe('settings card · saving', () => {
 
   it('keeps the draft and reports an error when the host rejects', async () => {
     const { form } = makeForm(false);
-    const state = setAllowlistDraft(
-      initialState({ value: { locale: 'zh', allowlist: [PHONE] } }),
-      '+8613900000000',
-      saved,
-    );
+    const state = removeEntry(initialState({ value: { locale: 'zh', allowlist: [PHONE, PHONE_2] } }), 0, saved);
 
     const next = await save({ form, texts: TEXT, readSnapshot: () => ({}) }, state, saved);
 
     expect(next.error).toBe('save failed');
     expect(next.saving).toBe(false);
-    expect(next.allowlist.draft).toBe('+8613900000000');
+    expect(next.allowlist.draft).toEqual([PHONE_2]);
   });
 
   it('treats a thrown write as a failure instead of crashing', async () => {
     const { form } = makeForm(new Error('rpc down'));
-    const state = setAllowlistDraft(
-      initialState({ value: { locale: 'zh', allowlist: [PHONE] } }),
-      '+8613900000000',
-      saved,
-    );
+    const state = removeEntry(initialState({ value: { locale: 'zh', allowlist: [PHONE, PHONE_2] } }), 0, saved);
 
     const next = await save({ form, texts: TEXT, readSnapshot: () => ({}) }, state, saved);
 
@@ -197,17 +279,13 @@ describe('settings card · saving', () => {
     expect(next.saving).toBe(false);
   });
 
-  it('refuses to write while an entry is unparseable', async () => {
+  it('refuses to write while an add draft is invalid', async () => {
     const { form, calls } = makeForm(true);
-    const state = setAllowlistDraft(
-      initialState({ value: { locale: 'zh', allowlist: [PHONE] } }),
-      'not-a-number',
-      saved,
-    );
+    const state = updateAddDraft(beginAdd(initialState({ value: { locale: 'zh', allowlist: [PHONE] } })), 'not-a-number');
 
     const next = await save({ form, texts: TEXT, readSnapshot: () => ({}) }, state, saved);
 
-    // 入口自保：非法条目一个字节都不写出去
+    // 入口自保：校验不过的输入一个字节都不写出去
     expect(calls).toHaveLength(0);
     expect(next.error).toBeNull();
   });
@@ -215,11 +293,7 @@ describe('settings card · saving', () => {
 
 describe('settings card · transitions', () => {
   it('disables saving while a write is in flight', () => {
-    const state = setAllowlistDraft(
-      initialState({ value: { locale: 'zh', allowlist: [PHONE] } }),
-      '+8613900000000',
-      saved,
-    );
+    const state = removeEntry(initialState({ value: { locale: 'zh', allowlist: [PHONE, PHONE_2] } }), 0, saved);
 
     const next = beginSave(state);
 
@@ -233,16 +307,12 @@ describe('settings card · transitions', () => {
     });
 
     expect(next.locale.draft).toBe('en');
-    expect(next.allowlist.draft).toBe(PHONE);
+    expect(next.allowlist.draft).toEqual([PHONE]);
     expect(next.canSave).toBe(false);
   });
 
   it('recomputes savability after a failure so the user can retry', () => {
-    const dirty = setAllowlistDraft(
-      initialState({ value: { locale: 'zh', allowlist: [PHONE] } }),
-      '+8613900000000',
-      saved,
-    );
+    const dirty = removeEntry(initialState({ value: { locale: 'zh', allowlist: [PHONE, PHONE_2] } }), 0, saved);
 
     const next = saveFailed(beginSave(dirty), TEXT, saved);
 

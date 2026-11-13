@@ -6,31 +6,42 @@
 // 组件选型依据真机事实（2026-11-12）：宿主共享的
 // `@deepseek-ai/dsh-client-ui-primitives`（0.0.1-rc.1）只导出
 // Button / Input（单行）/ StateDot / Pill / Tooltip / Menu——**没有**
-// ConfigField / Switch / SegmentedControl。所以两个字段用原生
-// select / textarea + DSH 令牌（--dsw-alias-*），动作按钮用 primitives.
+// ConfigField / Switch / SegmentedControl。白名单按方案 A 渲染：
+// 条目 = Pill + 删除按钮；新增行按需展开（平时没有输入框）。
 
 import { isValidElement, type ReactElement, type ReactNode } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 
-import { Button } from '@deepseek-ai/dsh-client-ui-primitives';
+import { Button, Input, Pill } from '@deepseek-ai/dsh-client-ui-primitives';
 
 import { SettingsCardView } from '@/client/settings/view';
 import {
+  beginAdd,
   initialState,
-  setAllowlistDraft,
+  removeEntry,
+  setLocaleDraft,
+  updateAddDraft,
   type SettingsCardState,
 } from '@/client/settings/card';
 
 const PHONE = '+8613800000000';
+const PHONE_2 = '+8613900000000';
 const saved = { locale: 'zh' as const, allowlist: [PHONE] };
 
 /** 组件文案注入（真机里来自 i18n）。 */
 const text = {
-  localeLabel: 'Reply language',
+  localeLabel: 'System message language',
+  localeHint: 'Only sets the language of system notices; AI replies are unaffected.',
   allowlistLabel: 'Allowed contacts',
-  allowlistHint: 'One phone number per line',
+  allowlistHint: 'Phone numbers with country code',
   emptyWarn: 'Empty allowlist rejects everyone',
   invalidWarn: 'Some entries are not valid phone numbers',
+  addNumber: 'Add number',
+  invalidNumber: 'Not a valid phone number (needs country code, e.g. +8613800000000)',
+  duplicateNumber: 'This number is already in the list',
+  removeEntry: 'Remove',
+  confirmAdd: 'Add',
+  cancel: 'Cancel',
   save: 'Save',
   saving: 'Saving…',
   loading: 'Loading…',
@@ -57,13 +68,17 @@ function find(tree: ReactNode, tag: string | unknown): AnyElement[] {
   return collect(tree).filter((element) => element.type === tag);
 }
 
+/** 递归抽字符串子节点（数组 children 里的字符串也要，chip 文案在数组里）。 */
+function stringsOf(node: unknown, out: string[] = []): string[] {
+  if (typeof node === 'string') out.push(node);
+  else if (Array.isArray(node)) for (const child of node) stringsOf(child, out);
+  return out;
+}
+
 /** 树里所有字符串子节点拼起来（断言可见文案）。 */
 function textOf(tree: ReactNode): string {
   return collect(tree)
-    .flatMap((element) => {
-      const children = element.props['children'];
-      return typeof children === 'string' ? [children] : [];
-    })
+    .flatMap((element) => stringsOf(element.props['children']))
     .join(' ');
 }
 
@@ -72,109 +87,211 @@ function makeProps(state: SettingsCardState, overrides: Record<string, unknown> 
     state,
     text,
     onLocaleChange: vi.fn(),
-    onAllowlistChange: vi.fn(),
+    onBeginAdd: vi.fn(),
+    onUpdateAddDraft: vi.fn(),
+    onConfirmAdd: vi.fn(),
+    onCancelAdd: vi.fn(),
+    onRemoveEntry: vi.fn(),
     onSave: vi.fn(),
     ...overrides,
   };
 }
 
+/** 展开新增行并输入文案的状态。 */
+function addingState(input: string): SettingsCardState {
+  return updateAddDraft(
+    beginAdd(initialState({ value: { locale: 'zh', allowlist: [PHONE] } })),
+    input,
+  );
+}
+
 /** 已改动的可保存状态。 */
 function dirtyState(): SettingsCardState {
-  return setAllowlistDraft(
-    initialState({ value: { locale: 'zh', allowlist: [PHONE] } }),
-    `${PHONE}\n+8613900000000`,
+  return removeEntry(
+    initialState({ value: { locale: 'zh', allowlist: [PHONE, PHONE_2] } }),
+    0,
     saved,
   );
 }
 
 describe('settings card view · locale field', () => {
+  it('explains that the setting does not change AI reply language', () => {
+    // 标签「回复语言」曾让用户误以为能控制大模型的语言：hint 必须在场
+    const tree = SettingsCardView(makeProps(initialState({ value: { locale: 'zh', allowlist: [PHONE] } })));
+
+    expect(textOf(tree)).toContain(text.localeHint);
+  });
+
   it('renders a select limited to the schema locales', () => {
     const tree = SettingsCardView(makeProps(initialState({ value: { locale: 'zh', allowlist: [PHONE] } })));
 
-    const [select] = find(tree, 'select');
-    expect(select?.props['value']).toBe('zh');
-    // 值域必须与 Config schema 的 zh/en 一致
-    const options = find(select, 'option').map((option) => option.props['value']);
-    expect(options).toEqual(['zh', 'en']);
+    const options = find(tree, 'option');
+    expect(options.map((option) => option.props['value'])).toEqual(['zh', 'en']);
   });
 
   it('forwards locale edits', () => {
-    const props = makeProps(initialState({ value: { locale: 'zh', allowlist: [PHONE] } }));
-    const tree = SettingsCardView(props);
+    const onLocaleChange = vi.fn();
+    const tree = SettingsCardView(makeProps(initialState({ value: { locale: 'zh', allowlist: [PHONE] } }), { onLocaleChange }));
 
-    (find(tree, 'select')[0]?.props['onChange'] as (event: { target: { value: string } }) => void)({
-      target: { value: 'en' },
-    });
+    const select = find(tree, 'select')[0];
+    expect(select).toBeDefined();
+    (select!.props['onChange'] as (event: { target: { value: string } }) => void)({ target: { value: 'en' } });
 
-    expect(props.onLocaleChange).toHaveBeenCalledWith('en');
+    expect(onLocaleChange).toHaveBeenCalledWith('en');
   });
 });
 
-describe('settings card view · allowlist field', () => {
-  it('renders the draft as free text (one entry per line)', () => {
-    const state = setAllowlistDraft(
-      initialState({ value: { locale: 'zh', allowlist: [PHONE] } }),
-      `${PHONE}\n+8613900000000`,
-      saved,
-    );
-    const tree = SettingsCardView(makeProps(state));
+describe('settings card view · allowlist chips', () => {
+  it('renders every entry as a chip with a remove button, and no textarea', () => {
+    // 方案 A 的核心：平时没有输入框
+    const tree = SettingsCardView(makeProps(initialState({ value: { locale: 'zh', allowlist: [PHONE, PHONE_2] } })));
 
-    const [textarea] = find(tree, 'textarea');
-    expect(textarea?.props['value']).toBe(`${PHONE}\n+8613900000000`);
+    expect(find(tree, 'textarea')).toHaveLength(0);
+    const pills = find(tree, Pill);
+    expect(textOf(pills[0])).toContain(PHONE);
+    expect(textOf(pills[1])).toContain(PHONE_2);
+    // 每个条目一个删除按钮（aria-label 供无障碍/测试定位）
+    const removes = find(tree, Button).filter((button) => button.props['aria-label'] === 'Remove');
+    expect(removes).toHaveLength(2);
   });
 
-  it('shows the per-line hint', () => {
+  it('forwards remove clicks per entry index', () => {
+    const onRemoveEntry = vi.fn();
+    const tree = SettingsCardView(makeProps(initialState({ value: { locale: 'zh', allowlist: [PHONE, PHONE_2] } }), { onRemoveEntry }));
+
+    const removes = find(tree, Button).filter((button) => button.props['aria-label'] === 'Remove');
+    (removes[1]!.props['onClick'] as () => void)();
+
+    expect(onRemoveEntry).toHaveBeenCalledWith(1);
+  });
+
+  it('marks hand-edited invalid entries with the error color token', () => {
+    // 配置文件被手改塞进非法条目时：chip 标红，仍可删除
+    const state = { ...initialState({ value: { locale: 'zh', allowlist: ['123'] } }) };
+    const tree = SettingsCardView(makeProps(state));
+    const pill = find(tree, Pill)[0];
+    expect(pill).toBeDefined();
+
+    expect(String((pill!.props['style'] as { color?: string } | undefined)?.color ?? '')).toContain('state-error');
+  });
+
+  it('shows the per-field hint', () => {
     const tree = SettingsCardView(makeProps(initialState({ value: { locale: 'zh', allowlist: [PHONE] } })));
 
     expect(textOf(tree)).toContain(text.allowlistHint);
   });
+});
 
-  it('forwards allowlist edits', () => {
-    const props = makeProps(initialState({ value: { locale: 'zh', allowlist: [PHONE] } }));
-    const tree = SettingsCardView(props);
+describe('settings card view · add row', () => {
+  it('shows only an add button when closed (no input field)', () => {
+    const tree = SettingsCardView(makeProps(initialState({ value: { locale: 'zh', allowlist: [PHONE] } })));
 
-    (find(tree, 'textarea')[0]?.props['onChange'] as (event: { target: { value: string } }) => void)({
-      target: { value: '+8613900000000' },
-    });
+    expect(find(tree, Input)).toHaveLength(0);
+    const add = find(tree, Button).find((button) => textOf(button) === text.addNumber);
+    expect(add).toBeDefined();
+  });
 
-    expect(props.onAllowlistChange).toHaveBeenCalledWith('+8613900000000');
+  it('forwards add button clicks to open the row', () => {
+    const onBeginAdd = vi.fn();
+    const tree = SettingsCardView(makeProps(initialState({ value: { locale: 'zh', allowlist: [PHONE] } }), { onBeginAdd }));
+
+    const add = find(tree, Button).find((button) => textOf(button) === text.addNumber);
+    expect(add).toBeDefined();
+    (add!.props['onClick'] as () => void)();
+
+    expect(onBeginAdd).toHaveBeenCalledOnce();
+  });
+
+  it('renders input, confirm and cancel while open, and hides the add button', () => {
+    const tree = SettingsCardView(makeProps(addingState(PHONE_2)));
+
+    const inputs = find(tree, Input);
+    expect(inputs).toHaveLength(1);
+    expect(inputs[0]!.props["value"]).toBe(PHONE_2);
+    expect(find(tree, Button).find((button) => textOf(button) === text.confirmAdd)).toBeDefined();
+    expect(find(tree, Button).find((button) => textOf(button) === text.cancel)).toBeDefined();
+    expect(find(tree, Button).find((button) => textOf(button) === text.addNumber)).toBeUndefined();
+  });
+
+  it('forwards typing, confirm and cancel', () => {
+    const onUpdateAddDraft = vi.fn();
+    const onConfirmAdd = vi.fn();
+    const onCancelAdd = vi.fn();
+    const tree = SettingsCardView(makeProps(addingState(PHONE_2), { onUpdateAddDraft, onConfirmAdd, onCancelAdd }));
+
+    const input = find(tree, Input)[0];
+    expect(input).toBeDefined();
+    (input!.props['onChange'] as (event: { target: { value: string } }) => void)({ target: { value: 'x' } });
+    expect(onUpdateAddDraft).toHaveBeenCalledWith('x');
+
+    const confirm = find(tree, Button).find((button) => textOf(button) === text.confirmAdd);
+    expect(confirm).toBeDefined();
+    (confirm!.props['onClick'] as () => void)();
+    expect(onConfirmAdd).toHaveBeenCalledOnce();
+
+    const cancel = find(tree, Button).find((button) => textOf(button) === text.cancel);
+    expect(cancel).toBeDefined();
+    (cancel!.props['onClick'] as () => void)();
+    expect(onCancelAdd).toHaveBeenCalledOnce();
+  });
+
+  it('confirms on Enter and cancels on Escape inside the input', () => {
+    const onConfirmAdd = vi.fn();
+    const onCancelAdd = vi.fn();
+    const tree = SettingsCardView(makeProps(addingState(PHONE_2), { onConfirmAdd, onCancelAdd }));
+
+    const input = find(tree, Input)[0];
+    expect(input).toBeDefined();
+    const keydown = input!.props['onKeyDown'] as (event: { key: string }) => void;
+    keydown({ key: 'Enter' });
+    expect(onConfirmAdd).toHaveBeenCalledOnce();
+    keydown({ key: 'Escape' });
+    expect(onCancelAdd).toHaveBeenCalledOnce();
+  });
+
+  it('shows the red validation message under the input for an invalid draft', () => {
+    const tree = SettingsCardView(makeProps(addingState('not-a-number')));
+
+    expect(textOf(tree)).toContain(text.invalidNumber);
+    // 错误文案用错误色令牌（与 empty warn 的警示色区分）
+    const errorNode = find(tree, 'p').find((node) => textOf(node) === text.invalidNumber);
+    expect(errorNode).toBeDefined();
+    expect(String((errorNode!.props['style'] as { color?: string } | undefined)?.color ?? '')).toContain('state-error');
+  });
+
+  it('shows the duplicate message for a duplicate draft', () => {
+    const tree = SettingsCardView(makeProps(addingState(` ${PHONE} `)));
+
+    expect(textOf(tree)).toContain(text.duplicateNumber);
+  });
+
+  it('shows no validation message for a valid draft', () => {
+    const tree = SettingsCardView(makeProps(addingState(PHONE_2)));
+
+    expect(textOf(tree)).not.toContain(text.invalidNumber);
+    expect(textOf(tree)).not.toContain(text.duplicateNumber);
   });
 });
 
 describe('settings card view · feedback', () => {
   it('warns that an empty allowlist rejects everyone', () => {
-    const tree = SettingsCardView(makeProps(initialState({ value: { locale: 'zh', allowlist: [] } })));
+    const tree = SettingsCardView(makeProps(initialState({ value: {} })));
 
     expect(textOf(tree)).toContain(text.emptyWarn);
   });
 
-  it('marks unparseable entries inline', () => {
-    // 非法行必须可见，否则用户不知道保存按钮为什么灰着
-    const state = setAllowlistDraft(
-      initialState({ value: { locale: 'zh', allowlist: [PHONE] } }),
-      'nope',
-      saved,
-    );
-    const tree = SettingsCardView(makeProps(state));
-
-    expect(textOf(tree)).toContain(text.invalidWarn);
-    expect(find(tree, 'textarea')[0]?.props['aria-invalid']).toBe(true);
-  });
-
   it('shows the save error without losing the draft', () => {
-    const state = { ...dirtyState(), error: 'save failed' };
+    const state = { ...dirtyState(), error: 'boom' };
     const tree = SettingsCardView(makeProps(state));
 
-    expect(textOf(tree)).toContain('save failed');
+    expect(textOf(tree)).toContain('boom');
   });
 
   it('shows only the loading text before the host snapshot arrives', () => {
-    const loading: SettingsCardState = { ...initialState({}), ready: false };
-    const tree = SettingsCardView(makeProps(loading));
+    const tree = SettingsCardView(makeProps({ ...initialState({}), ready: false }));
 
     expect(textOf(tree)).toContain(text.loading);
     expect(find(tree, 'select')).toHaveLength(0);
-    expect(find(tree, 'textarea')).toHaveLength(0);
   });
 });
 
@@ -182,27 +299,34 @@ describe('settings card view · save action', () => {
   it('disables the button when nothing changed', () => {
     const tree = SettingsCardView(makeProps(initialState({ value: { locale: 'zh', allowlist: [PHONE] } })));
 
-    const [button] = find(tree, Button);
-    expect(button?.props['disabled']).toBe(true);
-    expect(button?.props['children']).toBe(text.save);
+    const saveButton = find(tree, Button).find((button) => textOf(button) === text.save);
+    expect(saveButton?.props['disabled']).toBe(true);
   });
 
   it('enables the button after a change and forwards the click', () => {
-    const props = makeProps(dirtyState());
-    const tree = SettingsCardView(props);
+    const onSave = vi.fn();
+    const tree = SettingsCardView(makeProps(dirtyState(), { onSave }));
 
-    const [button] = find(tree, Button);
-    expect(button?.props['disabled']).toBe(false);
-    (button?.props['onClick'] as () => void)();
-    expect(props.onSave).toHaveBeenCalledTimes(1);
+    const saveButton = find(tree, Button).find((button) => textOf(button) === text.save);
+    expect(saveButton?.props['disabled']).toBe(false);
+    (saveButton?.props['onClick'] as () => void)();
+
+    expect(onSave).toHaveBeenCalledOnce();
+  });
+
+  it('disables the button while an invalid add draft is pending', () => {
+    // 状态机拦了 canSave，视图只需忠实反映
+    const tree = SettingsCardView(makeProps(addingState('not-a-number')));
+
+    const saveButton = find(tree, Button).find((button) => textOf(button) === text.save);
+    expect(saveButton?.props['disabled']).toBe(true);
   });
 
   it('labels the in-flight state and blocks a second click', () => {
-    const state = { ...dirtyState(), saving: true, canSave: false };
+    const state = { ...setLocaleDraft(initialState({ value: { locale: 'zh', allowlist: [PHONE] } }), 'en', saved), saving: true };
     const tree = SettingsCardView(makeProps(state));
 
-    const [button] = find(tree, Button);
-    expect(button?.props['children']).toBe(text.saving);
-    expect(button?.props['disabled']).toBe(true);
+    const saveButton = find(tree, Button).find((button) => textOf(button) === text.saving);
+    expect(saveButton?.props['disabled']).toBe(true);
   });
 });
