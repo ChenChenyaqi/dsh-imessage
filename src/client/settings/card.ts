@@ -70,6 +70,12 @@ export interface SettingsCardState {
   readonly maxChunksError: boolean;
   /** 延时系数草稿非法（仅开关开启时才可能为 true）。 */
   readonly delayFactorError: boolean;
+  /** agent 预设 id 草稿。 */
+  readonly preset: FieldState;
+  /** 可选预设（remote roster 加载后填充；空 = 只有当前值兜底）。 */
+  readonly presetOptions: readonly PresetOption[];
+  /** 预设 id 草稿非法（非空时不匹配 ^[a-z0-9][a-z0-9-]*$）。 */
+  readonly presetError: boolean;
   /** 提交中（禁用按钮，避免重复写）。 */
   readonly saving: boolean;
   /** 最近一次提交失败的原因（成功后清空）。 */
@@ -154,6 +160,79 @@ export function readDelayFactor(snapshot: FormSnapshot): number {
   return typeof value === 'number' && Number.isFinite(value) ? value : 1;
 }
 
+/** 下拉里的一条预设选项。 */
+export interface PresetOption {
+  readonly id: string;
+  readonly label: string;
+  /** 宿主当前默认预设（未设置时的回退显示）。 */
+  readonly isDefault: boolean;
+  readonly broken: boolean;
+}
+
+/** roster 行的最小面（ctx.remote.agentPresets.list() 的返回行）。 */
+export interface PresetRosterRow {
+  readonly id: string;
+  readonly name?: string;
+  readonly isDefault?: boolean;
+  readonly broken?: string;
+}
+
+/**
+ * roster → 下拉选项：只保留已安装且启用的（broken 整行丢弃）、去重；
+ * 非空当前值兜底（手填过 / 预设被删时不能显示成空）。
+ * 显示名优先级：内置 id 映射（官方事实：系统预设不发布 name，名称在
+ * 客户端词典按 id 本地化）> 预设自己发布的 name > id 本身。
+ */
+export function presetOptions(
+  roster: readonly PresetRosterRow[],
+  current: string,
+  builtinNames: Readonly<Record<string, string>> = {},
+): readonly PresetOption[] {
+  const options: PresetOption[] = [];
+  const seen = new Set<string>();
+  for (const row of roster) {
+    if (!row.id || row.broken !== undefined || seen.has(row.id)) continue;
+    seen.add(row.id);
+    const label = builtinNames[row.id] ?? row.name ?? row.id;
+    options.push({
+      id: row.id,
+      label,
+      isDefault: row.isDefault === true,
+      broken: false,
+    });
+  }
+  const currentId = current.trim();
+  if (currentId && !seen.has(currentId)) {
+    options.unshift({ id: currentId, label: currentId, isDefault: false, broken: false });
+  }
+  return options;
+}
+
+/**
+ * 生效预设：显式选择 > dafeiyu（已安装且启用）> 宿主默认 > 空。
+ * 「未设置 ≠ 选了 dafeiyu」：区分二者才能做到"装了才默认选中、
+ * 用户先选了别的就不抢"。
+ */
+export function effectivePreset(state: SettingsCardState): string {
+  const explicit = state.preset.draft.trim();
+  if (explicit) return explicit;
+  if (state.presetOptions.some((option) => option.id === 'dafeiyu')) return 'dafeiyu';
+  return state.presetOptions.find((option) => option.isDefault)?.id ?? '';
+}
+
+/** 预设 dirty 判定：只有用户显式编辑算改动（显示默认不点亮保存）。 */
+export function derivePresetDirty(
+  state: SettingsCardState,
+  saved: { agentPreset?: string },
+): boolean {
+  return state.preset.draft.trim() !== (saved.agentPreset ?? '').trim();
+}
+
+/** 预设 id 校验：DSH agent-preset 目录 id 事实（空 = 回默认 dafeiyu）。 */
+export function validPresetDraft(text: string): boolean {
+  return /^[a-z0-9][a-z0-9-]*$/.test(text.trim());
+}
+
 /** 最大分段数校验：1..50 的整数。 */
 export function validMaxChunksDraft(text: string): boolean {
   if (!/^\d+$/.test(text.trim())) return false;
@@ -166,6 +245,12 @@ export function validDelayFactorDraft(text: string): boolean {
   if (!/^\d+(\.\d+)?$/.test(text.trim())) return false;
   const value = Number.parseFloat(text.trim());
   return value >= 0 && value <= 5;
+}
+
+/** 从宿主快照里读 agent 预设（未设置 = 空，由 effectivePreset 解析意图）。 */
+export function readPreset(snapshot: FormSnapshot): string {
+  const value = snapshot.value?.['agentPreset'];
+  return typeof value === 'string' ? value.trim() : '';
 }
 
 /** 从宿主快照里读白名单（非数组回退空）。 */
@@ -201,6 +286,9 @@ export function initialState(snapshot: FormSnapshot): SettingsCardState {
     delayFactor: { draft: String(readDelayFactor(snapshot)), dirty: false },
     maxChunksError: false,
     delayFactorError: false,
+    preset: { draft: readPreset(snapshot), dirty: false },
+    presetOptions: [],
+    presetError: false,
     saving: false,
     error: null,
     warning: allowlist.length === 0 ? 'empty' : null,
@@ -210,13 +298,7 @@ export function initialState(snapshot: FormSnapshot): SettingsCardState {
 }
 
 /** 重算派生字段（草稿或基准变化后调用）。 */
-function derive(state: SettingsCardState, saved: {
-  locale: LocaleOption;
-  allowlist: readonly string[];
-  chunkedReplies?: boolean;
-  maxChunks?: number;
-  delayFactor?: number;
-}): SettingsCardState {
+function derive(state: SettingsCardState, saved: SavedBaseline): SettingsCardState {
   const entries = parseAllowlist(state.allowlist.draft);
   const localeDirty = state.locale.draft !== saved.locale;
   // 白名单按「清洗后的条目序列」比较：只改空白不算改动
@@ -228,8 +310,10 @@ function derive(state: SettingsCardState, saved: {
   // 风格校验只在开关开启时做（关闭时子输入不可见）
   const maxChunksError = state.chunked.draft && !validMaxChunksDraft(state.maxChunks.draft);
   const delayFactorError = state.chunked.draft && !validDelayFactorDraft(state.delayFactor.draft);
+  const presetError = state.preset.draft.trim() !== '' && !validPresetDraft(state.preset.draft);
   const savedNow2 = saved as { chunkedReplies?: boolean; maxChunks?: number; delayFactor?: number };
   // 子字段只在开关开启时参与 dirty 判定：关闭时输入不可见，残留草稿不算改动
+  const presetDirty = derivePresetDirty(state, saved);
   const styleDirty = state.chunked.draft !== (savedNow2.chunkedReplies ?? false)
     || (state.chunked.draft
       && (state.maxChunks.draft !== String(savedNow2.maxChunks ?? 8)
@@ -244,9 +328,13 @@ function derive(state: SettingsCardState, saved: {
     delayFactor: { ...state.delayFactor, dirty: state.chunked.draft && state.delayFactor.draft !== String(savedNow2.delayFactor ?? 1) },
     maxChunksError,
     delayFactorError,
+    preset: { ...state.preset, dirty: presetDirty },
+    presetOptions: state.presetOptions,
+    presetError,
     warning: entries.length === 0 ? 'empty' : null,
-    canSave: !state.saving && !hasInvalid && !addPending && !maxChunksError && !delayFactorError
-      && (localeDirty || allowlistDirty || styleDirty),
+    canSave: !state.saving && !hasInvalid && !addPending
+      && !maxChunksError && !delayFactorError && !presetError
+      && (localeDirty || allowlistDirty || styleDirty || presetDirty),
   };
 }
 
@@ -266,6 +354,7 @@ export interface SavedBaseline {
   readonly chunkedReplies?: boolean;
   readonly maxChunks?: number;
   readonly delayFactor?: number;
+  readonly agentPreset?: string;
 }
 
 export function setLocaleDraft(
@@ -343,6 +432,11 @@ export function setDelayFactorDraft(state: SettingsCardState, draft: string, sav
   return derive({ ...state, delayFactor: { draft, dirty: false } }, saved);
 }
 
+/** 改预设草稿（空 = 回默认 dafeiyu）。 */
+export function setPresetDraft(state: SettingsCardState, draft: string, saved: SavedBaseline): SettingsCardState {
+  return derive({ ...state, preset: { draft, dirty: false } }, saved);
+}
+
 /** 删除第 index 个条目（越界忽略）。 */
 export function removeEntry(
   state: SettingsCardState,
@@ -359,12 +453,12 @@ export function beginSave(state: SettingsCardState): SettingsCardState {
   return { ...state, saving: true, error: null, canSave: false };
 }
 
-/** 提交成功：草稿成为新基准。 */
+/** 提交成功：草稿成为新基准（roster 来自 remote，跨保存保留）。 */
 export function saveSucceeded(
   state: SettingsCardState,
   snapshot: FormSnapshot,
 ): SettingsCardState {
-  return initialState(snapshot);
+  return { ...initialState(snapshot), presetOptions: state.presetOptions };
 }
 
 /** 提交失败：保留草稿（用户不用重输），展示错误。 */
@@ -400,6 +494,7 @@ export async function save(
   if (entries.some((entry) => entry.key === null)) return state;
   if (state.adding.active && state.adding.error !== null) return state;
   if (state.chunked.draft && (state.maxChunksError || state.delayFactorError)) return state;
+  if (state.presetError) return state;
   const saving = beginSave(state);
   const locale: LocaleOption = state.locale.draft === 'en' ? 'en' : 'zh';
   // 开关关闭时草稿可能残留不可解析文本：回退已保存值（界面本就不显示）
@@ -409,6 +504,7 @@ export async function save(
   const delayFactor = validDelayFactorDraft(state.delayFactor.draft)
     ? Number.parseFloat(state.delayFactor.draft.trim())
     : (saved.delayFactor ?? 1);
+  const agentPreset = effectivePreset(state);
   // 数组字段整体覆盖：顺序即用户操作顺序；全部字段一次写（原子）
   const ops: readonly FieldOp[] = [
     { op: 'set', path: ['locale'], value: locale },
@@ -416,6 +512,8 @@ export async function save(
     { op: 'set', path: ['chunkedReplies'], value: state.chunked.draft },
     { op: 'set', path: ['maxChunks'], value: maxChunks },
     { op: 'set', path: ['delayFactor'], value: delayFactor },
+    // 生效预设为空（无 roster 且未设置）→ 不写，留给宿主默认
+    ...(agentPreset === '' ? [] : [{ op: 'set', path: ['agentPreset'], value: agentPreset } as FieldOp]),
   ];
   try {
     if (!await deps.form.mutate(ops)) {

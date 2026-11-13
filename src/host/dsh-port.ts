@@ -47,11 +47,21 @@ export class DshAskError extends Error {
 // ---------------------------------------------------------------------------
 
 /** 适配层需要的宿主服务子集（inject 声明与之一致）。 */
+/** agentPresets 服务最小面（无该服务的宿主上 undefined = 用宿主默认预设）。 */
+export interface HostAgentPresetsService {
+  /** 解析预设 id（undefined = 默认）；不存在时抛错。 */
+  resolve(id?: string): Promise<{ readonly id: string }>;
+  /** 把预设组合挂到 agent 上下文（人设生效的唯一路径）。 */
+  mount(agentContext: unknown, id: string): Promise<unknown>;
+}
+
 export interface DshPortServices {
   readonly agents: HostAgentsService;
   readonly workspaceRegistry: HostWorkspaceRegistry;
   readonly agentDefaultModel: HostAgentDefaultModelService;
   readonly sessionTitle: HostSessionTitleService;
+  /** 可选：预设注册表（进程内服务，apply 期取一次即可）。 */
+  readonly agentPresets?: HostAgentPresetsService;
 }
 
 /** 单次 ask 的收口上限：宿主走失 turn/end 时兜底，防单条消息永久堵死通道。 */
@@ -67,6 +77,8 @@ export interface DshPortDeps {
   readonly mkdir?: (dir: string) => Promise<void>;
   /** 单次 ask 收口上限（默认 DEFAULT_ASK_TIMEOUT_MS）。 */
   readonly askTimeoutMs?: number;
+  /** 预设降级留痕（warn；宿主侧日志或 console）。 */
+  readonly log?: { warn(event: string, fields?: Record<string, unknown>): void };
 }
 
 /** 事件订阅源（宿主 ctx.on 的最小面；与 fake 的 on 同签名）。 */
@@ -85,18 +97,48 @@ export function makeDshPort(deps: DshPortDeps): DshPort {
   const { services, dataRoot } = deps;
   const mkdir = deps.mkdir ?? ((dir: string) => fsMkdir(dir, { recursive: true }).then(() => undefined));
 
-  async function createSession(input: { workspaceDir: string; name: string }): Promise<SessionId> {
+  async function createSession(input: {
+    workspaceDir: string;
+    name: string;
+    preset?: string;
+  }): Promise<SessionId> {
     const absolute = join(dataRoot, input.workspaceDir);
     // 探针事实：workspaceRegistry.create 的 realpath 校验要求目录已存在
     await mkdir(absolute);
     const workspace = await services.workspaceRegistry.create(absolute);
+    // 预设组合（人设生效的唯一路径）：resolve → agents.create 的
+    // meta.agentPreset（持久化记账）+ setup（挂载插件组合）。
+    // 源码事实：api 层 composeAgent 等价物；任何失败都降级为无预设创建
+    // （预设是体验项，不许炸通道），warn 留痕。
+    let agentPreset: string | undefined;
+    let setup: ((agentContext: unknown) => Promise<void>) | undefined;
+    if (input.preset !== undefined && input.preset !== '') {
+      const presets = services.agentPresets;
+      if (presets === undefined) {
+        deps.log?.warn('preset-unavailable', { preset: input.preset });
+      } else {
+        try {
+          const resolved = (await presets.resolve(input.preset)).id;
+          agentPreset = resolved;
+          setup = async (agentContext) => {
+            await presets.mount(agentContext, resolved);
+          };
+        } catch (error) {
+          deps.log?.warn('preset-resolve-failed', {
+            preset: input.preset,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      }
+    }
     // 会话 id 生成权归 port（M3 定案）；前缀对齐 webhook 惯例便于排查
     const sessionId = `imessage-${randomUUID()}`;
     const handle = await services.agents.create({
       sessionId: sessionId as HostSessionId,
-      meta: { cwd: absolute },
+      meta: { cwd: absolute, ...(agentPreset === undefined ? {} : { agentPreset }) },
       // 探针事实：create 必带 agentOptions，无默认兜底
       agentOptions: services.agentDefaultModel.currentSelection(),
+      ...(setup === undefined ? {} : { setup: setup as never }),
     });
     try {
       await workspace.attachSession(sessionId as HostSessionId);

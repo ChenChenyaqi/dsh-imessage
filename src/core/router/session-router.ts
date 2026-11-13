@@ -37,6 +37,8 @@ export interface RouteResult {
 
 export interface RouterDeps {
   readonly port: DshPort
+  /** 当前 agent 预设 id（用时读 → 配置热更对新建会话生效；空 = 宿主默认）。 */
+  readonly preset?: () => string | undefined
   /** 读当前状态（锁内调用，取最新）。 */
   readonly loadState: () => ChannelState
   /** 落盘状态（预绑定事务的提交点）。 */
@@ -84,9 +86,11 @@ export function makeSessionRouter(deps: RouterDeps): SessionRouter {
     const workspaceDir =
       existing?.workspaceDir ?? deriveWorkspaceDir(conversationKey)
     // 会话名仅可读辅助（`imessage <key>` 约定），不作任何安全边界
+    const preset = deps.preset?.();
     const sessionId = await port.createSession({
       workspaceDir,
       name: `imessage ${conversationKey}`,
+      ...(preset === undefined || preset === '' ? {} : { preset }),
     })
     try {
       saveState(recordBinding(loadState(), conversationKey, sessionId))

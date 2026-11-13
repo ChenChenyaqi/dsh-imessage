@@ -11,7 +11,7 @@ import { type CSSProperties, type ChangeEvent, type KeyboardEvent } from 'react'
 
 import { Button, Input, Pill } from '@deepseek-ai/dsh-client-ui-primitives';
 
-import { LOCALE_OPTIONS, type SettingsCardState } from './card';
+import { effectivePreset, LOCALE_OPTIONS, type PresetOption, type SettingsCardState } from './card';
 
 /** view 需要的词条（i18n 注入，真机来自 texts.ts）。 */
 export interface SettingsCardText {
@@ -34,6 +34,9 @@ export interface SettingsCardText {
   readonly delayFactorLabel: string;
   readonly delayFactorHint: string;
   readonly delayFactorErrorText: string;
+  readonly presetLabel: string;
+  readonly presetHint: string;
+  readonly presetErrorText: string;
   readonly save: string;
   readonly saving: string;
   readonly loading: string;
@@ -51,6 +54,7 @@ export interface SettingsCardViewProps {
   readonly onChunkedChange: (value: boolean) => void;
   readonly onMaxChunksChange: (value: string) => void;
   readonly onDelayFactorChange: (value: string) => void;
+  readonly onPresetChange: (value: string) => void;
   readonly onSave: () => void;
 }
 
@@ -128,9 +132,18 @@ const addRowStyle: CSSProperties = {
   alignItems: 'center',
 };
 
+/** 下拉选项：roster 选项 + 生效值兜底（生效值可能来自显示默认）。 */
+function presetChoices(state: SettingsCardState): readonly PresetOption[] {
+  const effective = effectivePreset(state);
+  if (!effective || state.presetOptions.some((option) => option.id === effective)) {
+    return state.presetOptions;
+  }
+  return [{ id: effective, label: effective, isDefault: false, broken: false }, ...state.presetOptions];
+}
+
 /**
  * 渲染设置卡片。
- * @param props - controller 状态、文案与七个回调。
+ * @param props - controller 状态、文案与回调。
  * @returns 元素树（未挂载）。
  */
 export function SettingsCardView(props: SettingsCardViewProps) {
@@ -259,6 +272,26 @@ export function SettingsCardView(props: SettingsCardViewProps) {
           </div>
         )}
       </div>
+
+      <label style={fieldStyle}>
+        <span style={labelStyle}>{text.presetLabel}</span>
+        <select
+          data-field="preset"
+          value={effectivePreset(state)}
+          style={controlStyle}
+          onChange={(event: ChangeEvent<HTMLSelectElement>) => {
+            props.onPresetChange(event.target.value);
+          }}
+        >
+          {presetChoices(state).map((option) => (
+            <option key={option.id} value={option.id}>
+              {option.isDefault ? `${option.label} · 默认` : option.label}
+            </option>
+          ))}
+        </select>
+        <span style={hintStyle}>{text.presetHint}</span>
+        {state.presetError && <p style={errorStyle}>{text.presetErrorText}</p>}
+      </label>
 
       {state.error !== null && <p style={errorStyle}>{state.error}</p>}
 

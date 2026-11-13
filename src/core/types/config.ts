@@ -20,6 +20,8 @@ export interface PluginConfig {
   readonly maxChunks: number;
   /** 延时系数（0 = 分段但不延时；0..5，1 = 实测节奏原速）。 */
   readonly delayFactor: number;
+  /** agent 预设 id（空 = 未设置：装了 dafeiyu 用它，否则宿主默认）。 */
+  readonly agentPreset: string;
 }
 
 /** 各字段默认值（Schemastery schema 的 default 与此保持一致）。 */
@@ -30,4 +32,5 @@ export const DEFAULT_CONFIG: PluginConfig = Object.freeze({
   chunkedReplies: false,
   maxChunks: 8,
   delayFactor: 1,
+  agentPreset: '',
 });

@@ -14,8 +14,10 @@
 import type { ClientContext } from './host';
 import { mountSettingsSection } from './settings/mount';
 
-/** 宿主提供的客户端服务（cordis fiber inject）。 */
-export const inject = ['slots', 'locale', 'configForms'];
+/** 宿主提供的客户端服务（cordis fiber inject）。
+ * remote.agentPresets：官方客户端 Agent presets 页同款通道（官方组件
+ * 自身也静态注入它，客户端恒在；缺失时 roster 读失败 → 下拉退化为空）。 */
+export const inject = ['slots', 'locale', 'configForms', 'remote', 'remote.agentPresets'];
 
 export { ENTRY_ID, LOCALE_NAMESPACE, SECTION_ID, SECTION_ORDER } from './settings/ids';
 

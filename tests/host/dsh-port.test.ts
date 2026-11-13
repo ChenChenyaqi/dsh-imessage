@@ -48,6 +48,96 @@ async function collectAsk(
   return { parts, text: parts.join('') };
 }
 
+/** 带 agentPresets fake 的组装（preset 用例）。 */
+function makePortWithPresets(options: {
+  readonly resolveThrows?: Error;
+} = {}) {
+  const base = makePort();
+  const calls: { resolved?: string; mounted?: { id: string } } = {};
+  (base.host.services as { agentPresets: unknown }).agentPresets = {
+    resolve: async (id?: string) => {
+      calls.resolved = id;
+      if (options.resolveThrows) throw options.resolveThrows;
+      return { id: id ?? 'host-default' };
+    },
+    mount: async (_ctx: unknown, id: string) => {
+      calls.mounted = { id };
+      return undefined;
+    },
+  };
+  const warnings: Array<{ event: string; fields?: Record<string, unknown> }> = [];
+  const port = makeDshPort({
+    services: base.host.services,
+    events: base.host,
+    dataRoot: '/data/root',
+    mkdir: async () => undefined,
+    log: { warn: (event, fields) => warnings.push({ event, fields: { ...fields } }) },
+  });
+  return { ...base, calls, warnings, port };
+}
+
+describe('dsh-port · createSession with agent preset', () => {
+  it('resolves and mounts the preset, recording it in session meta', async () => {
+    const h = makePortWithPresets();
+
+    await h.port.createSession({ workspaceDir: 'ws/a', name: 'imessage a', preset: 'dafeiyu' });
+
+    expect(h.calls.resolved).toBe('dafeiyu');
+    expect(h.calls.mounted).toEqual({ id: 'dafeiyu' });
+    // 会话创建带上了 meta.agentPreset（持久化记账，resume 保持同组合）
+    const create = h.host.log.find((c) => c.kind === 'agents.create');
+    expect(create?.meta).toMatchObject({ agentPreset: 'dafeiyu' });
+    // setup 真的被调用了（组合挂载是人设生效的唯一路径）
+    expect(create?.setupRan).toBe(true);
+  });
+
+  it('falls back to the host default when the preset service is absent', async () => {
+    const { host } = makePort();
+    // fake 宿主默认带 agentPresets：本用例显式摘除，模拟无该服务的宿主
+    delete (host.services as { agentPresets?: unknown }).agentPresets;
+    const warnings: Array<{ event: string; fields?: Record<string, unknown> }> = [];
+    const logged = makeDshPort({
+      services: host.services,
+      events: host,
+      dataRoot: '/data/root',
+      mkdir: async () => undefined,
+      log: { warn: (event, fields) => warnings.push({ event, fields: { ...fields } }) },
+    });
+
+    await logged.createSession({ workspaceDir: 'ws/a', name: 'imessage a', preset: 'dafeiyu' });
+
+    // 预设服务不存在：会话照常创建（无预设 = 宿主默认），留一条 warn
+    const create = host.log.find((c) => c.kind === 'agents.create');
+    expect(create?.meta).toEqual({ cwd: '/data/root/ws/a' });
+    expect(warnings[0]).toMatchObject({ event: 'preset-unavailable' });
+  });
+
+  it('still creates the session when preset resolution fails', async () => {
+    const h = makePortWithPresets({ resolveThrows: new Error('agent-preset/not-found') });
+
+    // resolve 失败不许炸通道：降级无预设创建 + warn 留痕
+    const sessionId = await h.port.createSession({
+      workspaceDir: 'ws/a', name: 'imessage a', preset: 'dafeiyu',
+    });
+
+    expect(String(sessionId)).toMatch(/^imessage-/u);
+    expect(h.calls.mounted).toBeUndefined();
+    const create = h.host.log.find((c) => c.kind === 'agents.create');
+    expect(create?.meta).toEqual({ cwd: '/data/root/ws/a' });
+    expect(h.warnings[0]).toMatchObject({ event: 'preset-resolve-failed' });
+  });
+
+  it('does not touch the preset service when no preset is requested', async () => {
+    const h = makePortWithPresets();
+
+    await h.port.createSession({ workspaceDir: 'ws/a', name: 'imessage a' });
+
+    expect(h.calls.resolved).toBeUndefined();
+    const create = h.host.log.find((c) => c.kind === 'agents.create');
+    expect(create?.meta).toEqual({ cwd: '/data/root/ws/a' });
+  });
+});
+
 describe('dsh-port · createSession', () => {
   it('creates workspace, session, attach and rename in order', async () => {
     const { host, port, mkdirCalls } = makePort();

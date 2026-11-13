@@ -8,7 +8,7 @@ import { useEffect, useSyncExternalStore } from 'react';
 
 import type { HostLocale } from '../host';
 import type { CardController } from './controller';
-import { SettingsCardView } from './view';
+import { SettingsCardView, type SettingsCardText } from './view';
 import { settingsTexts } from './texts';
 
 export interface CardHostProps {
@@ -37,10 +37,12 @@ export function CardHost(props: CardHostProps) {
   // 丢弃未保存草稿，否则重开看到的是旧草稿、重启又变回来（真机 bug）。
   useEffect(() => () => props.controller.reset(), [props.controller]);
 
+  // presetNames 是 id→名称映射（下拉数据源），不属于卡片渲染文案
+  const { presetNames: _names, ...cardText } = settingsTexts(localeId);
   return (
     <SettingsCardView
       state={state}
-      text={settingsTexts(localeId)}
+      text={cardText as unknown as SettingsCardText}
       onLocaleChange={(value: string) => props.controller.setLocaleDraft(value)}
       onBeginAdd={() => props.controller.beginAdd()}
       onUpdateAddDraft={(value: string) => props.controller.updateAddDraft(value)}
@@ -50,6 +52,7 @@ export function CardHost(props: CardHostProps) {
       onChunkedChange={(value: boolean) => props.controller.setChunkedDraft(value)}
       onMaxChunksChange={(value: string) => props.controller.setMaxChunksDraft(value)}
       onDelayFactorChange={(value: string) => props.controller.setDelayFactorDraft(value)}
+      onPresetChange={(value: string) => props.controller.setPresetDraft(value)}
       onSave={() => void props.controller.save()}
     />
   );

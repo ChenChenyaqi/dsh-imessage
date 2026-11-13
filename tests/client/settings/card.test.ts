@@ -27,6 +27,10 @@ import {
   setDelayFactorDraft,
   setLocaleDraft,
   setMaxChunksDraft,
+  derivePresetDirty,
+  effectivePreset,
+  presetOptions,
+  setPresetDraft,
   updateAddDraft,
 } from '@/client/settings/card';
 
@@ -350,6 +354,151 @@ describe('settings card · chunked replies', () => {
     await save({ form, texts: TEXT, readSnapshot: () => ({}) }, state, saved);
 
     expect(calls).toHaveLength(0);
+  });
+});
+
+describe('settings card · agent preset', () => {
+  it('starts with an unset draft when the host has no explicit choice', () => {
+    // 未设置 ≠ 选了 dafeiyu：区分二者才能实现"装了才默认选中"
+    const state = initialState({ value: { locale: 'zh', allowlist: [PHONE] } });
+
+    expect(state.preset).toEqual({ draft: '', dirty: false });
+    expect(state.presetError).toBe(false);
+  });
+
+  it('reads a configured preset back', () => {
+    const state = initialState({ value: { locale: 'zh', allowlist: [PHONE], agentPreset: 'plain' } });
+
+    expect(state.preset.draft).toBe('plain');
+  });
+
+  it('validates the preset id shape while editing', () => {
+    // DSH 预设 id 事实：^[a-z0-9][a-z0-9-]*$；空 = 回默认
+    const base = initialState({ value: { locale: 'zh', allowlist: [PHONE] } });
+    for (const bad of ['Dafeiyu', 'has space', 'dafeiyu!', '-lead']) {
+      expect(setPresetDraft(base, bad, saved).presetError).toBe(true);
+    }
+    expect(setPresetDraft(base, 'plain-2', saved).presetError).toBe(false);
+    expect(setPresetDraft(base, '', saved).presetError).toBe(false);
+  });
+
+  it('blocks saving while the preset id is invalid', () => {
+    const base = initialState({ value: { locale: 'zh', allowlist: [PHONE] } });
+    const invalid = setPresetDraft(base, 'Not Valid', saved);
+
+    expect(invalid.canSave).toBe(false);
+    expect(setPresetDraft(invalid, 'plain', saved).canSave).toBe(true);
+  });
+
+  it('effective preset prefers the explicit choice, then dafeiyu when installed, then host default', () => {
+    const base = () => initialState({ value: { locale: 'zh', allowlist: [PHONE] } });
+    const withRoster = (state: ReturnType<typeof base>, roster: readonly unknown[]) => ({
+      ...state,
+      presetOptions: presetOptions(roster as never, state.preset.draft),
+    });
+
+    // 用户显式选择永远赢
+    expect(effectivePreset(withRoster(setPresetDraft(base(), 'plain', saved), [
+      { id: 'dafeiyu', isDefault: true },
+    ]))).toBe('plain');
+    // 未设置 + dafeiyu 已安装 → 默认选中它
+    expect(effectivePreset(withRoster(base(), [
+      { id: 'standard', isDefault: true }, { id: 'dafeiyu' },
+    ]))).toBe('dafeiyu');
+    // 未设置 + dafeiyu 未安装 → 宿主默认（dafeiyu 不出现）
+    expect(effectivePreset(withRoster(base(), [
+      { id: 'standard', isDefault: true }, { id: 'plain' },
+    ]))).toBe('standard');
+    // 无 roster：空（视图退化为当前值兜底）
+    expect(effectivePreset(base())).toBe('');
+  });
+
+  it('display default alone is not dirty; only an explicit edit counts', () => {
+    const base = initialState({ value: { locale: 'zh', allowlist: [PHONE] } });
+    const roster = presetOptions([{ id: 'dafeiyu' }], '');
+
+    // 未设置 + roster 到达（显示默认 dafeiyu）→ 不点亮保存
+    expect(derivePresetDirty({ ...base, presetOptions: roster }, { agentPreset: '' })).toBe(false);
+    // 显式选择 → dirty
+    expect(derivePresetDirty(
+      setPresetDraft(base, 'plain', saved),
+      { agentPreset: '' },
+    )).toBe(true);
+  });
+
+  it('save writes the effective preset and skips the op when it resolves empty', async () => {
+    const explicit = { form: makeForm(true), roster: [{ id: 'plain' }] };
+    const state = setPresetDraft(
+      { ...initialState({ value: { locale: 'zh', allowlist: [PHONE] } }),
+        presetOptions: presetOptions(explicit.roster as never, 'plain') },
+      'plain',
+      saved,
+    );
+    await save({ form: explicit.form.form, texts: TEXT, readSnapshot: () => ({}) }, state, saved);
+    expect(explicit.form.calls[0]).toContainEqual({ op: 'set', path: ['agentPreset'], value: 'plain' });
+
+    // 空 roster + 未设置 → 不产生 agentPreset 写入（留给宿主默认）
+    const bare = makeForm(true);
+    await save(
+      { form: bare.form, texts: TEXT, readSnapshot: () => ({}) },
+      initialState({ value: { locale: 'zh', allowlist: [PHONE] } }),
+      saved,
+    );
+    expect(bare.calls[0]?.filter((op) => op.path[0] === 'agentPreset')).toEqual([]);
+  });
+});
+
+describe('settings card · preset roster options', () => {
+  it('turns a roster into options carrying the default marker', () => {
+    const options = presetOptions([
+      { id: 'dafeiyu', name: '大肥鱼', isDefault: true },
+      { id: 'plain' },
+    ], 'plain');
+
+    expect(options).toEqual([
+      { id: 'dafeiyu', label: '大肥鱼', isDefault: true, broken: false },
+      { id: 'plain', label: 'plain', isDefault: false, broken: false },
+    ]);
+  });
+
+  it('localizes shipped preset ids through the builtin name map', () => {
+    // 官方事实：系统预设不发布 name，显示名在客户端词典按 id 映射
+    // （display.ts BUILT_IN_PRESET_KEYS）——照搬，中文界面显示中文名
+    const options = presetOptions([
+      { id: 'standard', isDefault: true },
+      { id: 'dafeiyu', name: '大肥鱼' },
+    ], 'standard', { standard: '标准模式' });
+
+    expect(options.map((option) => option.label)).toEqual(['标准模式', '大肥鱼']);
+    // 无映射且无 name：退 id
+    expect(presetOptions([{ id: 'mystery' }], 'mystery', { standard: '标准模式' })[0]?.label)
+      .toBe('mystery');
+  });
+
+  it('drops broken presets entirely (dropdown lists only installed and enabled ones)', () => {
+    const options = presetOptions([
+      { id: 'ok' }, { id: 'bad', broken: 'activation failed' },
+    ], 'ok');
+
+    expect(options.map((option) => option.id)).toEqual(['ok']);
+  });
+
+  it('keeps a non-empty current draft selectable even when it is not in the roster', () => {
+    // 手填过的 id / 预设被删：当前值不能从下拉里消失，否则显示成空
+    const options = presetOptions([{ id: 'plain' }], 'ghosted-preset');
+
+    expect(options.map((option) => option.id)).toEqual(['ghosted-preset', 'plain']);
+  });
+
+  it('does not fabricate an option for an empty draft', () => {
+    expect(presetOptions([{ id: 'plain' }], '')).toEqual([
+      { id: 'plain', label: 'plain', isDefault: false, broken: false },
+    ]);
+  });
+
+  it('dedupes roster rows by id', () => {
+    const options = presetOptions([{ id: 'a' }, { id: 'a', name: 'A' }], 'a');
+    expect(options.filter((option) => option.id === 'a')).toHaveLength(1);
   });
 });
 

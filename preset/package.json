@@ -1,0 +1,12 @@
+{
+  "name": "@chenyaqi/dsh-imessage-preset",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "description": "Built-in agent presets for @chenyaqi/dsh-imessage (persona: dafeiyu)",
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  }
+}

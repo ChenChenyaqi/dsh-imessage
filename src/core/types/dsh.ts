@@ -37,6 +37,8 @@ export interface CreateSessionInput {
   readonly workspaceDir: string;
   /** 会话显示名，约定 `imessage <phone>`，仅可读辅助、非安全边界。 */
   readonly name: string;
+  /** agent 预设 id（人设组合；缺省 = 宿主默认预设）。 */
+  readonly preset?: string;
 }
 
 export interface AskInput {

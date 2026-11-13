@@ -33,10 +33,20 @@ export interface HostSlots {
   inject(key: string, callback: () => () => void): () => void;
 }
 
+/** remote.agentPresets 的最小面（官方客户端 Agent presets 页同款通道）。 */
+export interface HostRemoteAgentPresets {
+  list(): Promise<
+    | { ok: true; value: { presets: readonly { id: string; name?: string; broken?: string }[] } }
+    | { ok: false; error: { code: string; message: string } }
+  >;
+}
+
 /** 浏览器插件上下文（cordis ClientContext 的最小面）。 */
 export interface ClientContext {
   slots: HostSlots;
   locale: HostLocale;
   configForms: { get(namespace: string): HostForm };
+  /** remote 服务面（无该服务的宿主上 undefined → 预设下拉退化为当前值兜底）。 */
+  readonly remote?: { readonly agentPresets?: HostRemoteAgentPresets };
   effect(fn: () => () => unknown, label?: string): void;
 }

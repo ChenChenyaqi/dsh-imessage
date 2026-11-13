@@ -48,6 +48,8 @@ export interface Config {
   readonly maxChunks?: number | { get(): number };
   /** 延时系数（默认 1；0 = 分段不延时，0..5）。 */
   readonly delayFactor?: number | { get(): number };
+  /** agent 预设 id（空 = 未设置：装了 dafeiyu 用它，否则宿主默认）。 */
+  readonly agentPreset?: string | { get(): string };
 }
 
 // volatile（DSH settings 事实）：设置页只渲染 volatile 字段；改动经
@@ -60,6 +62,7 @@ export const Config = z.object({
   chunkedReplies: z.boolean().default(false).volatile(),
   maxChunks: z.number().step(1).min(1).max(50).default(8).volatile(),
   delayFactor: z.number().min(0).max(5).default(1).volatile(),
+  agentPreset: z.string().default('').volatile(),
   intervalMs: z.number().step(1).min(1).default(2000),
   maxBackoffMs: z.number().step(1).min(1).default(60000),
 });
@@ -78,6 +81,18 @@ function readVolatile<T>(value: T | { get(): T }): T {
     : (value as T);
 }
 
+/** agentPresets 服务最小面（进程内；无预设体系的宿主返回 undefined）。 */
+function agentPresetsService(ctx: Context):
+  | { resolve(id?: string): Promise<{ id: string }>; mount(ctx: unknown, id: string): Promise<unknown> }
+  | undefined {
+  const service = (ctx as unknown as { get?(name: string): unknown }).get?.('agentPresets');
+  if (service === undefined || typeof service !== 'object') return undefined;
+  const candidate = service as { resolve?: unknown; mount?: unknown };
+  return typeof candidate.resolve === 'function' && typeof candidate.mount === 'function'
+    ? candidate as { resolve(id?: string): Promise<{ id: string }>; mount(ctx: unknown, id: string): Promise<unknown> }
+    : undefined;
+}
+
 export function apply(ctx: Context, config: Config, overrides: Partial<ChannelEnv> = {}): void {
   // 宿主服务经 inject 提供；类型合并声明在上方 declare module
   const services: DshPortServices = {
@@ -85,6 +100,9 @@ export function apply(ctx: Context, config: Config, overrides: Partial<ChannelEn
     workspaceRegistry: ctx.workspaceRegistry,
     agentDefaultModel: ctx.agentDefaultModel,
     sessionTitle: ctx.sessionTitle,
+    // 探针纪律（同 connection）：动态取，无该服务的宿主上 undefined =
+    // 预设降级为宿主默认，通道照常
+    ...(agentPresetsService(ctx) === undefined ? {} : { agentPresets: agentPresetsService(ctx)! }),
   };
   const env: ChannelEnv = {
     services,
@@ -101,6 +119,7 @@ export function apply(ctx: Context, config: Config, overrides: Partial<ChannelEn
       chunkedReplies: readVolatile(config.chunkedReplies) ?? false,
       maxChunks: readVolatile(config.maxChunks) ?? 8,
       delayFactor: readVolatile(config.delayFactor) ?? 1,
+      agentPreset: readVolatile(config.agentPreset) ?? '',
       intervalMs: config.intervalMs,
       maxBackoffMs: config.maxBackoffMs,
     },
@@ -121,6 +140,7 @@ export function apply(ctx: Context, config: Config, overrides: Partial<ChannelEn
           chunkedReplies: readVolatile(config.chunkedReplies) ?? false,
           maxChunks: readVolatile(config.maxChunks) ?? 8,
           delayFactor: readVolatile(config.delayFactor) ?? 1,
+          agentPreset: readVolatile(config.agentPreset) ?? '',
         });
       } catch (err) {
         console.error('[dsh-imessage] volatile update failed:', err);

@@ -22,6 +22,7 @@ import {
   setDelayFactorDraft,
   setLocaleDraft,
   setMaxChunksDraft,
+  setPresetDraft,
   updateAddDraft,
   withDerived,
   type CardTexts,
@@ -52,6 +53,9 @@ export interface CardController {
   setChunkedDraft(value: boolean): void;
   setMaxChunksDraft(value: string): void;
   setDelayFactorDraft(value: string): void;
+  setPresetDraft(value: string): void;
+  /** remote roster 到达（mount 期异步加载后调用）。 */
+  setPresetOptions(options: readonly import('./card').PresetOption[]): void;
   /** 丢弃草稿回到宿主已保存值（视图卸载时调用：关页 = 不保存）。 */
   reset(): void;
   save(): Promise<void>;
@@ -86,6 +90,7 @@ export function createCardController(deps: {
       chunkedReplies: snapshot.value?.['chunkedReplies'] === true,
       maxChunks: typeof snapshot.value?.['maxChunks'] === 'number' ? snapshot.value?.['maxChunks'] as number : 8,
       delayFactor: typeof snapshot.value?.['delayFactor'] === 'number' ? snapshot.value?.['delayFactor'] as number : 1,
+      agentPreset: typeof snapshot.value?.['agentPreset'] === 'string' ? snapshot.value?.['agentPreset'] as string : 'dafeiyu',
     };
   };
 
@@ -101,6 +106,9 @@ export function createCardController(deps: {
         chunked: state.chunked.dirty ? state.chunked : next.chunked,
         maxChunks: state.maxChunks.dirty ? state.maxChunks : next.maxChunks,
         delayFactor: state.delayFactor.dirty ? state.delayFactor : next.delayFactor,
+        preset: state.preset.dirty ? state.preset : next.preset,
+        // roster 与表单快照无关（remote 通道单独加载）：推送不得冲掉
+        presetOptions: state.presetOptions,
         adding: state.adding,
         saving: state.saving,
         error: state.error,
@@ -155,8 +163,17 @@ export function createCardController(deps: {
       state = setDelayFactorDraft(state, value, savedNow());
       emit();
     },
+    setPresetDraft(value) {
+      state = setPresetDraft(state, value, savedNow());
+      emit();
+    },
+    setPresetOptions(options) {
+      state = { ...state, presetOptions: options };
+      emit();
+    },
     reset() {
-      state = initialState(deps.form.getSnapshot());
+      // roster 与表单无关：reset 只回草稿，不冲 remote 数据
+      state = { ...initialState(deps.form.getSnapshot()), presetOptions: state.presetOptions };
       emit();
     },
     async save() {

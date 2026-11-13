@@ -143,6 +143,8 @@ export interface HostCancelOptions {
 // ---------------------------------------------------------------------------
 
 export interface HostCreateAgentInput {
+  /** 官方 CreateAgentOptions.setup：注册表发布前执行（预设组合挂载点）。 */
+  readonly setup?: (agentContext: unknown) => Promise<void>;
   /** 探针：对已存在的活会话是硬错误（already exists），复用需先 get。
    * 官方类型必填（探针一致：创建必带 sessionId）。 */
   readonly sessionId: HostSessionId;

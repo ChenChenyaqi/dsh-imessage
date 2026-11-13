@@ -6,6 +6,7 @@
 import type { ClientContext } from '../host';
 import { CardHost } from './host';
 import { createCardController, type CardController } from './controller';
+import { presetOptions } from './card';
 import { settingsMessages } from './texts';
 import { ENTRY_ID, LOCALE_NAMESPACE, SECTION_ID, SECTION_ORDER } from './ids';
 
@@ -16,11 +17,12 @@ import { ENTRY_ID, LOCALE_NAMESPACE, SECTION_ID, SECTION_ORDER } from './ids';
  */
 export function mountSettingsSection(ctx: ClientContext): CardController {
   // 我们自己的界面词条（不属于宿主字典，注册在自己的命名空间下）
+  // host locale 词典是扁平 key→string：presetNames（id→名称映射）只给
+  // 本地下拉用，不注册进宿主
+  const { presetNames: _zhNames, ...zhFlat } = settingsMessages.zh;
+  const { presetNames: _enNames, ...enFlat } = settingsMessages.en;
   ctx.effect(
-    () => ctx.locale.register(LOCALE_NAMESPACE, {
-      zh: settingsMessages.zh,
-      en: settingsMessages.en,
-    }),
+    () => ctx.locale.register(LOCALE_NAMESPACE, { zh: zhFlat, en: enFlat }),
     'dsh-imessage: settings texts',
   );
 
@@ -33,6 +35,27 @@ export function mountSettingsSection(ctx: ClientContext): CardController {
     texts: settingsMessagesText(ctx),
   });
   ctx.effect(() => () => controller.dispose(), 'dsh-imessage: settings controller');
+
+  // 预设下拉数据：官方客户端同款 remote 通道（Agent presets 页自己就用它）。
+  // 服务不可用（gateway/invocation-unavailable）= 空列表：下拉退化为
+  // 当前值兜底，设置页其余功能不受影响。
+  ctx.effect(() => {
+    void (async () => {
+      const remote = ctx.remote?.agentPresets;
+      if (!remote) return;
+      const result = await remote.list();
+      if (!result.ok) return;
+      const names = settingsMessagesText(ctx).presetNames;
+      controller.setPresetOptions(
+        presetOptions(
+          result.value.presets,
+          controller.getSnapshot().preset.draft,
+          typeof names === 'object' ? names : {},
+        ),
+      );
+    })();
+    return () => undefined;
+  }, 'dsh-imessage: preset roster');
 
   /** 槽位渲染的入口组件（把 locale 服务钉进闭包）。 */
   function ImessageSettingsSection() {

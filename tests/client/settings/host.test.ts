@@ -63,7 +63,11 @@ function makeForm(initial: { locale?: string; allowlist?: string[] } = {}) {
 }
 
 /** 最小 fake ctx：槽位立即就绪、locale 可切换。 */
-function makeCtx(options: { locale?: string; allowlist?: string[] } = {}) {
+function makeCtx(options: {
+  locale?: string;
+  allowlist?: string[];
+  presets?: Array<{ id: string; name?: string; isDefault?: boolean; broken?: string }>;
+} = {}) {
   const fake = makeForm(options);
   let localeId = options.locale ?? 'zh';
   const localeListeners = new Set<() => void>();
@@ -90,6 +94,15 @@ function makeCtx(options: { locale?: string; allowlist?: string[] } = {}) {
       },
     },
     configForms: { get: () => fake.form },
+    ...(options.presets === undefined ? {} : {
+      remote: {
+        agentPresets: {
+          async list() {
+            return { ok: true, value: { presets: options.presets! } } as const;
+          },
+        },
+      },
+    }),
     effect: (fn: () => () => unknown) => {
       fn();
     },
@@ -106,7 +119,11 @@ function makeCtx(options: { locale?: string; allowlist?: string[] } = {}) {
 }
 
 /** 挂载卡片并返回容器与卸载函数。 */
-function mount(options: { locale?: string; allowlist?: string[] } = {}) {
+function mount(options: {
+  locale?: string;
+  allowlist?: string[];
+  presets?: Array<{ id: string; name?: string; isDefault?: boolean; broken?: string }>;
+} = {}) {
   const env = makeCtx(options);
   act(() => {
     mountSettingsSection(env.ctx as never);
@@ -171,7 +188,7 @@ describe('settings card · mounted', () => {
 
     expect(app.container.textContent).toContain(PHONE);
     expect(app.container.querySelector('textarea')).toBeNull();
-    expect(Array.from(app.container.querySelectorAll('option'), (option) => option.value))
+    expect(Array.from(app.container.querySelectorAll('select')[0]?.options ?? [], (option) => option.value))
       .toEqual(['zh', 'en']);
     app.unmount();
   });
@@ -296,6 +313,30 @@ describe('settings card · mounted', () => {
     expect(write).toContainEqual({ op: 'set', path: ['chunkedReplies'], value: true });
     expect(write).toContainEqual({ op: 'set', path: ['maxChunks'], value: 8 });
     expect(write).toContainEqual({ op: 'set', path: ['delayFactor'], value: 1 });
+    // 预设未设置且无 roster：不写 agentPreset（留给宿主默认）
+    expect(write.filter((op) => op.path[0] === 'agentPreset')).toEqual([]);
+    app.unmount();
+  });
+
+  it('loads the preset roster into the dropdown after mount', async () => {
+    // remote roster 异步到达：下拉列出已安装且启用的预设，默认选中 dafeiyu
+    const app = mount({
+      allowlist: [PHONE],
+      presets: [
+        { id: 'standard', isDefault: true },
+        { id: 'dafeiyu', name: '大肥鱼' },
+        { id: 'bad', broken: 'activation failed' },
+      ],
+    });
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+    const select = Array.from(app.container.querySelectorAll('select[data-field="preset"]'))[0] as HTMLSelectElement;
+    // 顺序跟 roster（宿主排序），broken 行被剔除
+    expect(Array.from(select.options, (option) => option.value)).toEqual(['standard', 'dafeiyu']);
+    // 未设置 + dafeiyu 已安装 → 默认选中它
+    expect(select.value).toBe('dafeiyu');
     app.unmount();
   });
 

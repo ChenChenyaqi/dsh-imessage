@@ -15,7 +15,7 @@ const { mountSettingsSection } = await import('@/client/settings/mount');
 
 describe('client entry', () => {
   it('injects every client service the card needs', () => {
-    expect(inject).toEqual(['slots', 'locale', 'configForms']);
+    expect(inject).toEqual(['slots', 'locale', 'configForms', 'remote', 'remote.agentPresets']);
   });
 
   it('delegates mounting to the settings package', () => {

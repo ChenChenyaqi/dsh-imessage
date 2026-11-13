@@ -45,6 +45,8 @@ export interface ChannelConfig {
   readonly maxChunks?: number;
   /** 延时系数（缺省 1；0 = 分段不延时）。 */
   readonly delayFactor?: number;
+  /** agent 预设 id（人设组合；缺省内置预设 dafeiyu，仅新建会话生效）。 */
+  readonly agentPreset?: string;
 }
 
 /** 装配环境：宿主面必填，macOS IO 可注入（默认 node 实现）。 */
@@ -86,6 +88,7 @@ export interface HotConfigPatch {
   readonly chunkedReplies?: boolean;
   readonly maxChunks?: number;
   readonly delayFactor?: number;
+  readonly agentPreset?: string;
 }
 
 export interface ChannelHandle {
@@ -117,6 +120,7 @@ export function startImessageChannel(
     intervalMs?: number;
     maxBackoffMs?: number;
     style: ReplyStyle;
+    agentPreset: string;
   } = {
     locale: config.locale ?? 'zh',
     allowlist: config.allowlist ?? [],
@@ -127,7 +131,9 @@ export function startImessageChannel(
       maxChunks: config.maxChunks ?? DEFAULT_CONFIG.maxChunks,
       delayFactor: config.delayFactor ?? DEFAULT_CONFIG.delayFactor,
     },
+    agentPreset: config.agentPreset ?? DEFAULT_CONFIG.agentPreset,
   };
+  // 生效意图：未设置 = dafeiyu（未装则 dsh-port 降级宿主默认并 warn）
 
   // 可变 deps：运行中通道才登记（probe-failed 保持 undefined，热更新仅记录）
   // 运行中通道才登记（probe-failed 保持 undefined，热更新仅记录）
@@ -174,6 +180,10 @@ export function startImessageChannel(
         delayFactor: patch.delayFactor ?? live.style.delayFactor,
       };
     }
+    if (patch.agentPreset !== undefined && patch.agentPreset !== live.agentPreset) {
+      changed.push('agentPreset');
+    }
+    if (patch.agentPreset !== undefined) live.agentPreset = patch.agentPreset;
     // 运行中的 pipeline 用时读 deps：直接改字段即热生效
     if (mutableDeps.current !== undefined) {
       const t = makeT(live.locale);
@@ -184,6 +194,7 @@ export function startImessageChannel(
     log.info('channel.config-updated', {
       locale: live.locale,
       allowlistCount: live.allowlist.length,
+      agentPreset: live.agentPreset,
       chunkedReplies: live.style.chunked,
       maxChunks: live.style.maxChunks,
       delayFactor: live.style.delayFactor,
@@ -244,6 +255,9 @@ export function startImessageChannel(
   });
   const router = makeSessionRouter({
     port,
+    // 用时读：热更预设只影响之后新建的会话（composition 定格事实）。
+    // 未设置（空）→ 意图 dafeiyu；装没装由 dsh-port 的 roster resolve 兜底
+    preset: () => live.agentPreset || 'dafeiyu',
     loadState: () => loadState(stateFile),
     saveState: (state) => saveState(stateFile, state),
     log,
@@ -276,6 +290,7 @@ export function startImessageChannel(
     locale: config.locale ?? 'zh',
     allowlist: config.allowlist ?? [],
     allowlistCount: (config.allowlist ?? []).length,
+    agentPreset: live.agentPreset || 'dafeiyu',
     chunkedReplies: live.style.chunked,
     maxChunks: live.style.maxChunks,
     delayFactor: live.style.delayFactor,

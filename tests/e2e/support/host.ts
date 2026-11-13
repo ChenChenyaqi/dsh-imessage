@@ -115,6 +115,8 @@ export async function startHost(options: { allowlist?: readonly string[] } = {})
   await run('dsh', ['--profile', PROFILE, '--from-default-profile', 'web', '--dump-config'], env);
   phase('installing plugin bundle');
   await run('dsh', ['plugin', '--profile', PROFILE, 'add', ROOT], env);
+  // 内置预设包（人设 dafeiyu）与插件同仓，一起安装
+  await run('dsh', ['plugin', '--profile', PROFILE, 'add', join(ROOT, 'preset')], env);
   phase('writing patch');
   const allowlist = options.allowlist ?? ['+8613800000000'];
   writeFileSync(patchPath, [

@@ -22,6 +22,16 @@ export const settingsMessages = {
     delayFactorLabel: '延时系数',
     delayFactorHint: '0 = 分段但不延时',
     delayFactorErrorText: '需为 0–5 的数字（0 = 不延时）',
+    presetLabel: 'AI 人设（agent 预设）',
+    presetHint: '人设写在 DSH 的 Agent presets 里；此处选择用哪个。仅对新建会话生效',
+    presetErrorText: '预设 id 只能是小写字母、数字和中划线',
+    // 系统预设不发布 name（官方 display.ts 事实），显示名按 id 在词典映射
+    presetNames: {
+      standard: '标准模式',
+      ptc: 'PTC 模式',
+      minimal: '极简模式',
+      cordis: '创造模式',
+    },
     emptyWarn: '白名单为空：所有消息都会被忽略',
     invalidWarn: '存在无法识别的号码，修好后才能保存',
     save: '保存',
@@ -47,6 +57,15 @@ export const settingsMessages = {
     delayFactorLabel: 'Delay factor',
     delayFactorHint: '0 = chunks without delay',
     delayFactorErrorText: 'Must be a number between 0 and 5 (0 = no delay)',
+    presetLabel: 'AI persona (agent preset)',
+    presetHint: 'Personas live in DSH Agent presets; this picks which one. New sessions only',
+    presetErrorText: 'Preset ids use lowercase letters, digits, and dashes',
+    presetNames: {
+      standard: 'Standard mode',
+      ptc: 'PTC mode',
+      minimal: 'Minimal mode',
+      cordis: 'Creator mode',
+    },
     emptyWarn: 'Empty allowlist: every message will be ignored',
     invalidWarn: 'Some numbers cannot be parsed; fix them before saving',
     save: 'Save',
@@ -56,7 +75,10 @@ export const settingsMessages = {
   },
 } as const;
 
-export type SettingsMessages = Record<keyof (typeof settingsMessages)['zh'], string>;
+/** 词条值：字符串或嵌套词典组（presetNames 按系统预设 id 映射显示名）。 */
+export type SettingsMessageValue = string | Readonly<Record<string, string>>;
+
+export type SettingsMessages = Record<keyof (typeof settingsMessages)['zh'], SettingsMessageValue>;
 
 /** 取某语言的词条（未知语言回退 zh，与 core i18n 的收窄方向一致）。 */
 export function settingsTexts(locale: string | undefined): SettingsMessages {

@@ -27,6 +27,7 @@ function makeHarness(): Harness {
   let failSave: { err: unknown } | null = null
   const router = makeSessionRouter({
     port,
+    preset: () => "dafeiyu",
     loadState: () => state,
     saveState: (next) => {
       if (failSave) {
@@ -83,6 +84,48 @@ describe("session router · first route creates and binds", () => {
     expect(h.port.createdCalls[1]?.workspaceDir).toBe(first.workspaceDir)
   })
 })
+
+describe("session router · agent preset", () => {
+  it("passes the preset to createSession when one is configured", async () => {
+    const h = makeHarness();
+    await h.router.route("+8613800000000");
+
+    expect(h.port.createdCalls[0]).toMatchObject({ preset: "dafeiyu" });
+  });
+
+  it("reads the preset getter per creation (hot config swap applies to new sessions)", async () => {
+    let current: string | undefined = "dafeiyu";
+    const port = makeFakeDshPort();
+    const router = makeSessionRouter({
+      port,
+      loadState: () => makeChannelState(),
+      saveState: () => undefined,
+      preset: () => current,
+    });
+    await router.route("+8613800000000");
+    current = "other";
+    await router.route("+8613900000000");
+
+    expect(port.createdCalls[0]).toMatchObject({ preset: "dafeiyu" });
+    expect(port.createdCalls[1]).toMatchObject({ preset: "other" });
+  });
+
+  it("omits the preset when the getter returns undefined or empty", async () => {
+    for (const value of [undefined, ""]) {
+      const port = makeFakeDshPort();
+      const router = makeSessionRouter({
+        port,
+        loadState: () => makeChannelState(),
+        saveState: () => undefined,
+        preset: () => value,
+      });
+      await router.route("+8613800000000");
+
+      // 未配置 = 宿主默认预设：字段整个不出现，而不是空字符串
+      expect("preset" in port.createdCalls[0]!).toBe(false);
+    }
+  });
+});
 
 describe("session router · lazy validation", () => {
   it("reuses an active binding without creating", async () => {

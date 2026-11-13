@@ -68,7 +68,8 @@ test('settings card edits the allowlist and the system message language', async 
   const save = card.getByRole('button', { name: 'Save' });
   // 方案 A：平时没有输入框，点「Add number」才展开一行
   const openAdd = () => card.getByRole('button', { name: 'Add number' }).click();
-  const addField = () => card.getByRole('textbox');
+  // 白名单添加行输入（预设字段是常驻 textbox，必须按 placeholder 区分）
+  const addField = () => card.getByPlaceholder('Phone numbers need a country code, e.g. +8613800000000');
 
   await test.step('settings dialog exposes the iMessage section with host values', async () => {
     // An isolated DSH_HOME is signed out, so first-run gates appear.
@@ -81,10 +82,11 @@ test('settings card edits the allowlist and the system message language', async 
     await dialog.getByRole('button', { name: 'iMessage', exact: true }).click();
 
     await expect(card).toBeVisible();
-    await expect(card.getByRole('combobox')).toHaveValue('zh');
+    await expect(card.locator('select').first()).toHaveValue('zh');
     // 已有号码渲染成 chip（不是输入框）：号码可见 + 恰好一个删除按钮
     await expect(card).toContainText(PHONE);
     await expect(card.getByRole('button', { name: 'Remove' })).toHaveCount(1);
+    // 白名单没有输入框（预设是下拉，添加行收起）：零 textbox
     await expect(card.getByRole('textbox')).toHaveCount(0);
     await expect(save).toBeDisabled();
     mark('settings opened, values prefilled');
@@ -95,7 +97,7 @@ test('settings card edits the allowlist and the system message language', async 
     await addField().fill(PHONE_2);
     await card.getByRole('button', { name: 'Add', exact: true }).click();
     // 输入行收起，新号码以 chip 出现（两个条目两个删除按钮）
-    await expect(card.getByRole('textbox')).toHaveCount(0);
+    await expect(addField()).toHaveCount(0);
     await expect(card).toContainText(PHONE_2);
     await expect(card.getByRole('button', { name: 'Remove' })).toHaveCount(2);
     await expect(save).toBeEnabled();
@@ -127,7 +129,7 @@ test('settings card edits the allowlist and the system message language', async 
   });
 
   await test.step('saving the reply language persists locale=en', async () => {
-    await card.getByRole('combobox').selectOption('en');
+    await card.locator('select').first().selectOption('en');
     await expect(save).toBeEnabled();
     await save.click();
 
@@ -172,6 +174,37 @@ test('settings card edits the allowlist and the system message language', async 
     // 修好后恢复
     await field.fill('8');
     await expect(save).toBeEnabled();
+  });
+
+  await test.step('the persona preset dropdown defaults to dafeiyu and persists a choice', async () => {
+    const select = card.locator('select[data-field="preset"]');
+    // roster 异步到达：先等系统预设出现（显示本地化名称，值仍是 id），
+    // 再断言默认选中 dafeiyu
+    await expect(select.locator('option')).toContainText(['Standard mode']);
+    await expect(select).toHaveValue('dafeiyu');
+    // 自定义预设显示自己发布的名称
+    await expect(select.locator('option')).toContainText(['大肥鱼']);
+    const ids = await select.locator('option').evaluateAll(
+      (options) => options.map((option) => (option as HTMLOptionElement).value),
+    );
+    expect(ids).toContain('dafeiyu');
+    expect(ids.length).toBeGreaterThanOrEqual(2); // 至少还有一个系统预设
+
+    // 选一个非 dafeiyu 的预设保存（用户显式选择永远赢）
+    const other = ids.find((id) => id !== 'dafeiyu') as string;
+    await select.selectOption(other);
+    await expect(save).toBeEnabled();
+    await save.click();
+    await expect.poll(() => host.readPatch(), { timeout: 15_000 })
+      .toMatch(new RegExp(`agentPreset:\\s*${other}`, 'u'));
+
+    // 重开设置页：显式选择被记住，不被 dafeiyu 抢回
+    await page.getByRole('dialog').getByRole('button', { name: 'Close' }).click();
+    await page.getByRole('button', { name: 'Account menu' }).click();
+    await page.getByRole('menuitem', { name: 'Settings' }).click();
+    await page.getByRole('dialog').getByRole('button', { name: 'iMessage', exact: true }).click();
+    await expect(card.locator('select[data-field="preset"]')).toHaveValue(other);
+    mark('preset saved');
   });
 
   await test.step('an invalid number shows red validation and blocks adding and saving', async () => {

@@ -194,6 +194,61 @@ describe('card controller · editing', () => {
     expect(state.canSave).toBe(true);
   });
 
+  it('delegates the preset field', () => {
+    const { controller } = makeController({ allowlist: [PHONE] });
+
+    controller.setPresetDraft('plain');
+
+    const state = controller.getSnapshot();
+    expect(state.preset.draft).toBe('plain');
+    expect(state.preset.dirty).toBe(true);
+    expect(state.canSave).toBe(true);
+  });
+
+  it('keeps loaded roster options across host snapshot pushes', () => {
+    // 真机 bug：打开设置页会推一次 form 快照，roster 不能被冲掉
+    const { controller, fake } = makeController({ allowlist: [PHONE] });
+    controller.setPresetOptions([{ id: 'dafeiyu', label: '大肥鱼（dafeiyu）', isDefault: false, broken: false }]);
+
+    fake.push({ locale: 'en' });
+
+    expect(controller.getSnapshot().presetOptions).toHaveLength(1);
+  });
+
+  it('holds roster options for the view and notifies on arrival', () => {
+    const { controller } = makeController({ allowlist: [PHONE] });
+    expect(controller.getSnapshot().presetOptions).toEqual([]);
+    const listener = vi.fn();
+    controller.subscribe(listener);
+
+    controller.setPresetOptions([{ id: 'dafeiyu', label: '大肥鱼（dafeiyu）', isDefault: false, broken: false }]);
+
+    expect(controller.getSnapshot().presetOptions).toHaveLength(1);
+    expect(listener).toHaveBeenCalled();
+  });
+
+  it('keeps the roster after a successful save', async () => {
+    // 真机 bug：保存成功走 initialState 重建，roster 被冲成空
+    const { controller } = makeController({ allowlist: [PHONE] });
+    controller.setPresetOptions([{ id: 'dafeiyu', label: '大肥鱼（dafeiyu）', isDefault: false, broken: false }]);
+    controller.setLocaleDraft('en');
+
+    await controller.save();
+
+    expect(controller.getSnapshot().presetOptions).toHaveLength(1);
+    expect(controller.getSnapshot().locale.draft).toBe('en');
+  });
+
+  it('reset keeps the loaded roster (remote state, not a draft)', () => {
+    // 关设置页丢的是"草稿"；roster 来自 remote 通道，丢了下拉就空了
+    const { controller } = makeController({ allowlist: [PHONE] });
+    controller.setPresetOptions([{ id: 'dafeiyu', label: '大肥鱼（dafeiyu）', isDefault: false, broken: false }]);
+
+    controller.reset();
+
+    expect(controller.getSnapshot().presetOptions).toHaveLength(1);
+  });
+
   it('reset discards unsaved drafts and re-reads the host snapshot', () => {
     // 关闭设置页 = 丢弃草稿：重开必须看到宿主已保存值，不是旧草稿
     const { controller } = makeController({ allowlist: [PHONE] });

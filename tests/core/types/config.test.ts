@@ -12,6 +12,8 @@ describe('DEFAULT_CONFIG', () => {
     expect(DEFAULT_CONFIG.chunkedReplies).toBe(false);
     expect(DEFAULT_CONFIG.maxChunks).toBe(8);
     expect(DEFAULT_CONFIG.delayFactor).toBe(1);
+    // 预设默认未设置：装了 dafeiyu 才默认选中（显式选择永远赢）
+    expect(DEFAULT_CONFIG.agentPreset).toBe('');
   });
 
   it('defaults to zh locale and a 2s poll interval', () => {
@@ -33,6 +35,7 @@ describe('PluginConfig type shape', () => {
       chunkedReplies: true,
       maxChunks: 5,
       delayFactor: 0,
+      agentPreset: 'dafeiyu',
     };
     expect(config.allowlist).toHaveLength(1);
   });

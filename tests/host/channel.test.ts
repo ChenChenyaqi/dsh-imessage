@@ -57,6 +57,7 @@ interface EnvOptions {
     chunkedReplies?: boolean;
     maxChunks?: number;
     delayFactor?: number;
+    agentPreset?: string;
   };
   /** 覆盖 openDb（模拟 db 打不开的 start-failed 路径；可抛非 Error）。 */
   openDbThrows?: unknown;
@@ -407,6 +408,39 @@ describe('channel · hot config update', () => {
       maxChunks: 3,
       delayFactor: 2,
     });
+  });
+
+  it('passes the configured agent preset to new sessions and echoes it in the log', async () => {
+    const env = makeEnv({
+      config: { allowlist: ['+8613800000000'], agentPreset: 'dafeiyu' },
+    });
+    const channel = env.start();
+    await waitFor(() => env.logLines.some((l) => l.event === 'channel.started'), 2000);
+
+    // 新消息 → 新会话 → router 带着 preset 调 createSession
+    env.insertAfterStart('在吗', 'm-preset-1');
+    await waitFor(() => env.sender.sent.some((x) => x.kind === 'text'), 5000);
+    await channel.stop();
+
+    expect(env.logLines.find((l) => l.event === 'channel.started')).toMatchObject({
+      agentPreset: 'dafeiyu',
+    });
+    expect(env.host.services.agentsCreateMeta.lastCreateMeta?.['agentPreset']).toBe('dafeiyu');
+  });
+
+  it('hot-swaps the agent preset for future sessions', async () => {
+    const env = makeEnv({
+      config: { allowlist: ['+8613800000000'], agentPreset: 'plain' },
+    });
+    const channel = env.start();
+    await waitFor(() => env.logLines.some((l) => l.event === 'channel.started'), 2000);
+
+    channel.updateConfig({ agentPreset: 'dafeiyu' });
+
+    const updated = env.logLines.find((l) => l.event === 'channel.config-updated');
+    expect(updated).toMatchObject({ agentPreset: 'dafeiyu', changed: ['agentPreset'] });
+    // 已有会话不动（预设只对新建会话生效——DSH composition 定格事实）
+    await channel.stop();
   });
 
   it('reports only the fields that actually changed', async () => {

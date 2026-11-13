@@ -80,6 +80,13 @@ export interface FakeDshHost {
     readonly workspaceRegistry: HostWorkspaceRegistry;
     readonly agentDefaultModel: HostAgentDefaultModelService;
     readonly sessionTitle: HostSessionTitleService;
+    /** 最近一次 agents.create 的 meta（preset 断言用）。 */
+    readonly agentsCreateMeta: { lastCreateMeta: Record<string, unknown> | undefined };
+    /** 默认自带的 agentPresets 最小面（preset 全链路用例）。 */
+    readonly agentPresets: {
+      resolve(id?: string): Promise<{ id: string }>;
+      mount(ctx: unknown, id: string): Promise<unknown>;
+    };
   };
   /** 对齐 ctx.on 的事件订阅：返回卸载函数。 */
   on<E extends HostEventName>(event: E, listener: (...args: HostEventPayloads[E]) => void): () => void;
@@ -104,6 +111,8 @@ export interface FakeDshHost {
   /** 归档集（可变；registry.archivedSessionIds 是同一引用的只读视图）。 */
   readonly archivedSessionIds: HostSessionId[];
   readonly log: FakeHostLogEntry[];
+  /** mount 调用记录（按序）。 */
+  readonly presetMounts: ReadonlyArray<{ id: string }>
 }
 
 /** 构造 followup 入参消息（与真宿主的 UserMessage 形状一致，含 role）。 */
@@ -131,6 +140,9 @@ interface AgentRecord {
 }
 
 export function makeFakeDshHost(): FakeDshHost {
+  const servicesMeta: { lastCreateMeta: Record<string, unknown> | undefined } = {
+    lastCreateMeta: undefined,
+  };
   const listeners = new Map<string, Set<(...args: unknown[]) => void>>();
   const agents = new Map<HostSessionId, AgentRecord>();
   /** 模拟持久层：dispose 后会话仍存在（可 resume 复活）。 */
@@ -335,7 +347,20 @@ export function makeFakeDshHost(): FakeDshHost {
         // 探针实测：进程内面对活会话 create 是硬错误，复用需先 get
         throw new Error(`session "${sessionId}" already exists`);
       }
-      log.push({ kind: 'agents.create', sessionId, options: input.agentOptions ?? modelSelection });
+      log.push({
+        kind: 'agents.create',
+        sessionId,
+        options: input.agentOptions ?? modelSelection,
+        ...(input.meta === undefined ? {} : { meta: input.meta }),
+        setupRan: false,
+      });
+      servicesMeta.lastCreateMeta = input.meta as Record<string, unknown> | undefined;
+      if (typeof input.setup === 'function') {
+        // 真宿主事实：setup 在注册表发布前执行（组合挂载的唯一时机）
+        await input.setup({ fake: 'agent-context' } as never);
+        const row = log[log.length - 1] as typeof log[number] & { setupRan?: boolean };
+        if (row && 'setupRan' in row) row.setupRan = true;
+      }
       const record: AgentRecord = {
         handle: undefined as unknown as AgentRecord['handle'],
         idleWaiters: [],
@@ -464,8 +489,29 @@ export function makeFakeDshHost(): FakeDshHost {
     },
   };
 
+  const services: {
+    agents: HostAgentsService;
+    workspaceRegistry: HostWorkspaceRegistry;
+    agentDefaultModel: HostAgentDefaultModelService;
+    sessionTitle: HostSessionTitleService;
+    agentsCreateMeta: { lastCreateMeta: Record<string, unknown> | undefined };
+    agentPresets: { resolve(id?: string): Promise<{ id: string }>; mount(ctx: unknown, id: string): Promise<unknown> };
+  } = { agents: agentsService, workspaceRegistry, agentDefaultModel, sessionTitle, agentsCreateMeta: servicesMeta, agentPresets: defaultPresets() };
+  // 默认带 agentPresets 最小面（preset 全链路用例；注入失败走 dsh-port 测试）
+  const presetMounts: Array<{ id: string }> = [];
+  function defaultPresets() {
+    return {
+      resolve: async (id?: string) => ({ id: id ?? 'host-default' }),
+      mount: async (_ctx: unknown, id: string) => {
+        presetMounts.push({ id });
+        return undefined;
+      },
+    };
+  }
+
   return {
-    services: { agents: agentsService, workspaceRegistry, agentDefaultModel, sessionTitle },
+    services,
+    presetMounts,
     on,
     async disposeAgent(sessionId: string) {
       const record = agents.get(asHostSessionId(sessionId));

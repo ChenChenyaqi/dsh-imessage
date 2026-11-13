@@ -22,7 +22,9 @@ import {
   setChunkedDraft,
   setDelayFactorDraft,
   setLocaleDraft,
+  presetOptions,
   setMaxChunksDraft,
+  setPresetDraft,
   updateAddDraft,
   type SettingsCardState,
 } from '@/client/settings/card';
@@ -50,6 +52,9 @@ const text = {
   delayFactorLabel: 'Delay factor',
   delayFactorHint: '0 = chunks without delay',
   delayFactorErrorText: 'Must be a number between 0 and 5 (0 = no delay)',
+  presetLabel: 'Agent preset',
+  presetHint: 'Persona composition; applies to new sessions only',
+  presetErrorText: 'Preset ids use lowercase letters, digits, and dashes',
   confirmAdd: 'Add',
   cancel: 'Cancel',
   save: 'Save',
@@ -105,6 +110,7 @@ function makeProps(state: SettingsCardState, overrides: Record<string, unknown> 
     onChunkedChange: vi.fn(),
     onMaxChunksChange: vi.fn(),
     onDelayFactorChange: vi.fn(),
+    onPresetChange: vi.fn(),
     onSave: vi.fn(),
     ...overrides,
   };
@@ -138,7 +144,10 @@ describe('settings card view · locale field', () => {
   it('renders a select limited to the schema locales', () => {
     const tree = SettingsCardView(makeProps(initialState({ value: { locale: 'zh', allowlist: [PHONE] } })));
 
-    const options = find(tree, 'option');
+    // 语言下拉的选项（预设下拉是另一个 select，另有专项用例）
+    const locale = find(tree, 'select')[0];
+    expect(locale).toBeDefined();
+    const options = collect(locale!.props['children'] as never).filter((n) => n.type === 'option');
     expect(options.map((option) => option.props['value'])).toEqual(['zh', 'en']);
   });
 
@@ -196,10 +205,11 @@ describe('settings card view · allowlist chips', () => {
 });
 
 describe('settings card view · add row', () => {
-  it('shows only an add button when closed (no input field)', () => {
+  it('shows only an add button when closed (no allowlist input field)', () => {
     const tree = SettingsCardView(makeProps(initialState({ value: { locale: 'zh', allowlist: [PHONE] } })));
 
-    expect(find(tree, Input)).toHaveLength(0);
+    // 预设字段是常驻文本输入；白名单的添加行输入不存在
+    expect(find(tree, Input).filter((input) => input.props['placeholder'] === text.allowlistHint)).toHaveLength(0);
     const add = find(tree, Button).find((button) => textOf(button) === text.addNumber);
     expect(add).toBeDefined();
   });
@@ -218,7 +228,7 @@ describe('settings card view · add row', () => {
   it('renders input, confirm and cancel while open, and hides the add button', () => {
     const tree = SettingsCardView(makeProps(addingState(PHONE_2)));
 
-    const inputs = find(tree, Input);
+    const inputs = find(tree, Input).filter((input) => input.props["placeholder"] === text.allowlistHint);
     expect(inputs).toHaveLength(1);
     expect(inputs[0]!.props["value"]).toBe(PHONE_2);
     expect(find(tree, Button).find((button) => textOf(button) === text.confirmAdd)).toBeDefined();
@@ -232,7 +242,7 @@ describe('settings card view · add row', () => {
     const onCancelAdd = vi.fn();
     const tree = SettingsCardView(makeProps(addingState(PHONE_2), { onUpdateAddDraft, onConfirmAdd, onCancelAdd }));
 
-    const input = find(tree, Input)[0];
+    const input = find(tree, Input).find((i) => i.props['placeholder'] === text.allowlistHint);
     expect(input).toBeDefined();
     (input!.props['onChange'] as (event: { target: { value: string } }) => void)({ target: { value: 'x' } });
     expect(onUpdateAddDraft).toHaveBeenCalledWith('x');
@@ -253,7 +263,7 @@ describe('settings card view · add row', () => {
     const onCancelAdd = vi.fn();
     const tree = SettingsCardView(makeProps(addingState(PHONE_2), { onConfirmAdd, onCancelAdd }));
 
-    const input = find(tree, Input)[0];
+    const input = find(tree, Input).find((i) => i.props['placeholder'] === text.allowlistHint);
     expect(input).toBeDefined();
     const keydown = input!.props['onKeyDown'] as (event: { key: string }) => void;
     keydown({ key: 'Enter' });
@@ -357,6 +367,91 @@ describe('settings card view · chunked replies', () => {
     const tree = SettingsCardView(makeProps(state));
 
     expect(textOf(tree)).not.toContain(text.maxChunksErrorText);
+  });
+});
+
+/** 预设已改动的状态。 */
+function presetState(draft: string): SettingsCardState {
+  return setPresetDraft(initialState({ value: { locale: 'zh', allowlist: [PHONE] } }), draft, saved);
+}
+
+describe('settings card view · agent preset', () => {
+  /** 带 roster 的 props（模拟 remote 加载完成）。 */
+  function rosterProps(draft: string, overrides: Record<string, unknown> = {}) {
+    const state = setPresetDraft(initialState({ value: { locale: 'zh', allowlist: [PHONE] } }), draft, saved);
+    return makeProps(
+      { ...state, presetOptions: presetOptions([
+        { id: 'dafeiyu', name: '大肥鱼' },
+        { id: 'standard', isDefault: true },
+        { id: 'bad', broken: 'activation failed' },
+      ], draft) },
+      overrides,
+    );
+  }
+
+  /** 取预设下拉与选项。 */
+  function presetSelect(tree: ReturnType<typeof SettingsCardView>) {
+    const select = find(tree, 'select').find((node) => String(node.props['data-field'] ?? '') === 'preset');
+    const options = collect(select!.props['children'] as never).filter((n) => n.type === 'option');
+    return { select: select!, options };
+  }
+
+  it('lists installed and enabled presets only (broken rows dropped)', () => {
+    // draft 用 roster 内的值，纯看列表内容
+    const { options } = presetSelect(SettingsCardView(rosterProps('dafeiyu')));
+
+    // broken 的 bad 不出现；数据精准来自已安装且启用的预设
+    expect(options.map((option) => option.props['value'])).toEqual(['dafeiyu', 'standard']);
+    expect(textOf(options[0])).toContain('大肥鱼');
+  });
+
+  it('selects dafeiyu by default when it is installed and nothing was chosen', () => {
+    // 未设置（draft 空）+ dafeiyu 已安装 → 默认选中（不必落盘）
+    const { select } = presetSelect(SettingsCardView(rosterProps('')));
+
+    expect(select.props['value']).toBe('dafeiyu');
+  });
+
+  it('never steals an explicit choice back to dafeiyu', () => {
+    // 用户先选了别的：即使 dafeiyu 在列表里也不抢
+    const { select } = presetSelect(SettingsCardView(rosterProps('standard')));
+
+    expect(select.props['value']).toBe('standard');
+  });
+
+  it('falls back to the host default row when dafeiyu is not installed', () => {
+    const state = { ...initialState({ value: { locale: 'zh', allowlist: [PHONE] } }),
+      presetOptions: presetOptions([{ id: 'standard', isDefault: true }], '') };
+    const { select } = presetSelect(SettingsCardView(makeProps(state)));
+
+    expect(select.props['value']).toBe('standard');
+  });
+
+  it('keeps the current value as a fallback option when the roster lacks it', () => {
+    // 已保存的预设被卸载：当前值仍可见可选（保存/切换不丢显示）
+    const { select, options } = presetSelect(SettingsCardView(rosterProps('ghosted-preset')));
+
+    expect(options.map((option) => option.props['value'])).toEqual(
+      ['ghosted-preset', 'dafeiyu', 'standard'],
+    );
+    expect(select.props['value']).toBe('ghosted-preset');
+  });
+
+  it('forwards preset selection', () => {
+    const onPresetChange = vi.fn();
+    const { select } = presetSelect(SettingsCardView(rosterProps('standard', { onPresetChange })));
+
+    (select.props['onChange'] as (event: { target: { value: string } }) => void)({ target: { value: 'plain' } });
+
+    expect(onPresetChange).toHaveBeenCalledWith('plain');
+  });
+
+  it('shows the red validation message for a malformed id and disables saving', () => {
+    const tree = SettingsCardView(makeProps(presetState('Not Valid')));
+
+    expect(textOf(tree)).toContain(text.presetErrorText);
+    const saveButton = find(tree, Button).find((button) => textOf(button) === text.save);
+    expect(saveButton?.props['disabled']).toBe(true);
   });
 });
 
