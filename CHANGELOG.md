@@ -4,6 +4,34 @@
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-11-14
+
+维护性版本：`src/` 与 `preset/` 无改动，除构建产物重新生成外，包功能与 0.1.0 一致。
+这一版修掉一个会让全新 clone 构建失败的 bug，并把发版流程交给 CI。
+
+### Fixed
+
+- **全新 clone 后 `pnpm build` / `pnpm check` 失败**：`.gitignore` 的 `lib/`
+  未锚定根目录，把 `scripts/lib/` 一并忽略，导致客户端构建脚本
+  `client-bundle.mjs` 从未进过仓库。本地有文件所以一直没暴露，
+  换台机器或 CI 一拉就挂。改为 `/lib/` 锚定并补交文件
+- **依赖安全告警**：minimatch 10.2.6（medium，globparts 放大导致 DoS）
+  经 eslint 链路引入。升级 eslint 至 10.15 带不动它——
+  `@typescript-eslint/typescript-estree` 上游仍写死 `^10`，故对该包
+  定向 override 到 minimatch 11，Dependabot 告警已转 `fixed`
+
+### Changed
+
+- **发版自动化**：在 GitHub 发布 Release 即触发 workflow，用 npm
+  Trusted Publishing（OIDC）发布两个包，不存任何长期 token，并生成
+  provenance 证明。版本一致性与 CHANGELOG 段落抽取由 33 个测试兜底
+- **分支保护**：main 要求走 PR 且 `gate` 检查通过；新增固定名 `gate`
+  汇总 job，避开矩阵展开的 `check (22)` / `check (24)` 随 Node 版本
+  变动后永远等不到结果的问题
+- **工程基线**：Dependabot（DSH 全家桶单独分组）、issue/PR 模板、
+  SECURITY.md、`packageManager` 与 `.nvmrc` 固定工具链；发版流程
+  收敛为 AI 执行的 skill，交互点只剩版本号与 CHANGELOG 确认
+
 ## [0.1.0] - 2026-11-14
 
 首个公开版本：把 macOS 原生 iMessage 接入 DSH 的 cordis 插件 MVP——收发内核、白名单与会话路由、拟人分段回复、大肥鱼人格预设、设置页 UI、真机 e2e。
