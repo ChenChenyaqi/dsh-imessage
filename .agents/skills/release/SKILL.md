@@ -1,85 +1,64 @@
 ---
 name: release
-description: Cut a new release of dsh-imessage — bump both package versions, write the CHANGELOG entry, then hand the mechanical steps to CI. Use when the user asks to release, publish, ship, bump the version, or cut a new version (e.g. "发版", "发布新版本", "release 0.2.0").
+description: Cut a new release of dsh-imessage — bump both package versions, write the CHANGELOG entry, tag, then let CI publish. Use when the user asks to release, publish, ship, bump the version, or cut a new version (e.g. "发版", "发布新版本", "release 0.2.0").
 ---
 
 # Release dsh-imessage
 
-Two packages ship together and must share one version:
-`@chenchenyaqi/dsh-imessage` (root) and `@chenchenyaqi/dsh-imessage-preset` (`preset/`).
+Two packages ship together with one shared version: `@chenchenyaqi/dsh-imessage`
+(root) and `@chenchenyaqi/dsh-imessage-preset` (`preset/`).
 
-This skill has exactly **one stop point**: after drafting the version number and the
-CHANGELOG entry, present both and wait for the user's approval. Everything after
-approval runs without further questions.
+One stop point only: the version number and the CHANGELOG entry. Everything before
+it is preparation; everything after approval runs through without asking.
 
-## Prerequisites (one-time, already done for this repo)
+## Prerequisites
 
-`.github/workflows/release.yml` publishes with **npm Trusted Publishing (OIDC)** — no
-`NPM_TOKEN` secret exists. Both packages must have the publisher configured on npm:
-
-```
-npmjs.com → package page → Settings → Trusted Publishing → Add
-  Publisher:          GitHub Actions
-  Organization:       ChenChenyaqi
-  Repository:         dsh-imessage
-  Workflow filename:  release.yml
-  Environment:        (leave empty)
-```
-
-If a publish fails with 403, check this binding before suspecting the code. Also
-note the workflow needs Node 24 in the publish job: Trusted Publishing requires
-npm >= 11.5.1, and Node 22 ships npm 10.
+`.github/workflows/release.yml` publishes via npm Trusted Publishing (OIDC) — no
+`NPM_TOKEN` exists. Both packages are already bound to: GitHub Actions /
+`ChenChenyaqi` / `dsh-imessage` / `release.yml` / no environment, with
+`Allow npm publish` checked. A 403 on publish means that binding is wrong — check
+it before suspecting the code.
 
 ## 0. Preflight
 
 ```bash
-git status --porcelain          # must be empty; otherwise ask the user first
+git status --porcelain          # must be empty
 git switch main && git pull --ff-only
-git describe --tags --abbrev=0  # last released tag, e.g. v0.1.0
-gh pr list --state open         # note any open PRs; they will not be in this release
-pnpm check                      # must be green before anything else
+git describe --tags --abbrev=0  # last released tag
+gh pr list --state open
+pnpm check
+gh run list --workflow=ci.yml --branch main --limit 1   # must be success
 ```
 
-Also confirm CI is green on `main`:
+Stop and report if anything is dirty or red.
 
-```bash
-gh run list --workflow=ci.yml --branch main --limit 1
-```
-
-If any of these is not clean, stop and report. Do not release on top of a red `main`.
-
-## 1. Inspect what changed since the last tag
+## 1. Read the change set
 
 ```bash
 git log <last-tag>..HEAD --oneline --no-merges
-git log <last-tag>..HEAD --format='%h %s%n%b' | grep -iE '!|BREAKING CHANGE' || true
+git log <last-tag>..HEAD --format='%h %s%n%b' | grep -iE 'BREAKING|!:' || true
+git diff --stat <last-tag>..HEAD -- src/ preset/
 ```
 
-Read the actual diffs of user-facing changes when the commit subjects are not
-self-explanatory — the CHANGELOG should describe behaviour, not echo commit titles.
+If `src/` and `preset/` are empty, say so explicitly — the next release then
+differs from the previous one only in build output.
 
-## 2. Decide the version
+## 2. Pick the version
 
-Default: **patch +1** on the current `package.json` version (`0.1.0` → `0.1.1`).
-
-Deviate only in these cases:
+Default: **patch +1**.
 
 | Situation | Version |
 |---|---|
-| User explicitly names a version | use theirs, verbatim |
-| A commit carries `!` or `BREAKING CHANGE` | flag it and propose **minor** (0.2.0); ask before using it |
-| Only docs/CI/deps changed, nothing user-visible | still patch +1, but say so in the proposal |
+| User names a version | theirs, verbatim |
+| A commit has `!` or `BREAKING CHANGE` | propose **minor**, ask first |
+| Only docs/CI/deps changed | still patch +1, state it in the proposal |
 
-`0.x` is pre-1.0: breaking changes are allowed to ride a minor bump. Never reuse a
-version that already exists on npm — check with `npm view <pkg> versions` if unsure.
+Never reuse a version already on npm (`npm view <pkg> versions`).
 
 ## 3. Draft the CHANGELOG entry
 
-Edit `CHANGELOG.md`:
-
-1. Move everything currently under `## [Unreleased]` into the new section (leave
-   `## [Unreleased]` in place and empty).
-2. Insert the new section directly below `## [Unreleased]`:
+In `CHANGELOG.md`: move the current `## [Unreleased]` content into a new section
+directly below it, leaving `## [Unreleased]` in place and empty.
 
 ```markdown
 ## [0.1.1] - 2026-11-20
@@ -87,51 +66,37 @@ Edit `CHANGELOG.md`:
 一句话说清这一版是什么。
 
 ### Added
-
-- ...
 ```
 
-Style rules — this file is project history, not a commit dump:
+Rules: Chinese, full sentences about what a user gets; `### Added` / `### Changed` /
+`### Fixed` / `### Removed` only when non-empty; CI and dependency chores collapse
+into at most one bullet or get omitted; no commit subjects, PR numbers, or trailers;
+today's real date.
 
-- **Chinese prose.** Match the tone of the existing `0.1.0` section.
-- One bullet per change, written as a full statement of *what a user gets* and
-  *why it matters*. Explain the tradeoff when there was one.
-- Use `### Added` / `### Changed` / `### Fixed` / `### Removed`; skip headings
-  that have no entries.
-- Collapse CI, tooling and dependency chores into at most one short bullet, or
-  omit them. Dependabot bumps normally do not belong here.
-- Do not paste commit subjects, PR numbers, or `Co-authored-by` trailers.
-- Use today's real date (`date +%F`), not a placeholder.
+## 4. STOP
 
-## 4. STOP — present and wait
+Present, then wait:
 
-Show the user, in this order:
+1. Version + the rule that picked it.
+2. The new CHANGELOG section, verbatim.
+3. One line naming what you left out.
 
-1. The proposed version and the rule used to pick it (patch/minor/explicit).
-2. The full new CHANGELOG section, verbatim.
-3. A one-line note listing anything you deliberately left out (chores, deps).
-
-Then **stop**. Do not bump `package.json`, do not commit, do not create a branch.
-Wait for explicit approval of both the version number and the CHANGELOG text.
-If the user edits either, re-present before continuing.
+Do not touch `package.json`, do not branch, do not commit until the user approves
+both. Re-present after any edit.
 
 ## 5. Bump both versions
 
 ```bash
-VERSION=0.1.1   # the approved version
+VERSION=0.1.1
 node -e "const f='package.json';const p=JSON.parse(require('fs').readFileSync(f));p.version='$VERSION';require('fs').writeFileSync(f,JSON.stringify(p,null,2)+'\n')"
 node -e "const f='preset/package.json';const p=JSON.parse(require('fs').readFileSync(f));p.version='$VERSION';require('fs').writeFileSync(f,JSON.stringify(p,null,2)+'\n')"
 node scripts/check-release-versions.mjs "v$VERSION"   # must print "verified"
-git diff --stat   # exactly 2 package.json + CHANGELOG.md, nothing else
+git diff --stat                                       # exactly 3 files
 ```
 
-The consistency check is the guard rail — if it fails, fix the versions, do not
-work around it.
+## 6. PR
 
-## 6. Commit and open the PR
-
-`main` is protected by a ruleset: direct pushes are rejected, PRs need the `gate`
-check to pass.
+`main` is ruleset-protected: PR + `gate` required, no direct pushes.
 
 ```bash
 git switch -c release/v$VERSION
@@ -140,75 +105,62 @@ git commit -m "chore(release): v$VERSION"
 git push -u origin release/v$VERSION
 node scripts/release-notes.mjs "$VERSION" --out /tmp/release-notes.md
 gh pr create --title "chore(release): v$VERSION" --body-file /tmp/release-notes.md
-gh pr checks --watch          # wait for check (22), check (24), gate all green
+gh pr checks --watch
 gh pr merge --squash --delete-branch
 git switch main && git pull --ff-only
 ```
 
-If a check fails: read the failure, fix it on the release branch, push again.
-Never bypass the gate, never force-push `main`.
+A failing check means fix it on the branch and push again — never bypass the gate.
 
-## 7. Create the GitHub Release
-
-This is the trigger for the publish workflow. Release notes are extracted from the
-CHANGELOG, so there is only one source of truth.
+## 7. Tag and Release
 
 ```bash
-node scripts/release-notes.mjs "$VERSION" --out /tmp/release-notes.md
-gh release create "v$VERSION" --title "v$VERSION" --notes-file /tmp/release-notes.md
+git tag -a "v$VERSION" -m "v$VERSION — <one-line summary>"
+git push origin "v$VERSION"
+gh release create "v$VERSION" --verify-tag --title "v$VERSION" --notes-file /tmp/release-notes.md
 ```
 
-Prefer `--out` + `--notes-file` over shell process substitution — it works the same
-in any shell.
+Annotated tag, created locally, never left to `gh`: it pins the tag to a commit you
+can see and records tagger, date and message. `--verify-tag` fails loudly instead of
+letting GitHub invent a lightweight tag on the remote HEAD.
 
-A **draft** release does not trigger anything; `gh release create` publishes
-immediately, which is what we want.
+`gh release create` publishes immediately and is what triggers the workflow; a
+**draft** release triggers nothing.
 
-## 8. Verify the publish
+## 8. Confirm
 
 ```bash
 gh run list --workflow=release.yml --limit 1
-gh run watch <run-id>          # or: gh run view <run-id> --log-failed
+gh run watch <run-id>
 ```
 
-A green run means both `npm publish` calls exited 0 — that **is** the success signal.
-Do not treat `npm view` as the verdict: npm answers a successful publish with
-"being processed and may take a few minutes", and propagation time is not fixed.
-Querying immediately fails, and a check that fails on a healthy publish is worse
-than no check at all (it invites a re-run, which then hits "version already").
+Green means both `npm publish` calls exited 0 — that is the success signal. Do not
+judge by `npm view`: npm answers a healthy publish with "being processed and may
+take a few minutes", and propagation time is not fixed. To check availability later,
+query the registry directly (`curl -s https://registry.npmjs.org/@chenchenyaqi%2Fdsh-imessage`),
+not `npm view`, which adds its own cache.
 
-To confirm availability later — minutes to an hour, on your own schedule:
-
-```bash
-curl -s "https://registry.npmjs.org/@chenchenyaqi%2Fdsh-imessage" \
-  | python3 -c "import json,sys; d=json.load(sys.stdin); print(d['dist-tags'])"
-```
-
-Query the registry directly rather than `npm view`; the CLI adds its own cache on
-top of the propagation delay. Report to the user: version, workflow URL, and the
-provenance badge (`attestations` present on the registry document).
+Report: version, workflow URL, provenance attestations present.
 
 ## Failure handling
 
-The publish workflow is **not idempotent**. `npm publish` fails if the version
-already exists, so a re-run after a partial success will fail on the package that
-did go out.
+The publish workflow is **not idempotent**.
 
 | Failure point | Action |
 |---|---|
-| Workflow red **but the log shows `+ <pkg>@<version>`** for a package | not a failure — registry propagation lag. Never re-run; nothing to fix |
-| Before either `npm publish` (install/build/version check) | fix and `gh run rerun <id>` — nothing was published |
-| Main package published, preset failed | do **not** re-run the whole workflow; publish only the missing one locally (`npm publish --provenance ./preset`), then verify |
-| Workflow itself wrong (bad step) | fix `.github/workflows/release.yml` in a normal PR, then re-run the failed job |
-| Package published with a wrong version | cannot be undone after 24h. Publish a corrected higher version; report to the user immediately |
+| Log shows `+ <pkg>@<version>` but the run is red | propagation lag, not a failure — never re-run |
+| Before either `npm publish` (install/build/version check) | fix and `gh run rerun <id>` |
+| Main package out, preset failed | publish only the missing one locally (`npm publish --provenance ./preset`) |
+| Tag pushed but Release creation failed | tag is harmless; re-run `gh release create --verify-tag` only |
+| Wrong version published | cannot be undone after 24h — publish a corrected higher version, tell the user |
 
-Never delete or move a pushed tag that has already triggered a publish.
+Never delete or move a pushed tag that already triggered a publish.
 
 ## Hard rules
 
 - One stop point only: the version + CHANGELOG approval in step 4.
 - Never edit an already-released CHANGELOG section; add a new one.
-- Never touch `src/` in a release PR — if code needs fixing, that is a separate PR
-  merged before the release.
-- Commit messages: Chinese subject, never starting with an uppercase English word.
-- Do not `git push` to `main` and do not bypass the ruleset, even if it looks faster.
+- Never touch `src/` in a release PR.
+- Chinese commit subjects, never starting with an uppercase English word.
+- No direct pushes to `main`, no bypassing the ruleset.
+- Annotated tags only; never let `gh` create the tag.
