@@ -1,9 +1,20 @@
 {
   "name": "@chenyaqi/dsh-imessage-preset",
-  "version": "0.0.1",
-  "private": true,
+  "version": "0.1.0",
   "type": "module",
+  "license": "MIT",
   "description": "Built-in agent presets for @chenyaqi/dsh-imessage (persona: dafeiyu)",
+  "files": [
+    "cordis.patch.yml"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ChenChenyaqi/dsh-imessage.git",
+    "directory": "preset"
+  },
   "dsh": {
     "bundle": {
       "patch": "./cordis.patch.yml"

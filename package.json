@@ -1,15 +1,12 @@
 {
   "name": "@chenyaqi/dsh-imessage",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "description": "Native macOS iMessage channel plugin for DeepSeek Harness (DSH).",
   "type": "module",
   "license": "MIT",
   "main": "./lib/index.js",
   "exports": {
-    ".": {
-      "types": "./lib/index.d.ts",
-      "default": "./lib/index.js"
-    },
+    ".": "./lib/index.js",
     "./client": {
       "default": "./lib/client.js"
     },

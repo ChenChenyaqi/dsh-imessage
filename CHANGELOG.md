@@ -4,6 +4,10 @@
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-11-14
+
+首个公开版本：把 macOS 原生 iMessage 接入 DSH 的 cordis 插件 MVP——收发内核、白名单与会话路由、拟人分段回复、大肥鱼人格预设、设置页 UI、真机 e2e。
+
 ### Added
 
 - **M4 · 插件宿主（MVP 完成 ✅ 2026-11-13）**：cordis apply 生命周期 +
@@ -34,5 +38,5 @@
   工程链路（TS 严格模式 + esbuild 打包、`pnpm check` 质量门、
   lefthook/commitlint、双语 README、MIT）
 
-<!-- 首个 tag 发布后启用版本对比链接： -->
-<!-- [Unreleased]: https://github.com/<user>/dsh-imessage/compare/v0.0.1...HEAD -->
+[Unreleased]: https://github.com/ChenChenyaqi/dsh-imessage/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/ChenChenyaqi/dsh-imessage/releases/tag/v0.1.0
