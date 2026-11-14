@@ -40,7 +40,7 @@ ConfigField → form.set() → settings.mutate RPC → configEditor.edit()
 - 产出 `lib/client.js`（手写 closure-factory 包装）+ `dsh.client` 清单
 - 隔离 web profile（`DSH_IMESSAGE_HOME` 指向临时目录，白名单填假号码）
 - chrome-devtools MCP 驱动：设置弹窗 → 应出现「probe」菜单
-- 结果写入 `docs/host-api-facts-client-ui.md`（槽位 id/顺序/require 表/失败模式）
+- 结果写入 `client-ui.md`（槽位 id/顺序/require 表/失败模式）
 
 **结论（全部实测通过）**：
 - 单包双面可行，file: link 也能被扫描 → **不需要拆包**（成本下调）

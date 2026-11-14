@@ -96,7 +96,7 @@ ctx.effect(() => ctx.slots.inject('settings.section', () => ctx.slots.register(
 - 写：`form.set(field, value)` / `form.unset(field)` / `form.mutate(ops, revision)`
 - 语义：写队列 + 版本冲突恢复，最终落到 settings RPC → `configEditor.edit()`
 - 只有 Host 侧 `settings.describe()` 里出现的命名空间才有表单（即 schema 必须
-  含 volatile 字段，见 `docs/host-api-facts-settings.md`）
+  含 volatile 字段，见 `config.md`）
 
 **注意**：Host 侧自动生成的 form **没有任何通用 UI 渲染器**——`plugins.row.config`
 槽位和 `settings.section` 槽位都必须由客户端插件自己注册组件。这就是为什么

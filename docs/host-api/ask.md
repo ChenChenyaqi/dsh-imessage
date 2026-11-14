@@ -2,7 +2,7 @@
 
 事实来源：deepseek-harness 仓库（`packages/*/*`）源码只读探索。路径均相对仓库根
 `/Users/chenyaqi/Documents/github-projects/deepseek-harness`，行号以当前工作树为准。
-配套文档：`host-api-facts-rpc.md`（会话/workspace RPC 事实）。本清单只覆盖"发 prompt → 收流式回复"链路。
+配套文档：`rpc.md`（会话/workspace RPC 事实）。本清单只覆盖"发 prompt → 收流式回复"链路。
 
 ---
 
@@ -236,7 +236,7 @@
 
 ## 6. 未确认事项
 
-1. **B 面 gateway 的流载体帧格式**：`session/follow` 在 HTTP/WS 上的具体分帧编码（`RemoteStreamHandle`/carrier 帧类型）未逐字段核实；`host-api-facts-rpc.md` 只记录了请求侧 envelope。若 dsh-imessage 走 B 面收 token 流，需补一次 gateway transport 探索。
+1. **B 面 gateway 的流载体帧格式**：`session/follow` 在 HTTP/WS 上的具体分帧编码（`RemoteStreamHandle`/carrier 帧类型）未逐字段核实；`rpc.md` 只记录了请求侧 envelope。若 dsh-imessage 走 B 面收 token 流，需补一次 gateway transport 探索。
 2. **`session/follow` 的 `activate`/passive observation 语义细节**：确认了入口与"activation 在快照前启动"（web/controller.ts:63-70），但冷会话后台挂活的具体策略（何时会把持久会话 resume 成活 Agent）未展开。
 3. **DSH 反向问人的通道**（对 iMessage 双向交互可能相关）：`user-question/ask`、`approval/request` 服务端→客户端请求存在（sdk/protocol/types.ts:60-67、289-296），但其等待、超时与取消行为未在本清单展开。
 4. **Python SDK**：确认与 TS SDK 同协议（`python/sdk/src/deepseek_harness/api.py` 同样消费 `session.event`/`session.status`、`turn/end`），未逐行核对差异。

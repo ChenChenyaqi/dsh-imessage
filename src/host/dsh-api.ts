@@ -5,7 +5,7 @@
 // 「只放适配层会消费的成员」裁剪。
 //
 // 事实来源（D7：实测优先）：
-// - docs/host-api-facts-plugin.md / -ask.md / -rpc.md（源码级事实，带行号）
+// - docs/host-api/plugin.md / ask.md / rpc.md（源码级事实，带行号）
 // - /tmp/dsh-probe 两轮真机探针（行为语义互证）
 // 差异点已标注「未实测」处，M4 联调时互证。
 
