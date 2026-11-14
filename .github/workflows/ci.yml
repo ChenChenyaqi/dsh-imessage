@@ -21,3 +21,20 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm check
+
+  # Stable check name for branch protection: the matrix expands to
+  # "check (22)" / "check (24)", which change whenever the matrix does.
+  # `always()` keeps this job from being skipped when a leg fails — a
+  # skipped required check would leave PRs waiting instead of blocked.
+  gate:
+    needs: check
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify all matrix legs passed
+        run: |
+          if [ "${{ needs.check.result }}" != "success" ]; then
+            echo "matrix result: ${{ needs.check.result }}"
+            exit 1
+          fi
+          echo "all matrix legs passed"
