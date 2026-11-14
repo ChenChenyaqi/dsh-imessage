@@ -1,0 +1,66 @@
+name: Release
+
+# 触发点：在 GitHub 上把 Release 从草稿发布（Publish release）。
+# 草稿状态不触发；tag 由 gh release create / 网页创建 Release 时自动带上。
+on:
+  release:
+    types: [published]
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # npm Trusted Publishing（OIDC）必需，不存任何长期 token
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.release.tag_name }}
+
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v7
+        with:
+          # npm Trusted Publishing 要求 npm >= 11.5.1；Node 22 自带的 npm 10 不够。
+          node-version: 24
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      # 版本号发出去就收不回（24h 后连 unpublish 都不行），先拦住不一致。
+      - name: Verify version consistency
+        run: node scripts/check-release-versions.mjs "${{ github.event.release.tag_name }}"
+
+      - run: pnpm build
+
+      # 用 npm publish 而非 pnpm publish：pnpm 的 OIDC 支持有已知故障
+      # （pnpm#11513），而 pnpm publish 底层调的也是 npm。
+      - name: Publish main package
+        run: npm publish --provenance
+
+      - name: Publish preset package
+        run: npm publish --provenance ./preset
+
+      # registry 写入后可能有短暂延迟；失败即代表需要人工核查，因此不吞。
+      - name: Verify the packages resolve on npm
+        env:
+          VERSION: ${{ github.event.release.tag_name }}
+        run: |
+          version="${VERSION#v}"
+          for pkg in "@chenchenyaqi/dsh-imessage" "@chenchenyaqi/dsh-imessage-preset"; do
+            for attempt in 1 2 3 4 5; do
+              if npm view "${pkg}@${version}" version >/dev/null 2>&1; then
+                echo "${pkg}@${version} is live."
+                break
+              fi
+              if [ "$attempt" = "5" ]; then
+                echo "::error::${pkg}@${version} did not resolve after publish."
+                exit 1
+              fi
+              sleep 10
+            done
+          done

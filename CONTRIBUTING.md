@@ -44,4 +44,4 @@ Conventional Commits（`type: subject`），subject 不以大写英文单词开�
 
 ## 先读文档再动手
 
-[docs/README.md](./docs/README.md) 是索引：架构定案在 `ARCHITECTURE.md`，路线图在 `PLAN.md`，DSH 宿主 API 事实在 `host-api/`。改动消息处理状态机（claim 时序、重试预算、双路径发送）这类核心语义前先读 `docs/`，拿不准就在 issue 里问，不要按直觉"修复"。
+[docs/README.md](./docs/README.md) 是索引：架构定案在 `ARCHITECTURE.md`，路线图在 `PLAN.md`，DSH 宿主 API 事实在 `host-api/`，发版流程在 `releasing.md`。改动消息处理状态机（claim 时序、重试预算、双路径发送）这类核心语义前先读 `docs/`，拿不准就在 issue 里问，不要按直觉"修复"。
