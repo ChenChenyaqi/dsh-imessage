@@ -6,6 +6,7 @@
 
 - [PLAN.md](./PLAN.md) — 实施计划：宏观路线图与已确认决策
 - [ARCHITECTURE.md](./ARCHITECTURE.md) — 架构蓝图（dsh-im iMessage 渠道解构 + 本项目重写蓝图）
+- [releasing.md](./releasing.md) — 发版流程（维护者手册：版本、CHANGELOG、OIDC 发布）
 
 ## host-api/ — DSH 宿主 API 事实清单
 
