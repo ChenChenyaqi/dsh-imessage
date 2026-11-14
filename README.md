@@ -4,7 +4,7 @@
 
 > 把 macOS 原生 iMessage 接入 DeepSeek Harness（DSH）的 cordis 插件
 
-![node](https://img.shields.io/badge/node-%E2%89%A522-339933) ![dsh](https://img.shields.io/badge/DeepSeek%20Harness-0.2.x-4D6BFE) ![typescript](https://img.shields.io/badge/TypeScript-5.9-3178C6) ![license](https://img.shields.io/badge/license-MIT-black) ![stage](https://img.shields.io/badge/stage-MVP-brightgreen)
+![node](https://img.shields.io/badge/node-%E2%89%A522-339933) ![dsh](https://img.shields.io/badge/DeepSeek%20Harness-0.2.x-4D6BFE) ![typescript](https://img.shields.io/badge/TypeScript-5.9-3178C6) ![license](https://img.shields.io/badge/license-MIT-black) ![stage](https://img.shields.io/badge/stage-MVP-brightgreen) ![ci](https://github.com/ChenChenyaqi/dsh-imessage/actions/workflows/ci.yml/badge.svg)
 
 ---
 

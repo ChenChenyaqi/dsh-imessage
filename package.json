@@ -43,6 +43,7 @@
   "engines": {
     "node": ">=22"
   },
+  "packageManager": "pnpm@10.34.5",
   "scripts": {
     "build": "node scripts/build.mjs",
     "dev": "node scripts/dev-cli.mjs",
