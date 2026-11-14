@@ -1,7 +1,7 @@
 # dsh-imessage · 架构蓝图
 
 > 本文档是对 `dsh-im`（@xmanrui/dsh-im）中 iMessage 渠道的完整解构，作为本独立项目重写的蓝图。
-> dsh-im代码仓地址: /Users/chenyaqi/Documents/code/dsh-im
+> dsh-im 代码仓：https://github.com/xmanrui/dsh-im
 > 范围：仅 iMessage 渠道。起点基线：commit `642ad21b`（移除消息机器人前缀）及之后的 34 个提交为本项目作者本人所加功能。
 
 ---

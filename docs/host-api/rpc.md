@@ -1,7 +1,7 @@
 # DSH 会话与工作区 RPC 事实清单
 
-事实来源：deepseek-harness 仓库（`packages/*/*`）源码只读探索。路径均相对仓库根
-`/Users/chenyaqi/Documents/github-projects/deepseek-harness`，行号以当前工作树为准。
+事实来源：deepseek-harness 仓库（`packages/*/*`）源码只读探索。路径均相对
+[deepseek-harness](https://github.com/deepseek-ai/deepseek-harness) 仓库根，行号以探索时的工作树为准。
 
 ## 0. 命名与面归属（先读）
 

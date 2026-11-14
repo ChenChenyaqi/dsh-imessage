@@ -1,6 +1,6 @@
 # DSH 插件宿主机制事实清单
 
-来源仓库：`/Users/chenyaqi/Documents/github-projects/deepseek-harness`（以下路径均相对该仓库根）。
+来源仓库：[deepseek-harness](https://github.com/deepseek-ai/deepseek-harness)（以下路径均相对该仓库根）。
 方法：只读源码探索；所有事实附「文件:行号」，行号对应探索时的 HEAD。本文不贴大段源码。
 
 阅读对象：dsh-imessage 的 host 适配层（`src/host/`）与后续 M4 实现。

@@ -155,8 +155,8 @@ src/
 
 ## 七、参考资料
 
-- DSH 源码（本机）：`/Users/chenyaqi/Documents/github-projects/deepseek-harness-master`
+- DSH 源码：https://github.com/deepseek-ai/deepseek-harness
   - 插件教程：`docs/user/develop/{basic,framework,practice}`
-- dsh-im 参考实现（事实来源）：`/Users/chenyaqi/Documents/code/dsh-im`
+- dsh-im 参考实现（事实来源）：https://github.com/xmanrui/dsh-im
   - 渠道层：`src/channels/imessage/`；绑定事务：`src/channels/shared/workspace-session.mjs`
 - 本仓 `ARCHITECTURE.md`：dsh-im iMessage 渠道完整解构

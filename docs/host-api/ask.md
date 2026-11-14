@@ -1,7 +1,7 @@
 # DSH 流式问答（ask/prompt）事件流事实清单
 
-事实来源：deepseek-harness 仓库（`packages/*/*`）源码只读探索。路径均相对仓库根
-`/Users/chenyaqi/Documents/github-projects/deepseek-harness`，行号以当前工作树为准。
+事实来源：deepseek-harness 仓库（`packages/*/*`）源码只读探索。路径均相对
+[deepseek-harness](https://github.com/deepseek-ai/deepseek-harness) 仓库根，行号以探索时的工作树为准。
 配套文档：`rpc.md`（会话/workspace RPC 事实）。本清单只覆盖"发 prompt → 收流式回复"链路。
 
 ---

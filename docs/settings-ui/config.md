@@ -66,7 +66,7 @@
 ```bash
 # 1) 干净 web profile 副本（勿用 desktop：Electron 独占）
 dsh --profile <p2> --from-default-profile web --dump-config > /dev/null
-dsh plugin --profile <p2> add /Users/chenyaqi/Documents/code/dsh-imessage
+dsh plugin --profile <p2> add <本仓根目录>
 # 2) 在 ~/.dsh/profiles/<p2>/cordis.patch.yml 写本插件条目 config
 # 3) overlay 插入只读探针（inject: ['settings']，3s 后 dump describe()）
 dsh --profile <p2> --patch /tmp/probe.yml --no-open --port 0
