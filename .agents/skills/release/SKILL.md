@@ -169,13 +169,24 @@ immediately, which is what we want.
 ```bash
 gh run list --workflow=release.yml --limit 1
 gh run watch <run-id>          # or: gh run view <run-id> --log-failed
-npm view @chenchenyaqi/dsh-imessage version
-npm view @chenchenyaqi/dsh-imessage-preset version
 ```
 
-The workflow itself polls `npm view` at the end, so a green run already proves both
-packages resolve. Report to the user: version, workflow URL, npm versions, and the
-provenance badge being present on the npm package page.
+A green run means both `npm publish` calls exited 0 — that **is** the success signal.
+Do not treat `npm view` as the verdict: npm answers a successful publish with
+"being processed and may take a few minutes", and propagation time is not fixed.
+Querying immediately fails, and a check that fails on a healthy publish is worse
+than no check at all (it invites a re-run, which then hits "version already").
+
+To confirm availability later — minutes to an hour, on your own schedule:
+
+```bash
+curl -s "https://registry.npmjs.org/@chenchenyaqi%2Fdsh-imessage" \
+  | python3 -c "import json,sys; d=json.load(sys.stdin); print(d['dist-tags'])"
+```
+
+Query the registry directly rather than `npm view`; the CLI adds its own cache on
+top of the propagation delay. Report to the user: version, workflow URL, and the
+provenance badge (`attestations` present on the registry document).
 
 ## Failure handling
 
@@ -185,6 +196,7 @@ did go out.
 
 | Failure point | Action |
 |---|---|
+| Workflow red **but the log shows `+ <pkg>@<version>`** for a package | not a failure — registry propagation lag. Never re-run; nothing to fix |
 | Before either `npm publish` (install/build/version check) | fix and `gh run rerun <id>` — nothing was published |
 | Main package published, preset failed | do **not** re-run the whole workflow; publish only the missing one locally (`npm publish --provenance ./preset`), then verify |
 | Workflow itself wrong (bad step) | fix `.github/workflows/release.yml` in a normal PR, then re-run the failed job |
