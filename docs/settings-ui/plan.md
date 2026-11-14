@@ -21,7 +21,7 @@
 | 外部依赖 | 只用平台模块表里的：`react`、`react/jsx-runtime`、`@deepseek-ai/cordis`、`dsh-client-ui-primitives`、`dsh-client-ui-slots`、`dsh-client-store` | `client/web/src/platform.ts` PLATFORM_MODULES |
 | 组件库 | **DSH 自带 primitives**（`ConfigField`/`Button`/`Tag`），不引第三方 | ConfigField 即「choices 下拉 / 否则 textarea」 |
 | 挂载槽位 | `settings.section`，id `dsh-imessage`，order 落在「内置插件」之后 | 同上 |
-| 数据面 | `ctx.configForms.get('chenyaqi-dsh-imessage')` 读快照 + `form.set(field, value)` 写 | `ui-settings/src/client/config-form.ts:129` |
+| 数据面 | `ctx.configForms.get('chenchenyaqi-dsh-imessage')` 读快照 + `form.set(field, value)` 写 | `ui-settings/src/client/config-form.ts:129` |
 | 样式 | 不用自定义 CSS（避免 lightningcss 流程），只 primitives + 内联样式 | tsdown.client.ts CSS 契约 |
 | i18n | 复用 `src/core/i18n`（纯函数，无 node 依赖）新增 UI 文案键 | 现有 zh/en 字典 |
 

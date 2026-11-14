@@ -19,7 +19,7 @@
 思路上借鉴了 [dsh-im](https://github.com/xmanrui/dsh-im)：它支持十几种渠道，包括 iMessage，但功能很少，缺少活人感。本项目增加了以下功能：
 
 - 回复按语义分段、带打字延迟，像真人在发消息
-- 大肥鱼人格在预设包 `@chenyaqi/dsh-imessage-preset` 里：聊天为主、干活为辅的少女搭档，嘴硬、嘴馋、爱摸鱼，心情不是恒定的；真要干活时也会认真干
+- 大肥鱼人格在预设包 `@chenchenyaqi/dsh-imessage-preset` 里：聊天为主、干活为辅的少女搭档，嘴硬、嘴馋、爱摸鱼，心情不是恒定的；真要干活时也会认真干
 - 每个手机号拥有独立的 DSH 会话和工作区，她记得和每个人聊过什么，互不影响
 - 只读轮询 `~/Library/Messages/chat.db` 消息，使用 osascript 控制 Messages.app 发送消息，聊天记录都保存在你的 Mac 里；白名单默认为空，只有名单里的号码才能跟她聊天
 
@@ -64,8 +64,8 @@ src/
 一个插件 + 一个预设（大肥鱼人格）：
 
 ```sh
-dsh plugin --profile desktop add @chenyaqi/dsh-imessage
-dsh plugin --profile desktop add @chenyaqi/dsh-imessage-preset
+dsh plugin --profile desktop add @chenchenyaqi/dsh-imessage
+dsh plugin --profile desktop add @chenchenyaqi/dsh-imessage-preset
 ```
 
 ### 3. 推荐设置
@@ -113,7 +113,7 @@ pnpm check    # typecheck + lint + build + test
 pnpm build    # esbuild → lib/index.js（单文件 ESM）
 
 # 冒烟验证插件可被 DSH 宿主加载
-dsh --profile web --patch <(echo "- insert:\n  - id: chenyaqi-dsh-imessage\n    name: '$PWD/lib/index.js'")
+dsh --profile web --patch <(echo "- insert:\n  - id: chenchenyaqi-dsh-imessage\n    name: '$PWD/lib/index.js'")
 ```
 
 ## 许可证

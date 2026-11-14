@@ -58,7 +58,7 @@ test('settings card edits the allowlist and the system message language', async 
   await test.step('client half boots without activation failures', async () => {
     await page.goto(host.url);
     const booted = await page.evaluate(() =>
-      window.__DSH_BOOT__?.entries?.some((row) => row.id === '@chenyaqi/dsh-imessage') ?? false);
+      window.__DSH_BOOT__?.entries?.some((row) => row.id === '@chenchenyaqi/dsh-imessage') ?? false);
     expect(booted, 'client row missing from the boot manifest').toBe(true);
     await expect(page.getByText('did not activate')).toHaveCount(0);
     mark('boot ok');

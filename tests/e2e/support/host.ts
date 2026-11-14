@@ -16,7 +16,7 @@ import { join, resolve } from 'node:path';
 /** 仓库根目录（pnpm 从这里跑）。 */
 export const ROOT = resolve(new URL('../../..', import.meta.url).pathname);
 /** 我们插件的 profile entry id（= 配置命名空间）。 */
-export const ENTRY_ID = 'chenyaqi-dsh-imessage';
+export const ENTRY_ID = 'chenchenyaqi-dsh-imessage';
 /** 每个 e2e 运行用的临时 profile 名。 */
 const PROFILE = 'imessage-e2e';
 /** 临时目录前缀（sweepLeftovers 按它清理）。 */

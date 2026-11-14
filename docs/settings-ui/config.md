@@ -21,7 +21,7 @@
 **实测（真宿主探针，2026-11-12）**：本插件条目出现在 describe() 里：
 
 ```json
-{ "ns": "chenyaqi-dsh-imessage", "applies": "live", "autoGenerate": true }
+{ "ns": "chenchenyaqi-dsh-imessage", "applies": "live", "autoGenerate": true }
 ```
 
 这条同时反证了 volatile 已被识别——否则 describe() 会因 form 为 undefined 直接跳过。
@@ -36,7 +36,7 @@
   通过 slot `settings.plugins.tab` 注册的**只读清单**（展示 fiber 阶段、
   模块名），不含任何配置表单。
 - 因此：**本插件的配置表单在「插件」页 → 本 bundle → 条目
-  `chenyaqi-dsh-imessage` 详情里**；设置弹窗不会出现它。
+  `chenchenyaqi-dsh-imessage` 详情里**；设置弹窗不会出现它。
   想在设置弹窗里拥有专属页面，需另写客户端插件注册
   `settings.plugins.tab`（React 组件 + 客户端产物），成本远高于自动表单。
 

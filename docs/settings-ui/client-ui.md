@@ -9,12 +9,12 @@ Step 0 探针的产出：把「设置弹窗左侧加一个我们自己的菜单�
 包根**扫描：包在 `package.json` 声明 `dsh.client`（`platform: 'web'`）且
 `exports["./client"]` 指向产物，则同一条 entry 额外加载一份浏览器半身。
 
-实测：我们的 profile patch 里仍然只有一条 entry（`chenyaqi-dsh-imessage`），
+实测：我们的 profile patch 里仍然只有一条 entry（`chenchenyaqi-dsh-imessage`），
 浏览器拿到的 boot 行是：
 
 ```json
-{ "id": "@chenyaqi/dsh-imessage",
-  "url": "plugins/??@chenyaqi/dsh-imessage/client.js&rev=<hash>",
+{ "id": "@chenchenyaqi/dsh-imessage",
+  "url": "plugins/??@chenchenyaqi/dsh-imessage/client.js&rev=<hash>",
   "inject": ["@deepseek-ai/dsh-client-ui-settings"] }
 ```
 
@@ -28,7 +28,7 @@ workspace 拆两包**。
 
 ```js
 window.__ModuleLoader__.load({
-  id: "@chenyaqi/dsh-imessage",
+  id: "@chenchenyaqi/dsh-imessage",
   factory: function (require) {
     var module = { exports: {} };
     (function (module, exports, require) { /* esbuild CJS 产物 */ })(module, exports, require);
@@ -68,7 +68,7 @@ react, react/jsx-runtime, react-dom, react-dom/client, @deepseek-ai/cordis, zod,
 
 ```
 web boot: 1 entry did not activate
-@chenyaqi/dsh-imessage: failed
+@chenchenyaqi/dsh-imessage: failed
 ```
 
 原因是 `slots.register` 在槽位**声明**之前调用会抛

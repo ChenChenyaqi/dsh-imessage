@@ -57,11 +57,11 @@ function materialize(wrapped: string): { row: LoadedRow; exports: Record<string,
 
 describe('client bundle · wrapper', () => {
   it('emits a module-loader registration with the package id', () => {
-    const wrapped = wrapClientFactory({ id: '@chenyaqi/dsh-imessage', code: 'exports.probe = 1;' });
+    const wrapped = wrapClientFactory({ id: '@chenchenyaqi/dsh-imessage', code: 'exports.probe = 1;' });
 
     expect(wrapped).toContain('__ModuleLoader__');
     expect(wrapped).toContain('load(');
-    expect(wrapped).toContain('@chenyaqi/dsh-imessage');
+    expect(wrapped).toContain('@chenchenyaqi/dsh-imessage');
   });
 
   it('returns the CJS exports from the factory', () => {
@@ -95,7 +95,7 @@ describe('client bundle · build', () => {
     // 客户端入口必须提供 cordis 插件形状：apply + inject
     expect(typeof exports['apply']).toBe('function');
     expect(Array.isArray(exports['inject'])).toBe(true);
-    expect(row.id).toBe('@chenyaqi/dsh-imessage');
+    expect(row.id).toBe('@chenchenyaqi/dsh-imessage');
   });
 
   it('externalizes platform modules instead of bundling them', async () => {

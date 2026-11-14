@@ -19,7 +19,7 @@ This project does one channel, iMessage, and polishes only that: the most featur
 The idea borrows from [dsh-im](https://github.com/xmanrui/dsh-im): it supports a dozen channels including iMessage, but with few features and little sense of a living person. This project adds:
 
 - Replies go out semantically chunked with typing delays, like a person texting
-- The Dafeiyu persona ships as the preset `@chenyaqi/dsh-imessage-preset`: chat first, chores second. Stubborn-ish, snack-loving, professionally lazy, her mood is not constant; when real work shows up, she gets serious
+- The Dafeiyu persona ships as the preset `@chenchenyaqi/dsh-imessage-preset`: chat first, chores second. Stubborn-ish, snack-loving, professionally lazy, her mood is not constant; when real work shows up, she gets serious
 - One DSH session and workspace per phone number: she remembers every conversation, and none of them interfere
 - Read-only polling of `~/Library/Messages/chat.db` and osascript-driven sends through Messages.app; chat history stays on your Mac. The allowlist starts empty: only numbers on the list can chat with her
 
@@ -64,8 +64,8 @@ Download and install the latest [DeepSeek Harness](https://github.com/deepseek-a
 One plugin + one preset (the Dafeiyu persona):
 
 ```sh
-dsh plugin --profile desktop add @chenyaqi/dsh-imessage
-dsh plugin --profile desktop add @chenyaqi/dsh-imessage-preset
+dsh plugin --profile desktop add @chenchenyaqi/dsh-imessage
+dsh plugin --profile desktop add @chenchenyaqi/dsh-imessage-preset
 ```
 
 ### 3. Recommended settings
@@ -113,7 +113,7 @@ pnpm check    # typecheck + lint + build + test
 pnpm build    # esbuild → lib/index.js (single-file ESM)
 
 # Smoke-test that the bundle loads inside a DSH host
-dsh --profile web --patch <(echo "- insert:\n  - id: chenyaqi-dsh-imessage\n    name: '$PWD/lib/index.js'")
+dsh --profile web --patch <(echo "- insert:\n  - id: chenchenyaqi-dsh-imessage\n    name: '$PWD/lib/index.js'")
 ```
 
 ## License

@@ -64,7 +64,7 @@ function makeCtx(options: { locale?: string } = {}) {
 
 describe('settings mount · wiring', () => {
   it('binds the host form for the profile entry id, not the menu id', () => {
-    // 真机事实：配置命名空间 = profile patch 的 entry id（chenyaqi-dsh-imessage），
+    // 真机事实：配置命名空间 = profile patch 的 entry id（chenchenyaqi-dsh-imessage），
     // 菜单 id 只是 UI 身份；用错就永远读到空快照
     const { ctx, forms } = makeCtx();
 
