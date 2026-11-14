@@ -2,67 +2,108 @@
 
 # dsh-imessage
 
-> 把 macOS 原生 iMessage 接入 DeepSeek Harness（DSH）的官方 cordis 插件：
-> 收，只读轮询 `chat.db`；发，osascript 控制 Messages.app。数据不出你的 Mac。
+> 把 macOS 原生 iMessage 接入 DeepSeek Harness（DSH）的 cordis 插件
 
-![node](https://img.shields.io/badge/node-%E2%89%A522-339933) ![dsh](https://img.shields.io/badge/DeepSeek%20Harness-0.2.x-4D6BFE) ![typescript](https://img.shields.io/badge/TypeScript-5.9-3178C6) ![license](https://img.shields.io/badge/license-MIT-black) ![stage](https://img.shields.io/badge/stage-M1%20骨架-orange)
+![node](https://img.shields.io/badge/node-%E2%89%A522-339933) ![dsh](https://img.shields.io/badge/DeepSeek%20Harness-0.2.x-4D6BFE) ![typescript](https://img.shields.io/badge/TypeScript-5.9-3178C6) ![license](https://img.shields.io/badge/license-MIT-black) ![stage](https://img.shields.io/badge/stage-MVP-brightgreen)
 
 ---
 
 ## 为什么做这个
 
-市面上的 iMessage × DSH 方案（如 photon-hq/dsh-imessage）走**云端托管**：消息过第三方服务器，号码也是托管号。本插件走另一条路——
+“我要给大肥鱼完整的一生！”
 
-- **本地原生**：直读本机 `~/Library/Messages/chat.db`（只读），通过 Messages.app 自动化接口发送，聊天记录不出机器
-- **零云依赖**：不注册第三方服务、不需要托管号码，用你自己的 Apple ID
-- **白名单准入**：默认拒绝，只有显式允许的手机号能触发机器人
-- **会话隔离**：每个手机号独立的 DSH 会话与隔离工作区，互不串扰
-- **拟人化输出**：语义分段 + 打字延迟，长代码块按"粘贴"节奏整块发送
+她原本是 DeepSeek 图标上那条蓝色小鲸鱼，现在变成了一个十六七岁模样的少女：蓝头发，别着小鲸鱼发饰，住在我的 DSH 里，只能通过 iMessage 跟我聊天。我每补上一个功能，她的一生就完整一分。
+
+本项目只做 iMessage 一个渠道，专注打磨，做 iMessage 接入 DSH 功能最完整的插件。
+
+思路上借鉴了 [dsh-im](https://github.com/xmanrui/dsh-im)：它支持十几种渠道，包括 iMessage，但功能很少，缺少活人感。本项目增加了以下功能：
+
+- 回复按语义分段、带打字延迟，像真人在发消息
+- 大肥鱼人格在预设包 `@chenyaqi/dsh-imessage-preset` 里：聊天为主、干活为辅的少女搭档，嘴硬、嘴馋、爱摸鱼，心情不是恒定的；真要干活时也会认真干
+- 每个手机号拥有独立的 DSH 会话和工作区，她记得和每个人聊过什么，互不影响
+- 只读轮询 `~/Library/Messages/chat.db` 消息，使用 osascript 控制 Messages.app 发送消息，聊天记录都保存在你的 Mac 里；白名单默认为空，只有名单里的号码才能跟她聊天
 
 ## 架构
 
 ```
 src/
-├─ core/     ← 纯 TS 内核（零框架依赖，可独立单测）
-│  ├─ imessage/   权限探测 · chat.db 轮询 · typedstream 解码 · 归一化 · 发送 · 拟人化
-│  ├─ routing/    白名单+幂等门 · 会话路由 · 单向流水线
-│  ├─ stores/     配置/状态（原子写）
-│  └─ i18n/ log/
-└─ host/     ← 薄 cordis 适配层：apply() 生命周期 · apiProxy→DshPort · 管理面
+├─ core/        ← 纯 TS 内核：零框架依赖，真 IO 全部依赖注入
+│  ├─ imessage/   权限探测 · chat.db 轮询 · typedstream 解码 · 消息归一化 · osascript 发送 · 拟人化
+│  ├─ router/     白名单 + 幂等门 · 会话路由 · 单向流水线
+│  ├─ stores/     配置与状态（原子写，损坏自愈）
+│  ├─ types/      配置 / 消息 / 策略等领域类型
+│  └─ i18n/ log/  中英文案 · JSONL 链路日志
+├─ host/        ← 薄 cordis 适配层：apply() 生命周期 · Config schema · apiProxy→DshPort · 状态 RPC
+└─ client/      ← 设置页 UI（React）：iMessage 卡片，保存即热生效
 ```
 
-内核定义 `DshPort` 端口接口，host 层用 DSH 的 apiProxy 实现它——DSH 版本接口变动只波及 host，内核稳定。
+一条消息的完整旅程：
 
-## 前置要求
+```
+收：chat.db 只读轮询（游标持久化）
+    → typedstream 解码正文 → 归一化（过滤自己发的、机器人回的）
+    → 白名单门（默认全拒）→ 会话路由（每个号码一个 DSH 会话）
+发：DSH 回复 → 语义分段 + 打字延迟
+    → osascript 控制 Messages.app 发出 → 游标与状态落盘
+```
 
-- macOS（在 Messages.app 登录 iMessage）
-- [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) desktop 0.2.x
-- 两项系统权限（插件设置页会引导开启）：
-  - **完全磁盘访问**：读取 `chat.db` 必需
-  - **自动化（控制 Messages.app）**：发送消息必需
-
-## 路线图
-
-| 阶段 | 内容 | 状态 |
-| --- | --- | --- |
-| M1 | 骨架 · 类型 · 存储 · i18n · 日志 | 🚧 进行中 |
-| M2 | 收发内核（chat.db 轮询 / 解码 / osascript / 拟人化） | ⏳ |
-| M3 | 会话路由 · 白名单 · 幂等 · 流水线 | ⏳ |
-| M4 | cordis 宿主 · MVP 收口 | ⏳ |
-| P1 | 收图（HEIC→JPEG）· 引用回复 · 发文件 · 基础命令 | ⏳ |
-| P2 | companion 主动陪伴 · 表情包 · 设置页 UI | ⏳ |
-
-详见 [PLAN.md](./docs/PLAN.md)（实施计划）与 [ARCHITECTURE.md](./docs/ARCHITECTURE.md)（架构蓝图）。
+- core 不碰真 IO：数据库、osascript、文件系统全部走注入的接口，所以内核的全部单测在 CI/Linux 上就能跑（分支覆盖率 ≥ 93%）
+- 内核只认 `DshPort` 端口，host 层用 DSH 的 apiProxy 实现它——DSH 版本接口变动只波及 host，内核不动
+- 消息不丢也不重：游标 + seen 双持久化，崩溃重启不丢消息、不重复回复；发送失败不重试（不给同一个人连发两遍），权限失效自动停机
 
 ## 安装
 
-> 🚧 尚未发布到 npm（MVP 完成后发布 `@chenyaqi/dsh-imessage`）。
+**前置**：一台 Mac、一部 iPhone 或 iPad，以及至少两个 Apple ID 账号（没有的话，用邮箱注册一个就行）。Mac 上的 Messages.app 用其中一个号登录（比如邮箱号），iPhone 或 iPad 保持你现在登录的 Apple ID 不变，注意这会导致你的 Mac 和 iPhone 短信不互通。
 
-届时：
+### 1. 安装 DSH 最新版
+
+从 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 下载安装最新版 desktop（≥ 0.2.x），确认 `dsh --version` 可用。
+
+### 2. 安装插件与预设
+
+一个插件 + 一个预设（大肥鱼人格）：
 
 ```sh
 dsh plugin --profile desktop add @chenyaqi/dsh-imessage
+dsh plugin --profile desktop add @chenyaqi/dsh-imessage-preset
 ```
+
+### 3. 推荐设置
+
+首次启动 `dsh desktop`，启用插件和预设，设置页会引导开启两项系统权限：
+
+- **完全磁盘访问**：读取 `chat.db` 必需
+- **自动化（控制 Messages.app）**：发送消息必需
+
+然后在设置页的 iMessage 卡片里按推荐值配置：
+
+| 设置         | 推荐值                 | 说明                                     |
+| ------------ | ---------------------- | ---------------------------------------- |
+| 白名单       | 你自己的手机号（+86…） | 默认全拒；只有白名单号码能和她发消息     |
+| 系统提示语言 | zh                     | 系统提示所用语言                         |
+| 分段回复     | 开启                   | 回复按真人节奏分段发送                   |
+| 最大分段数   | 8                      | 超出部分并入末段                         |
+| 延时系数     | 1                      | 实测节奏原速；调大更慢，0 = 分段但不延时 |
+| agent 预设   | dafeiyu                | 装了预设包后选它                         |
+
+配置保存即热生效，无需重启。
+
+## 安装问题排查
+
+见 [AGENTS.md](./AGENTS.md) 的日志速查表：按"链路断在哪"定位（`~/.dsh-imessage/logs/`），可以让 DSH 去查看这里的日志定位问题。
+
+## 路线图
+
+| 阶段 | 内容                                                 | 状态 |
+| ---- | ---------------------------------------------------- | ---- |
+| M1   | 骨架 · 类型 · 存储 · i18n · 日志                     | ✅   |
+| M2   | 收发内核（chat.db 轮询 / 解码 / osascript / 拟人化） | ✅   |
+| M3   | 会话路由 · 白名单 · 幂等 · 流水线                    | ✅   |
+| M4   | cordis 宿主 · MVP 收口                               | ✅   |
+| P1   | 收图（HEIC→JPEG）· 引用回复 · 发文件 · 基础命令      | ⏳   |
+| P2   | companion 主动陪伴 · 表情包（设置页 UI 已完成）      | ⏳   |
+
+详见 [PLAN.md](./docs/PLAN.md)（实施计划）与 [ARCHITECTURE.md](./docs/ARCHITECTURE.md)（架构蓝图）。
 
 ## 开发
 
