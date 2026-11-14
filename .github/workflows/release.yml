@@ -45,22 +45,7 @@ jobs:
       - name: Publish preset package
         run: npm publish --provenance ./preset
 
-      # registry 写入后可能有短暂延迟；失败即代表需要人工核查，因此不吞。
-      - name: Verify the packages resolve on npm
-        env:
-          VERSION: ${{ github.event.release.tag_name }}
-        run: |
-          version="${VERSION#v}"
-          for pkg in "@chenchenyaqi/dsh-imessage" "@chenchenyaqi/dsh-imessage-preset"; do
-            for attempt in 1 2 3 4 5; do
-              if npm view "${pkg}@${version}" version >/dev/null 2>&1; then
-                echo "${pkg}@${version} is live."
-                break
-              fi
-              if [ "$attempt" = "5" ]; then
-                echo "::error::${pkg}@${version} did not resolve after publish."
-                exit 1
-              fi
-              sleep 10
-            done
-          done
+      # 刻意不在这里校验「npm view 能否查到」：npm 对已接受的发布会输出
+      # "being processed and may take a few minutes"，传播延迟不确定。
+      # 用可解析性判定成败只会误报，而误报会诱导人重跑本 job——
+      # 重跑撞上「版本已存在」直接失败。npm publish 退出码 0 即发布成功。
