@@ -4,6 +4,24 @@
   "description": "Native macOS iMessage channel plugin for DeepSeek Harness (DSH).",
   "type": "module",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ChenChenyaqi/dsh-imessage.git"
+  },
+  "homepage": "https://github.com/ChenChenyaqi/dsh-imessage#readme",
+  "bugs": {
+    "url": "https://github.com/ChenChenyaqi/dsh-imessage/issues"
+  },
+  "keywords": [
+    "deepseek-harness",
+    "dsh",
+    "dsh-plugin",
+    "cordis",
+    "imessage",
+    "macos",
+    "chatbot",
+    "ai-companion"
+  ],
   "main": "./lib/index.js",
   "exports": {
     ".": "./lib/index.js",
