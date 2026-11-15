@@ -49,9 +49,11 @@ async function collectAsk(
 }
 
 /** 带 agentPresets fake 的组装（preset 用例）。 */
-function makePortWithPresets(options: {
-  readonly resolveThrows?: Error;
-} = {}) {
+function makePortWithPresets(
+  options: {
+    readonly resolveThrows?: Error;
+  } = {},
+) {
   const base = makePort();
   const calls: { resolved?: string; mounted?: { id: string } } = {};
   (base.host.services as { agentPresets: unknown }).agentPresets = {
@@ -117,7 +119,9 @@ describe('dsh-port · createSession with agent preset', () => {
 
     // resolve 失败不许炸通道：降级无预设创建 + warn 留痕
     const sessionId = await h.port.createSession({
-      workspaceDir: 'ws/a', name: 'imessage a', preset: 'dafeiyu',
+      workspaceDir: 'ws/a',
+      name: 'imessage a',
+      preset: 'dafeiyu',
     });
 
     expect(String(sessionId)).toMatch(/^imessage-/u);
@@ -177,21 +181,23 @@ describe('dsh-port · createSession', () => {
     const { host, port } = makePort();
     host.failNextCreate(new Error('boom'));
 
-    await expect(
-      port.createSession({ workspaceDir: 'ws/a', name: 'imessage a' }),
-    ).rejects.toThrow('boom');
+    await expect(port.createSession({ workspaceDir: 'ws/a', name: 'imessage a' })).rejects.toThrow(
+      'boom',
+    );
   });
 
   it('disposes the agent and rethrows when attach fails', async () => {
     const { host, port } = makePort();
     host.failNextAttach(new Error('attach rejected'));
 
-    await expect(
-      port.createSession({ workspaceDir: 'ws/a', name: 'imessage a' }),
-    ).rejects.toThrow('attach rejected');
+    await expect(port.createSession({ workspaceDir: 'ws/a', name: 'imessage a' })).rejects.toThrow(
+      'attach rejected',
+    );
     // 回滚：不留孤儿活 agent（webhook 事务语义）
     expect(host.log.map((c) => c.kind)).toContain('agents.dispose');
-    expect(host.services.agents.get(asHostSessionId(String(host.log[1]?.sessionId)))).toBeUndefined();
+    expect(
+      host.services.agents.get(asHostSessionId(String(host.log[1]?.sessionId))),
+    ).toBeUndefined();
   });
 });
 
@@ -236,7 +242,9 @@ describe('dsh-port · getSessionStatus', () => {
     const { host, port } = makePort();
     host.failNextResume(new Error('disk io error'));
 
-    await expect(port.getSessionStatus(asSessionId('imessage-any'))).rejects.toThrow('disk io error');
+    await expect(port.getSessionStatus(asSessionId('imessage-any'))).rejects.toThrow(
+      'disk io error',
+    );
   });
 });
 
@@ -368,7 +376,9 @@ describe('dsh-port · ask', () => {
     host.scriptHang({ text: '半截回复' });
     const sessionId = await port.createSession({ workspaceDir: 'ws/a', name: 'imessage a' });
 
-    const failure = await collectAsk(port.ask({ sessionId, prompt: 'hi' })).catch((e: unknown) => e);
+    const failure = await collectAsk(port.ask({ sessionId, prompt: 'hi' })).catch(
+      (e: unknown) => e,
+    );
 
     expect(failure).toMatchObject({ code: 'TIMEOUT' });
   });
@@ -381,7 +391,9 @@ describe('dsh-port · ask', () => {
     await collectAsk(port.ask({ sessionId, prompt: 'hi' })).catch(() => undefined);
 
     // 超时后宿主侧 turn 被取消（官方类型只承诺裸 Agent，故按运行时面收窄）
-    const live = host.services.agents.get(asHostSessionId(String(sessionId))) as unknown as HostAgent;
+    const live = host.services.agents.get(
+      asHostSessionId(String(sessionId)),
+    ) as unknown as HostAgent;
     await live.whenIdle();
     expect(host.log.some((c) => c.kind === 'agent.cancel')).toBe(true);
   });
@@ -409,7 +421,11 @@ describe('dsh-port · ask', () => {
     for await (const part of port.ask({ sessionId, prompt: 'hi' })) {
       parts.push(part);
       // 他会话的收口事件不能终结本轮
-      host.emitSessionEvent('turn/end', { turn: 1, reason: { kind: 'completed' } }, 'other-session');
+      host.emitSessionEvent(
+        'turn/end',
+        { turn: 1, reason: { kind: 'completed' } },
+        'other-session',
+      );
       host.emitSessionEvent('turn/start', { turn: 99 }, 'other-session');
     }
 
@@ -446,7 +462,9 @@ describe('dsh-port · ask', () => {
     const consumption = (async () => {
       for await (const _part of port.ask({ sessionId, prompt: 'hi' })) {
         // 第一片到达后从宿主侧外部取消（不经 signal）
-        (host.services.agents.get(asHostSessionId(String(sessionId))) as unknown as HostAgent)?.cancel({
+        (
+          host.services.agents.get(asHostSessionId(String(sessionId))) as unknown as HostAgent
+        )?.cancel({
           kind: 'parent',
         });
       }

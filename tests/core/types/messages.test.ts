@@ -1,9 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import {
-  isNormalizedMessage,
-  makeNormalizedMessage,
-} from '@/core/types/messages';
+import { isNormalizedMessage, makeNormalizedMessage } from '@/core/types/messages';
 
 const base = {
   guid: 'guid-1',

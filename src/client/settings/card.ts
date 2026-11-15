@@ -302,8 +302,9 @@ function derive(state: SettingsCardState, saved: SavedBaseline): SettingsCardSta
   const entries = parseAllowlist(state.allowlist.draft);
   const localeDirty = state.locale.draft !== saved.locale;
   // 白名单按「清洗后的条目序列」比较：只改空白不算改动
-  const allowlistDirty = formatAllowlist(state.allowlist.draft).join('\n')
-    !== formatAllowlist(saved.allowlist).join('\n');
+  const allowlistDirty =
+    formatAllowlist(state.allowlist.draft).join('\n') !==
+    formatAllowlist(saved.allowlist).join('\n');
   const hasInvalid = entries.some((entry) => entry.key === null);
   // 新增行里有未修正的错误输入：用户还没收尾，先拦住保存
   const addPending = state.adding.active && state.adding.error !== null;
@@ -314,35 +315,47 @@ function derive(state: SettingsCardState, saved: SavedBaseline): SettingsCardSta
   const savedNow2 = saved as { chunkedReplies?: boolean; maxChunks?: number; delayFactor?: number };
   // 子字段只在开关开启时参与 dirty 判定：关闭时输入不可见，残留草稿不算改动
   const presetDirty = derivePresetDirty(state, saved);
-  const styleDirty = state.chunked.draft !== (savedNow2.chunkedReplies ?? false)
-    || (state.chunked.draft
-      && (state.maxChunks.draft !== String(savedNow2.maxChunks ?? 8)
-        || state.delayFactor.draft !== String(savedNow2.delayFactor ?? 1)));
+  const styleDirty =
+    state.chunked.draft !== (savedNow2.chunkedReplies ?? false) ||
+    (state.chunked.draft &&
+      (state.maxChunks.draft !== String(savedNow2.maxChunks ?? 8) ||
+        state.delayFactor.draft !== String(savedNow2.delayFactor ?? 1)));
   return {
     ...state,
     entries,
     locale: { ...state.locale, dirty: localeDirty },
     allowlist: { ...state.allowlist, dirty: allowlistDirty },
-    chunked: { ...state.chunked, dirty: state.chunked.draft !== (savedNow2.chunkedReplies ?? false) },
-    maxChunks: { ...state.maxChunks, dirty: state.chunked.draft && state.maxChunks.draft !== String(savedNow2.maxChunks ?? 8) },
-    delayFactor: { ...state.delayFactor, dirty: state.chunked.draft && state.delayFactor.draft !== String(savedNow2.delayFactor ?? 1) },
+    chunked: {
+      ...state.chunked,
+      dirty: state.chunked.draft !== (savedNow2.chunkedReplies ?? false),
+    },
+    maxChunks: {
+      ...state.maxChunks,
+      dirty: state.chunked.draft && state.maxChunks.draft !== String(savedNow2.maxChunks ?? 8),
+    },
+    delayFactor: {
+      ...state.delayFactor,
+      dirty: state.chunked.draft && state.delayFactor.draft !== String(savedNow2.delayFactor ?? 1),
+    },
     maxChunksError,
     delayFactorError,
     preset: { ...state.preset, dirty: presetDirty },
     presetOptions: state.presetOptions,
     presetError,
     warning: entries.length === 0 ? 'empty' : null,
-    canSave: !state.saving && !hasInvalid && !addPending
-      && !maxChunksError && !delayFactorError && !presetError
-      && (localeDirty || allowlistDirty || styleDirty || presetDirty),
+    canSave:
+      !state.saving &&
+      !hasInvalid &&
+      !addPending &&
+      !maxChunksError &&
+      !delayFactorError &&
+      !presetError &&
+      (localeDirty || allowlistDirty || styleDirty || presetDirty),
   };
 }
 
 /** 用已保存基准重算派生字段（宿主快照变化后调用）。 */
-export function withDerived(
-  state: SettingsCardState,
-  saved: SavedBaseline,
-): SettingsCardState {
+export function withDerived(state: SettingsCardState, saved: SavedBaseline): SettingsCardState {
   return derive(state, saved);
 }
 
@@ -372,8 +385,8 @@ function withAdding(state: SettingsCardState, adding: AddEntryState): SettingsCa
   return {
     ...state,
     adding,
-    canSave: !state.saving && !hasInvalid && !addPending
-      && (state.locale.dirty || state.allowlist.dirty),
+    canSave:
+      !state.saving && !hasInvalid && !addPending && (state.locale.dirty || state.allowlist.dirty),
   };
 }
 
@@ -389,10 +402,7 @@ export function updateAddDraft(state: SettingsCardState, input: string): Setting
 }
 
 /** 确认新增：合法则入列并收起；非法/重复/空输入则原地反馈。 */
-export function confirmAdd(
-  state: SettingsCardState,
-  saved: SavedBaseline,
-): SettingsCardState {
+export function confirmAdd(state: SettingsCardState, saved: SavedBaseline): SettingsCardState {
   if (!state.adding.active) return state;
   const trimmed = state.adding.input.trim();
   if (!trimmed) return derive({ ...state, adding: ADDING_CLOSED }, saved);
@@ -418,22 +428,38 @@ export function cancelAdd(state: SettingsCardState): SettingsCardState {
 }
 
 /** 改分段开关（关掉时子输入的校验错误随之清零）。 */
-export function setChunkedDraft(state: SettingsCardState, draft: boolean, saved: SavedBaseline): SettingsCardState {
+export function setChunkedDraft(
+  state: SettingsCardState,
+  draft: boolean,
+  saved: SavedBaseline,
+): SettingsCardState {
   return derive({ ...state, chunked: { draft, dirty: false } }, saved);
 }
 
 /** 改最大分段数草稿。 */
-export function setMaxChunksDraft(state: SettingsCardState, draft: string, saved: SavedBaseline): SettingsCardState {
+export function setMaxChunksDraft(
+  state: SettingsCardState,
+  draft: string,
+  saved: SavedBaseline,
+): SettingsCardState {
   return derive({ ...state, maxChunks: { draft, dirty: false } }, saved);
 }
 
 /** 改延时系数草稿。 */
-export function setDelayFactorDraft(state: SettingsCardState, draft: string, saved: SavedBaseline): SettingsCardState {
+export function setDelayFactorDraft(
+  state: SettingsCardState,
+  draft: string,
+  saved: SavedBaseline,
+): SettingsCardState {
   return derive({ ...state, delayFactor: { draft, dirty: false } }, saved);
 }
 
 /** 改预设草稿（空 = 回默认 dafeiyu）。 */
-export function setPresetDraft(state: SettingsCardState, draft: string, saved: SavedBaseline): SettingsCardState {
+export function setPresetDraft(
+  state: SettingsCardState,
+  draft: string,
+  saved: SavedBaseline,
+): SettingsCardState {
   return derive({ ...state, preset: { draft, dirty: false } }, saved);
 }
 
@@ -454,10 +480,7 @@ export function beginSave(state: SettingsCardState): SettingsCardState {
 }
 
 /** 提交成功：草稿成为新基准（roster 来自 remote，跨保存保留）。 */
-export function saveSucceeded(
-  state: SettingsCardState,
-  snapshot: FormSnapshot,
-): SettingsCardState {
+export function saveSucceeded(state: SettingsCardState, snapshot: FormSnapshot): SettingsCardState {
   return { ...initialState(snapshot), presetOptions: state.presetOptions };
 }
 
@@ -467,10 +490,7 @@ export function saveFailed(
   texts: CardTexts,
   saved: SavedBaseline,
 ): SettingsCardState {
-  return derive(
-    { ...state, saving: false, error: texts.saveFailed },
-    saved,
-  );
+  return derive({ ...state, saving: false, error: texts.saveFailed }, saved);
 }
 
 /**
@@ -513,10 +533,12 @@ export async function save(
     { op: 'set', path: ['maxChunks'], value: maxChunks },
     { op: 'set', path: ['delayFactor'], value: delayFactor },
     // 生效预设为空（无 roster 且未设置）→ 不写，留给宿主默认
-    ...(agentPreset === '' ? [] : [{ op: 'set', path: ['agentPreset'], value: agentPreset } as FieldOp]),
+    ...(agentPreset === ''
+      ? []
+      : [{ op: 'set', path: ['agentPreset'], value: agentPreset } as FieldOp]),
   ];
   try {
-    if (!await deps.form.mutate(ops)) {
+    if (!(await deps.form.mutate(ops))) {
       return saveFailed(saving, deps.texts, saved);
     }
     return saveSucceeded(saving, deps.readSnapshot());

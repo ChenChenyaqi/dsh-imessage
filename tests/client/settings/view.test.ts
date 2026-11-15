@@ -136,13 +136,17 @@ function dirtyState(): SettingsCardState {
 describe('settings card view · locale field', () => {
   it('explains that the setting does not change AI reply language', () => {
     // 标签「回复语言」曾让用户误以为能控制大模型的语言：hint 必须在场
-    const tree = SettingsCardView(makeProps(initialState({ value: { locale: 'zh', allowlist: [PHONE] } })));
+    const tree = SettingsCardView(
+      makeProps(initialState({ value: { locale: 'zh', allowlist: [PHONE] } })),
+    );
 
     expect(textOf(tree)).toContain(text.localeHint);
   });
 
   it('renders a select limited to the schema locales', () => {
-    const tree = SettingsCardView(makeProps(initialState({ value: { locale: 'zh', allowlist: [PHONE] } })));
+    const tree = SettingsCardView(
+      makeProps(initialState({ value: { locale: 'zh', allowlist: [PHONE] } })),
+    );
 
     // 语言下拉的选项（预设下拉是另一个 select，另有专项用例）
     const locale = find(tree, 'select')[0];
@@ -153,11 +157,15 @@ describe('settings card view · locale field', () => {
 
   it('forwards locale edits', () => {
     const onLocaleChange = vi.fn();
-    const tree = SettingsCardView(makeProps(initialState({ value: { locale: 'zh', allowlist: [PHONE] } }), { onLocaleChange }));
+    const tree = SettingsCardView(
+      makeProps(initialState({ value: { locale: 'zh', allowlist: [PHONE] } }), { onLocaleChange }),
+    );
 
     const select = find(tree, 'select')[0];
     expect(select).toBeDefined();
-    (select!.props['onChange'] as (event: { target: { value: string } }) => void)({ target: { value: 'en' } });
+    (select!.props['onChange'] as (event: { target: { value: string } }) => void)({
+      target: { value: 'en' },
+    });
 
     expect(onLocaleChange).toHaveBeenCalledWith('en');
   });
@@ -166,7 +174,9 @@ describe('settings card view · locale field', () => {
 describe('settings card view · allowlist chips', () => {
   it('renders every entry as a chip with a remove button, and no textarea', () => {
     // 方案 A 的核心：平时没有输入框
-    const tree = SettingsCardView(makeProps(initialState({ value: { locale: 'zh', allowlist: [PHONE, PHONE_2] } })));
+    const tree = SettingsCardView(
+      makeProps(initialState({ value: { locale: 'zh', allowlist: [PHONE, PHONE_2] } })),
+    );
 
     expect(find(tree, 'textarea')).toHaveLength(0);
     const pills = find(tree, Pill);
@@ -179,7 +189,11 @@ describe('settings card view · allowlist chips', () => {
 
   it('forwards remove clicks per entry index', () => {
     const onRemoveEntry = vi.fn();
-    const tree = SettingsCardView(makeProps(initialState({ value: { locale: 'zh', allowlist: [PHONE, PHONE_2] } }), { onRemoveEntry }));
+    const tree = SettingsCardView(
+      makeProps(initialState({ value: { locale: 'zh', allowlist: [PHONE, PHONE_2] } }), {
+        onRemoveEntry,
+      }),
+    );
 
     const removes = find(tree, Button).filter((button) => button.props['aria-label'] === 'Remove');
     (removes[1]!.props['onClick'] as () => void)();
@@ -194,11 +208,15 @@ describe('settings card view · allowlist chips', () => {
     const pill = find(tree, Pill)[0];
     expect(pill).toBeDefined();
 
-    expect(String((pill!.props['style'] as { color?: string } | undefined)?.color ?? '')).toContain('state-error');
+    expect(String((pill!.props['style'] as { color?: string } | undefined)?.color ?? '')).toContain(
+      'state-error',
+    );
   });
 
   it('shows the per-field hint', () => {
-    const tree = SettingsCardView(makeProps(initialState({ value: { locale: 'zh', allowlist: [PHONE] } })));
+    const tree = SettingsCardView(
+      makeProps(initialState({ value: { locale: 'zh', allowlist: [PHONE] } })),
+    );
 
     expect(textOf(tree)).toContain(text.allowlistHint);
   });
@@ -206,17 +224,23 @@ describe('settings card view · allowlist chips', () => {
 
 describe('settings card view · add row', () => {
   it('shows only an add button when closed (no allowlist input field)', () => {
-    const tree = SettingsCardView(makeProps(initialState({ value: { locale: 'zh', allowlist: [PHONE] } })));
+    const tree = SettingsCardView(
+      makeProps(initialState({ value: { locale: 'zh', allowlist: [PHONE] } })),
+    );
 
     // 预设字段是常驻文本输入；白名单的添加行输入不存在
-    expect(find(tree, Input).filter((input) => input.props['placeholder'] === text.allowlistHint)).toHaveLength(0);
+    expect(
+      find(tree, Input).filter((input) => input.props['placeholder'] === text.allowlistHint),
+    ).toHaveLength(0);
     const add = find(tree, Button).find((button) => textOf(button) === text.addNumber);
     expect(add).toBeDefined();
   });
 
   it('forwards add button clicks to open the row', () => {
     const onBeginAdd = vi.fn();
-    const tree = SettingsCardView(makeProps(initialState({ value: { locale: 'zh', allowlist: [PHONE] } }), { onBeginAdd }));
+    const tree = SettingsCardView(
+      makeProps(initialState({ value: { locale: 'zh', allowlist: [PHONE] } }), { onBeginAdd }),
+    );
 
     const add = find(tree, Button).find((button) => textOf(button) === text.addNumber);
     expect(add).toBeDefined();
@@ -228,9 +252,11 @@ describe('settings card view · add row', () => {
   it('renders input, confirm and cancel while open, and hides the add button', () => {
     const tree = SettingsCardView(makeProps(addingState(PHONE_2)));
 
-    const inputs = find(tree, Input).filter((input) => input.props["placeholder"] === text.allowlistHint);
+    const inputs = find(tree, Input).filter(
+      (input) => input.props['placeholder'] === text.allowlistHint,
+    );
     expect(inputs).toHaveLength(1);
-    expect(inputs[0]!.props["value"]).toBe(PHONE_2);
+    expect(inputs[0]!.props['value']).toBe(PHONE_2);
     expect(find(tree, Button).find((button) => textOf(button) === text.confirmAdd)).toBeDefined();
     expect(find(tree, Button).find((button) => textOf(button) === text.cancel)).toBeDefined();
     expect(find(tree, Button).find((button) => textOf(button) === text.addNumber)).toBeUndefined();
@@ -240,11 +266,15 @@ describe('settings card view · add row', () => {
     const onUpdateAddDraft = vi.fn();
     const onConfirmAdd = vi.fn();
     const onCancelAdd = vi.fn();
-    const tree = SettingsCardView(makeProps(addingState(PHONE_2), { onUpdateAddDraft, onConfirmAdd, onCancelAdd }));
+    const tree = SettingsCardView(
+      makeProps(addingState(PHONE_2), { onUpdateAddDraft, onConfirmAdd, onCancelAdd }),
+    );
 
     const input = find(tree, Input).find((i) => i.props['placeholder'] === text.allowlistHint);
     expect(input).toBeDefined();
-    (input!.props['onChange'] as (event: { target: { value: string } }) => void)({ target: { value: 'x' } });
+    (input!.props['onChange'] as (event: { target: { value: string } }) => void)({
+      target: { value: 'x' },
+    });
     expect(onUpdateAddDraft).toHaveBeenCalledWith('x');
 
     const confirm = find(tree, Button).find((button) => textOf(button) === text.confirmAdd);
@@ -279,7 +309,9 @@ describe('settings card view · add row', () => {
     // 错误文案用错误色令牌（与 empty warn 的警示色区分）
     const errorNode = find(tree, 'p').find((node) => textOf(node) === text.invalidNumber);
     expect(errorNode).toBeDefined();
-    expect(String((errorNode!.props['style'] as { color?: string } | undefined)?.color ?? '')).toContain('state-error');
+    expect(
+      String((errorNode!.props['style'] as { color?: string } | undefined)?.color ?? ''),
+    ).toContain('state-error');
   });
 
   it('shows the duplicate message for a duplicate draft', () => {
@@ -298,12 +330,18 @@ describe('settings card view · add row', () => {
 
 /** 开启分段且已改动的状态。 */
 function chunkedState(): SettingsCardState {
-  return setChunkedDraft(initialState({ value: { locale: 'zh', allowlist: [PHONE] } }), true, saved);
+  return setChunkedDraft(
+    initialState({ value: { locale: 'zh', allowlist: [PHONE] } }),
+    true,
+    saved,
+  );
 }
 
 describe('settings card view · chunked replies', () => {
   it('renders the toggle with its hint and no number inputs when off', () => {
-    const tree = SettingsCardView(makeProps(initialState({ value: { locale: 'zh', allowlist: [PHONE] } })));
+    const tree = SettingsCardView(
+      makeProps(initialState({ value: { locale: 'zh', allowlist: [PHONE] } })),
+    );
 
     const checkbox = find(tree, 'input')[0];
     expect(checkbox?.props['type']).toBe('checkbox');
@@ -316,10 +354,14 @@ describe('settings card view · chunked replies', () => {
 
   it('forwards toggle changes', () => {
     const onChunkedChange = vi.fn();
-    const tree = SettingsCardView(makeProps(initialState({ value: { locale: 'zh', allowlist: [PHONE] } }), { onChunkedChange }));
+    const tree = SettingsCardView(
+      makeProps(initialState({ value: { locale: 'zh', allowlist: [PHONE] } }), { onChunkedChange }),
+    );
 
     const checkbox = find(tree, 'input').find((input) => input.props['type'] === 'checkbox');
-    (checkbox!.props['onChange'] as (event: { target: { checked: boolean } }) => void)({ target: { checked: true } });
+    (checkbox!.props['onChange'] as (event: { target: { checked: boolean } }) => void)({
+      target: { checked: true },
+    });
 
     expect(onChunkedChange).toHaveBeenCalledWith(true);
   });
@@ -336,12 +378,18 @@ describe('settings card view · chunked replies', () => {
   it('forwards number input edits', () => {
     const onMaxChunksChange = vi.fn();
     const onDelayFactorChange = vi.fn();
-    const tree = SettingsCardView(makeProps(chunkedState(), { onMaxChunksChange, onDelayFactorChange }));
+    const tree = SettingsCardView(
+      makeProps(chunkedState(), { onMaxChunksChange, onDelayFactorChange }),
+    );
 
     const numbers = find(tree, Input).filter((input) => input.props['type'] === 'number');
-    (numbers[0]!.props['onChange'] as (event: { target: { value: string } }) => void)({ target: { value: '5' } });
+    (numbers[0]!.props['onChange'] as (event: { target: { value: string } }) => void)({
+      target: { value: '5' },
+    });
     expect(onMaxChunksChange).toHaveBeenCalledWith('5');
-    (numbers[1]!.props['onChange'] as (event: { target: { value: string } }) => void)({ target: { value: '0' } });
+    (numbers[1]!.props['onChange'] as (event: { target: { value: string } }) => void)({
+      target: { value: '0' },
+    });
     expect(onDelayFactorChange).toHaveBeenCalledWith('0');
   });
 
@@ -372,26 +420,42 @@ describe('settings card view · chunked replies', () => {
 
 /** 预设已改动的状态。 */
 function presetState(draft: string): SettingsCardState {
-  return setPresetDraft(initialState({ value: { locale: 'zh', allowlist: [PHONE] } }), draft, saved);
+  return setPresetDraft(
+    initialState({ value: { locale: 'zh', allowlist: [PHONE] } }),
+    draft,
+    saved,
+  );
 }
 
 describe('settings card view · agent preset', () => {
   /** 带 roster 的 props（模拟 remote 加载完成）。 */
   function rosterProps(draft: string, overrides: Record<string, unknown> = {}) {
-    const state = setPresetDraft(initialState({ value: { locale: 'zh', allowlist: [PHONE] } }), draft, saved);
+    const state = setPresetDraft(
+      initialState({ value: { locale: 'zh', allowlist: [PHONE] } }),
+      draft,
+      saved,
+    );
     return makeProps(
-      { ...state, presetOptions: presetOptions([
-        { id: 'dafeiyu', name: '大肥鱼' },
-        { id: 'standard', isDefault: true },
-        { id: 'bad', broken: 'activation failed' },
-      ], draft) },
+      {
+        ...state,
+        presetOptions: presetOptions(
+          [
+            { id: 'dafeiyu', name: '大肥鱼' },
+            { id: 'standard', isDefault: true },
+            { id: 'bad', broken: 'activation failed' },
+          ],
+          draft,
+        ),
+      },
       overrides,
     );
   }
 
   /** 取预设下拉与选项。 */
   function presetSelect(tree: ReturnType<typeof SettingsCardView>) {
-    const select = find(tree, 'select').find((node) => String(node.props['data-field'] ?? '') === 'preset');
+    const select = find(tree, 'select').find(
+      (node) => String(node.props['data-field'] ?? '') === 'preset',
+    );
     const options = collect(select!.props['children'] as never).filter((n) => n.type === 'option');
     return { select: select!, options };
   }
@@ -420,8 +484,10 @@ describe('settings card view · agent preset', () => {
   });
 
   it('falls back to the host default row when dafeiyu is not installed', () => {
-    const state = { ...initialState({ value: { locale: 'zh', allowlist: [PHONE] } }),
-      presetOptions: presetOptions([{ id: 'standard', isDefault: true }], '') };
+    const state = {
+      ...initialState({ value: { locale: 'zh', allowlist: [PHONE] } }),
+      presetOptions: presetOptions([{ id: 'standard', isDefault: true }], ''),
+    };
     const { select } = presetSelect(SettingsCardView(makeProps(state)));
 
     expect(select.props['value']).toBe('standard');
@@ -431,9 +497,11 @@ describe('settings card view · agent preset', () => {
     // 已保存的预设被卸载：当前值仍可见可选（保存/切换不丢显示）
     const { select, options } = presetSelect(SettingsCardView(rosterProps('ghosted-preset')));
 
-    expect(options.map((option) => option.props['value'])).toEqual(
-      ['ghosted-preset', 'dafeiyu', 'standard'],
-    );
+    expect(options.map((option) => option.props['value'])).toEqual([
+      'ghosted-preset',
+      'dafeiyu',
+      'standard',
+    ]);
     expect(select.props['value']).toBe('ghosted-preset');
   });
 
@@ -441,7 +509,9 @@ describe('settings card view · agent preset', () => {
     const onPresetChange = vi.fn();
     const { select } = presetSelect(SettingsCardView(rosterProps('standard', { onPresetChange })));
 
-    (select.props['onChange'] as (event: { target: { value: string } }) => void)({ target: { value: 'plain' } });
+    (select.props['onChange'] as (event: { target: { value: string } }) => void)({
+      target: { value: 'plain' },
+    });
 
     expect(onPresetChange).toHaveBeenCalledWith('plain');
   });
@@ -479,7 +549,9 @@ describe('settings card view · feedback', () => {
 
 describe('settings card view · save action', () => {
   it('disables the button when nothing changed', () => {
-    const tree = SettingsCardView(makeProps(initialState({ value: { locale: 'zh', allowlist: [PHONE] } })));
+    const tree = SettingsCardView(
+      makeProps(initialState({ value: { locale: 'zh', allowlist: [PHONE] } })),
+    );
 
     const saveButton = find(tree, Button).find((button) => textOf(button) === text.save);
     expect(saveButton?.props['disabled']).toBe(true);
@@ -505,7 +577,10 @@ describe('settings card view · save action', () => {
   });
 
   it('labels the in-flight state and blocks a second click', () => {
-    const state = { ...setLocaleDraft(initialState({ value: { locale: 'zh', allowlist: [PHONE] } }), 'en', saved), saving: true };
+    const state = {
+      ...setLocaleDraft(initialState({ value: { locale: 'zh', allowlist: [PHONE] } }), 'en', saved),
+      saving: true,
+    };
     const tree = SettingsCardView(makeProps(state));
 
     const saveButton = find(tree, Button).find((button) => textOf(button) === text.saving);

@@ -63,11 +63,13 @@ function makeForm(initial: { locale?: string; allowlist?: string[] } = {}) {
 }
 
 /** 最小 fake ctx：槽位立即就绪、locale 可切换。 */
-function makeCtx(options: {
-  locale?: string;
-  allowlist?: string[];
-  presets?: Array<{ id: string; name?: string; isDefault?: boolean; broken?: string }>;
-} = {}) {
+function makeCtx(
+  options: {
+    locale?: string;
+    allowlist?: string[];
+    presets?: Array<{ id: string; name?: string; isDefault?: boolean; broken?: string }>;
+  } = {},
+) {
   const fake = makeForm(options);
   let localeId = options.locale ?? 'zh';
   const localeListeners = new Set<() => void>();
@@ -94,15 +96,17 @@ function makeCtx(options: {
       },
     },
     configForms: { get: () => fake.form },
-    ...(options.presets === undefined ? {} : {
-      remote: {
-        agentPresets: {
-          async list() {
-            return { ok: true, value: { presets: options.presets! } } as const;
+    ...(options.presets === undefined
+      ? {}
+      : {
+          remote: {
+            agentPresets: {
+              async list() {
+                return { ok: true, value: { presets: options.presets! } } as const;
+              },
+            },
           },
-        },
-      },
-    }),
+        }),
     effect: (fn: () => () => unknown) => {
       fn();
     },
@@ -119,16 +123,20 @@ function makeCtx(options: {
 }
 
 /** 挂载卡片并返回容器与卸载函数。 */
-function mount(options: {
-  locale?: string;
-  allowlist?: string[];
-  presets?: Array<{ id: string; name?: string; isDefault?: boolean; broken?: string }>;
-} = {}) {
+function mount(
+  options: {
+    locale?: string;
+    allowlist?: string[];
+    presets?: Array<{ id: string; name?: string; isDefault?: boolean; broken?: string }>;
+  } = {},
+) {
   const env = makeCtx(options);
   act(() => {
     mountSettingsSection(env.ctx as never);
   });
-  const component = env.registrations[0]?.component as (props: Record<string, never>) => JSX.Element;
+  const component = env.registrations[0]?.component as (
+    props: Record<string, never>,
+  ) => JSX.Element;
   const container = document.createElement('div');
   document.body.append(container);
   const root = createRoot(container);
@@ -160,8 +168,9 @@ afterEach(() => {
 
 /** 按可见文字找按钮（chip 的删除按钮是纯 ×，不能按位置猜）。 */
 function findButton(container: HTMLElement, label: string): HTMLButtonElement {
-  const button = Array.from(container.querySelectorAll('button'))
-    .find((item) => item.textContent?.trim() === label);
+  const button = Array.from(container.querySelectorAll('button')).find(
+    (item) => item.textContent?.trim() === label,
+  );
   if (!button) throw new Error(`button not found: ${label}`);
   return button as HTMLButtonElement;
 }
@@ -188,8 +197,12 @@ describe('settings card · mounted', () => {
 
     expect(app.container.textContent).toContain(PHONE);
     expect(app.container.querySelector('textarea')).toBeNull();
-    expect(Array.from(app.container.querySelectorAll('select')[0]?.options ?? [], (option) => option.value))
-      .toEqual(['zh', 'en']);
+    expect(
+      Array.from(
+        app.container.querySelectorAll('select')[0]?.options ?? [],
+        (option) => option.value,
+      ),
+    ).toEqual(['zh', 'en']);
     app.unmount();
   });
 
@@ -214,13 +227,15 @@ describe('settings card · mounted', () => {
       save.click();
     });
 
-    expect(app.form.writes).toEqual([[
-      { op: 'set', path: ['locale'], value: 'zh' },
-      { op: 'set', path: ['allowlist'], value: [PHONE, '+8613900000000'] },
-      { op: 'set', path: ['chunkedReplies'], value: false },
-      { op: 'set', path: ['maxChunks'], value: 8 },
-      { op: 'set', path: ['delayFactor'], value: 1 },
-    ]]);
+    expect(app.form.writes).toEqual([
+      [
+        { op: 'set', path: ['locale'], value: 'zh' },
+        { op: 'set', path: ['allowlist'], value: [PHONE, '+8613900000000'] },
+        { op: 'set', path: ['chunkedReplies'], value: false },
+        { op: 'set', path: ['maxChunks'], value: 8 },
+        { op: 'set', path: ['delayFactor'], value: 1 },
+      ],
+    ]);
     app.unmount();
   });
 
@@ -252,7 +267,10 @@ describe('settings card · mounted', () => {
     const select = app.container.querySelector('select') as HTMLSelectElement;
 
     await act(async () => {
-      const setter = Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype, 'value')?.set;
+      const setter = Object.getOwnPropertyDescriptor(
+        window.HTMLSelectElement.prototype,
+        'value',
+      )?.set;
       setter?.call(select, 'en');
       select.dispatchEvent(new Event('change', { bubbles: true }));
     });
@@ -261,13 +279,15 @@ describe('settings card · mounted', () => {
     });
 
     // 回复语言由我们自己的 config 字段决定，与界面语言无关
-    expect(app.form.writes).toEqual([[
-      { op: 'set', path: ['locale'], value: 'en' },
-      { op: 'set', path: ['allowlist'], value: [PHONE] },
-      { op: 'set', path: ['chunkedReplies'], value: false },
-      { op: 'set', path: ['maxChunks'], value: 8 },
-      { op: 'set', path: ['delayFactor'], value: 1 },
-    ]]);
+    expect(app.form.writes).toEqual([
+      [
+        { op: 'set', path: ['locale'], value: 'en' },
+        { op: 'set', path: ['allowlist'], value: [PHONE] },
+        { op: 'set', path: ['chunkedReplies'], value: false },
+        { op: 'set', path: ['maxChunks'], value: 8 },
+        { op: 'set', path: ['delayFactor'], value: 1 },
+      ],
+    ]);
     app.unmount();
   });
 
@@ -279,8 +299,9 @@ describe('settings card · mounted', () => {
 
     await act(async () => {
       // 删除第一个 chip（aria-label=删除 的第一个按钮）
-      const remove = Array.from(app.container.querySelectorAll('button'))
-        .find((item) => item.getAttribute('aria-label') === '删除');
+      const remove = Array.from(app.container.querySelectorAll('button')).find(
+        (item) => item.getAttribute('aria-label') === '删除',
+      );
       remove?.click();
     });
     // 删除后只剩一个 chip（提示文案含示例号码，不能按文本断言）
@@ -300,7 +321,10 @@ describe('settings card · mounted', () => {
 
     await act(async () => {
       const box = app.container.querySelector('input[type="checkbox"]') as HTMLInputElement;
-      const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'checked')?.set;
+      const setter = Object.getOwnPropertyDescriptor(
+        window.HTMLInputElement.prototype,
+        'checked',
+      )?.set;
       setter?.call(box, true);
       box.dispatchEvent(new Event('click', { bubbles: true }));
     });
@@ -332,7 +356,9 @@ describe('settings card · mounted', () => {
     await act(async () => {
       await Promise.resolve();
     });
-    const select = Array.from(app.container.querySelectorAll('select[data-field="preset"]'))[0] as HTMLSelectElement;
+    const select = Array.from(
+      app.container.querySelectorAll('select[data-field="preset"]'),
+    )[0] as HTMLSelectElement;
     // 顺序跟 roster（宿主排序），broken 行被剔除
     expect(Array.from(select.options, (option) => option.value)).toEqual(['standard', 'dafeiyu']);
     // 未设置 + dafeiyu 已安装 → 默认选中它
@@ -348,7 +374,10 @@ describe('settings card · mounted', () => {
     });
     await act(async () => {
       const field = app.container.querySelector('input') as HTMLInputElement;
-      const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set;
+      const setter = Object.getOwnPropertyDescriptor(
+        window.HTMLInputElement.prototype,
+        'value',
+      )?.set;
       setter?.call(field, 'nope');
       field.dispatchEvent(new Event('input', { bubbles: true }));
     });

@@ -6,11 +6,7 @@ import { asSessionId } from '@/core/types/dsh';
 import { describe, expect, it } from 'vitest';
 
 import { loadState, saveState } from '@/core/stores/state-store';
-import {
-  makeChannelState,
-  recordBinding,
-  STATE_VERSION,
-} from '@/core/types/state';
+import { makeChannelState, recordBinding, STATE_VERSION } from '@/core/types/state';
 
 function tempStateFile(): { dir: string; file: string } {
   const dir = mkdtempSync(join(tmpdir(), 'dsh-imessage-state-'));

@@ -21,7 +21,10 @@ import { makeFakeDshHost, userText } from '../helpers/fake-dsh-api';
 // ---------------------------------------------------------------------------
 
 /** 收集事件的监听器（挂到 host.on，返回 [数组, 卸载函数]）。 */
-function collector<T>(host: ReturnType<typeof makeFakeDshHost>, event: HostEventName): [T[], () => void] {
+function collector<T>(
+  host: ReturnType<typeof makeFakeDshHost>,
+  event: HostEventName,
+): [T[], () => void] {
   const out: T[] = [];
   // 取回调最后一个参数：session/event 为 (session, event) 两参，其余为单 payload
   // —— 与真宿主 ctx.on 的回调签名保持一致
@@ -49,11 +52,14 @@ describe('fake host · agents service', () => {
   it('throws already-exists when creating a live session id again', async () => {
     // 探针实测：进程内面对已存在的活会话，create 是硬错误而非复用
     const host = makeFakeDshHost();
-    await host.services.agents.create({ sessionId: asHostSessionId('s1'), agentOptions: { provider: 'p', model: 'm' } });
+    await host.services.agents.create({
+      sessionId: asHostSessionId('s1'),
+      agentOptions: { provider: 'p', model: 'm' },
+    });
 
-    await expect(
-      host.services.agents.create({ sessionId: asHostSessionId('s1') }),
-    ).rejects.toThrow(/already exists/u);
+    await expect(host.services.agents.create({ sessionId: asHostSessionId('s1') })).rejects.toThrow(
+      /already exists/u,
+    );
   });
 
   it('returns the live handle from get() and undefined for unknown ids', async () => {
@@ -74,11 +80,17 @@ describe('fake host · agents service', () => {
     host.failNextCreate(new Error('boom'));
 
     await expect(
-      host.services.agents.create({ sessionId: asHostSessionId('s1'), agentOptions: { provider: 'p', model: 'm' } }),
+      host.services.agents.create({
+        sessionId: asHostSessionId('s1'),
+        agentOptions: { provider: 'p', model: 'm' },
+      }),
     ).rejects.toThrow('boom');
     // 一次性：第二次恢复正常
     await expect(
-      host.services.agents.create({ sessionId: asHostSessionId('s1'), agentOptions: { provider: 'p', model: 'm' } }),
+      host.services.agents.create({
+        sessionId: asHostSessionId('s1'),
+        agentOptions: { provider: 'p', model: 'm' },
+      }),
     ).resolves.toBeTruthy();
   });
 });
@@ -89,8 +101,13 @@ describe('fake host · conversation scripting', () => {
     // → assistant/message → turn/end(completed)
     const host = makeFakeDshHost();
     host.scriptReply({ text: 'Hello' });
-    const [events, disposeE] = collector<{ type: string; data?: { reason?: { kind?: string } } }>(host, 'session/event');
-    const [frames] = collector<{ frame: { type: string; chunk?: { type?: string; text?: string } } }>(host, 'agent/assistant-stream');
+    const [events, disposeE] = collector<{ type: string; data?: { reason?: { kind?: string } } }>(
+      host,
+      'session/event',
+    );
+    const [frames] = collector<{
+      frame: { type: string; chunk?: { type?: string; text?: string } };
+    }>(host, 'agent/assistant-stream');
 
     const handle = await host.services.agents.create({
       sessionId: asHostSessionId('s1'),
@@ -109,7 +126,9 @@ describe('fake host · conversation scripting', () => {
     expect(events.at(-1)?.data?.reason).toEqual({ kind: 'completed' }); // 源码事实：成功态 completed
     // 流帧：start → text-delta ×2 → finish → end(committed assistant/message)
     expect(frames.map((f) => f.frame.type)).toEqual(['start', 'chunk', 'chunk', 'chunk', 'end']);
-    const chunkTypes = frames.filter((f) => f.frame.type === 'chunk').map((f) => f.frame.chunk?.type);
+    const chunkTypes = frames
+      .filter((f) => f.frame.type === 'chunk')
+      .map((f) => f.frame.chunk?.type);
     expect(chunkTypes).toEqual(['text-delta', 'text-delta', 'finish']);
     disposeE();
   });
@@ -117,7 +136,10 @@ describe('fake host · conversation scripting', () => {
   it('splits scripted reply text into ordered text-delta chunks', async () => {
     const host = makeFakeDshHost();
     host.scriptReply({ text: 'Hello' });
-    const [frames, disposeF] = collector<{ frame: { chunk?: { text?: string; type?: string } } }>(host, 'agent/assistant-stream');
+    const [frames, disposeF] = collector<{ frame: { chunk?: { text?: string; type?: string } } }>(
+      host,
+      'agent/assistant-stream',
+    );
 
     const handle = await host.services.agents.create({
       sessionId: asHostSessionId('s1'),
@@ -185,7 +207,10 @@ describe('fake host · conversation scripting', () => {
     const host = makeFakeDshHost();
     host.scriptReply({ text: 'first' });
     host.scriptReply({ text: 'second' });
-    const [events, disposeE] = collector<{ type: string; data?: { message?: { content?: Array<{ text?: string }> } } }>(host, 'session/event');
+    const [events, disposeE] = collector<{
+      type: string;
+      data?: { message?: { content?: Array<{ text?: string }> } };
+    }>(host, 'session/event');
 
     const handle = await host.services.agents.create({
       sessionId: asHostSessionId('s1'),
@@ -209,13 +234,23 @@ describe('fake host · failure paths', () => {
     // 探针实测的失败序列：每次尝试 assistant/attempt（流三帧收口为
     // committed→attempt）+ llm/retry，N 次后 turn/end(error) + agent/error
     const host = makeFakeDshHost();
-    host.scriptFailure({ attempts: 2, failure: { message: 'DeepSeek Messages transport failed', code: 'TRANSPORT' } });
+    host.scriptFailure({
+      attempts: 2,
+      failure: { message: 'DeepSeek Messages transport failed', code: 'TRANSPORT' },
+    });
     const [events, disposeE] = collector<{
       type: string;
-      data?: { reason?: { kind?: string; error?: { code?: string } }; retry?: number; maxRetries?: number; failure?: { code?: string } };
+      data?: {
+        reason?: { kind?: string; error?: { code?: string } };
+        retry?: number;
+        maxRetries?: number;
+        failure?: { code?: string };
+      };
     }>(host, 'session/event');
     const [frames] = collector<{ type: string }>(host, 'agent/assistant-stream');
-    const [agentErrors, disposeA] = collector<{ error: { name?: string; message?: string; code?: string } }>(host, 'agent/error');
+    const [agentErrors, disposeA] = collector<{
+      error: { name?: string; message?: string; code?: string };
+    }>(host, 'agent/error');
 
     const handle = await host.services.agents.create({
       sessionId: asHostSessionId('s1'),
@@ -256,7 +291,10 @@ describe('fake host · failure paths', () => {
     const host = makeFakeDshHost();
     host.scriptReply({ text: 'never finishes', chunkPauseMs: 50 });
     host.scriptReply({ text: 'after cancel' });
-    const [events, disposeE] = collector<{ type: string; data?: { reason?: { kind?: string } } }>(host, 'session/event');
+    const [events, disposeE] = collector<{ type: string; data?: { reason?: { kind?: string } } }>(
+      host,
+      'session/event',
+    );
 
     const handle = await host.services.agents.create({
       sessionId: asHostSessionId('s1'),
@@ -299,8 +337,12 @@ describe('fake host · workspace & registry', () => {
     const host = makeFakeDshHost();
     host.archivedSessionIds.push(asHostSessionId('old-session'));
 
-    expect(host.services.workspaceRegistry.archivedSessionIds.includes(asHostSessionId('old-session'))).toBe(true);
-    expect(host.services.workspaceRegistry.archivedSessionIds.includes(asHostSessionId('s1'))).toBe(false);
+    expect(
+      host.services.workspaceRegistry.archivedSessionIds.includes(asHostSessionId('old-session')),
+    ).toBe(true);
+    expect(host.services.workspaceRegistry.archivedSessionIds.includes(asHostSessionId('s1'))).toBe(
+      false,
+    );
   });
 
   it('reports model selection from setModelSelection', () => {
@@ -317,7 +359,10 @@ describe('fake host · workspace & registry', () => {
     // 探针实测返回：{ title, messageSeqs, source, eventSeq, updatedAt }
     const host = makeFakeDshHost();
 
-    const result = host.services.sessionTitle.rename({ id: asHostSessionId('s1') } as never, 'imessage +8613800000000');
+    const result = host.services.sessionTitle.rename(
+      { id: asHostSessionId('s1') } as never,
+      'imessage +8613800000000',
+    );
 
     expect(result.title).toBe('imessage +8613800000000');
     expect(typeof result.eventSeq).toBe('number');

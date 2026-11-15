@@ -1,10 +1,6 @@
 import { describe, expect, expectTypeOf, it } from 'vitest';
 
-import {
-  asSessionId,
-  type DshPort,
-  type SessionStatus,
-} from '@/core/types/dsh';
+import { asSessionId, type DshPort, type SessionStatus } from '@/core/types/dsh';
 import { makeFakeDshPort } from '../../helpers/fake-dsh-port';
 
 // ---------------------------------------------------------------------------
@@ -128,7 +124,8 @@ describe('fake dsh port · ask', () => {
         sessionId: asSessionId('dsh-1'),
         prompt: 'p',
         signal: controller.signal,
-      })) void _;
+      }))
+        void _;
     }).rejects.toThrow('stop');
   });
 

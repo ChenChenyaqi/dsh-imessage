@@ -64,11 +64,19 @@ export function mountSettingsSection(ctx: ClientContext): CardController {
 
   // slots.register 早于槽位声明会抛错（真机踩坑），必须等声明就绪
   ctx.effect(
-    () => ctx.slots.inject('settings.section', () => ctx.slots.register(
-      // 产品名不做翻译：zh/en 都显示 iMessage
-      { name: 'settings.section', id: SECTION_ID, order: SECTION_ORDER, label: () => 'iMessage' },
-      ImessageSettingsSection as unknown as (props: Record<string, never>) => unknown,
-    )),
+    () =>
+      ctx.slots.inject('settings.section', () =>
+        ctx.slots.register(
+          // 产品名不做翻译：zh/en 都显示 iMessage
+          {
+            name: 'settings.section',
+            id: SECTION_ID,
+            order: SECTION_ORDER,
+            label: () => 'iMessage',
+          },
+          ImessageSettingsSection as unknown as (props: Record<string, never>) => unknown,
+        ),
+      ),
     'dsh-imessage: settings section',
   );
 

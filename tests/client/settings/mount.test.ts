@@ -80,8 +80,7 @@ describe('settings mount · wiring', () => {
     mountSettingsSection(ctx as never);
 
     const dict = dictionaries.find((row) => row.ns === 'settings.imessage')?.dict as
-      | Record<string, Record<string, string>>
-      | undefined;
+      Record<string, Record<string, string>> | undefined;
     expect(dict).toBeDefined();
     // 缺一个 key 就会回退到另一语言，界面语言会串
     expect(Object.keys(dict?.['zh'] ?? {}).sort()).toEqual(Object.keys(dict?.['en'] ?? {}).sort());

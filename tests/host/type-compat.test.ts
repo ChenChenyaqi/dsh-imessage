@@ -53,7 +53,9 @@ type AgentsCheck = Assert<IsAssignable<Context['agents'], HostAgentsService>>;
 type WorkspaceCheck = Assert<IsAssignable<Context['workspaceRegistry'], HostWorkspaceRegistry>>;
 
 // ctx.agentDefaultModel ↔ HostAgentDefaultModelService
-type DefaultModelCheck = Assert<IsAssignable<Context['agentDefaultModel'], HostAgentDefaultModelService>>;
+type DefaultModelCheck = Assert<
+  IsAssignable<Context['agentDefaultModel'], HostAgentDefaultModelService>
+>;
 
 // ctx.sessionTitle ↔ HostSessionTitleService
 type SessionTitleCheck = Assert<IsAssignable<Context['sessionTitle'], HostSessionTitleService>>;
@@ -71,9 +73,18 @@ type ParamsOf<T> = T extends (...args: infer P) => unknown ? P : never;
 type SessionEventCheck = Assert<
   IsAssignable<ParamsOf<OfficialEvents['session/event']>[0], HostEventPayloads['session/event'][0]>
 >;
-type StreamCheck = Assert<IsAssignable<ParamsOf<OfficialEvents['agent/assistant-stream']>, HostEventPayloads['agent/assistant-stream']>>;
-type StatusCheck = Assert<IsAssignable<ParamsOf<OfficialEvents['agent/status']>, HostEventPayloads['agent/status']>>;
-type ErrorCheck = Assert<IsAssignable<ParamsOf<OfficialEvents['agent/error']>, HostEventPayloads['agent/error']>>;
+type StreamCheck = Assert<
+  IsAssignable<
+    ParamsOf<OfficialEvents['agent/assistant-stream']>,
+    HostEventPayloads['agent/assistant-stream']
+  >
+>;
+type StatusCheck = Assert<
+  IsAssignable<ParamsOf<OfficialEvents['agent/status']>, HostEventPayloads['agent/status']>
+>;
+type ErrorCheck = Assert<
+  IsAssignable<ParamsOf<OfficialEvents['agent/error']>, HostEventPayloads['agent/error']>
+>;
 
 // 汇总引用（避免各断言被标记 unused）
 export type TypeCompatProof = [

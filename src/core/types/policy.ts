@@ -31,10 +31,7 @@ export function makePolicy(rawAllowlist: readonly string[]): AccessPolicy {
 }
 
 /** 评估一个原始 handle 是否放行。永不抛错，结论总是显式的。 */
-export function evaluateAccess(
-  policy: AccessPolicy,
-  rawKey: string,
-): AccessDecision {
+export function evaluateAccess(policy: AccessPolicy, rawKey: string): AccessDecision {
   const key = normalizePhone(rawKey);
   if (key === null) return { allow: false, reason: 'unparseable-key' };
   return policy.allowlist.includes(key)

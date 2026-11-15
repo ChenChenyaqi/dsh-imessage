@@ -109,9 +109,7 @@ const chipsStyle: CSSProperties = {
 };
 
 const chipStyle = (invalid: boolean): CSSProperties => ({
-  color: invalid
-    ? 'var(--dsw-alias-state-error-primary)'
-    : 'var(--dsw-alias-label-primary)',
+  color: invalid ? 'var(--dsw-alias-state-error-primary)' : 'var(--dsw-alias-label-primary)',
 });
 
 /** chip 内的删除小按钮（无文字，只有 × 与 aria-label）。 */
@@ -138,7 +136,10 @@ function presetChoices(state: SettingsCardState): readonly PresetOption[] {
   if (!effective || state.presetOptions.some((option) => option.id === effective)) {
     return state.presetOptions;
   }
-  return [{ id: effective, label: effective, isDefault: false, broken: false }, ...state.presetOptions];
+  return [
+    { id: effective, label: effective, isDefault: false, broken: false },
+    ...state.presetOptions,
+  ];
 }
 
 /**
@@ -165,7 +166,9 @@ export function SettingsCardView(props: SettingsCardViewProps) {
         >
           {/* 语言名用各自的语言自述（中文 / English），不随界面语言变 */}
           {LOCALE_OPTIONS.map((value) => (
-            <option key={value} value={value}>{value === 'zh' ? '中文' : 'English'}</option>
+            <option key={value} value={value}>
+              {value === 'zh' ? '中文' : 'English'}
+            </option>
           ))}
         </select>
         <span style={hintStyle}>{text.localeHint}</span>
@@ -209,14 +212,18 @@ export function SettingsCardView(props: SettingsCardViewProps) {
                 }}
               />
               <Button onClick={() => props.onConfirmAdd()}>{text.confirmAdd}</Button>
-              <Button variant="ghost" onClick={() => props.onCancelAdd()}>{text.cancel}</Button>
+              <Button variant="ghost" onClick={() => props.onCancelAdd()}>
+                {text.cancel}
+              </Button>
             </div>
             {state.adding.error === 'invalid' && <p style={errorStyle}>{text.invalidNumber}</p>}
             {state.adding.error === 'duplicate' && <p style={errorStyle}>{text.duplicateNumber}</p>}
           </div>
         ) : (
           <div>
-            <Button variant="ghost" onClick={() => props.onBeginAdd()}>{text.addNumber}</Button>
+            <Button variant="ghost" onClick={() => props.onBeginAdd()}>
+              {text.addNumber}
+            </Button>
           </div>
         )}
         <span style={hintStyle}>{text.allowlistHint}</span>

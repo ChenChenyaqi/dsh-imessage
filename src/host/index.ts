@@ -83,13 +83,19 @@ function readVolatile<T>(value: T | { get(): T }): T {
 
 /** agentPresets 服务最小面（进程内；无预设体系的宿主返回 undefined）。 */
 function agentPresetsService(ctx: Context):
-  | { resolve(id?: string): Promise<{ id: string }>; mount(ctx: unknown, id: string): Promise<unknown> }
+  | {
+      resolve(id?: string): Promise<{ id: string }>;
+      mount(ctx: unknown, id: string): Promise<unknown>;
+    }
   | undefined {
   const service = (ctx as unknown as { get?(name: string): unknown }).get?.('agentPresets');
   if (service === undefined || typeof service !== 'object') return undefined;
   const candidate = service as { resolve?: unknown; mount?: unknown };
   return typeof candidate.resolve === 'function' && typeof candidate.mount === 'function'
-    ? candidate as { resolve(id?: string): Promise<{ id: string }>; mount(ctx: unknown, id: string): Promise<unknown> }
+    ? (candidate as {
+        resolve(id?: string): Promise<{ id: string }>;
+        mount(ctx: unknown, id: string): Promise<unknown>;
+      })
     : undefined;
 }
 
@@ -155,8 +161,8 @@ export function apply(ctx: Context, config: Config, overrides: Partial<ChannelEn
   if (typeof ctx.inject === 'function') {
     ctx.inject(['connection'], () => {
       // 回调触发时服务已注入 ctx（cordis 惯例：闭包直取）
-      const fetchRegistry = (ctx as unknown as { connection?: { fetch?: FetchRegistry } }).connection
-        ?.fetch;
+      const fetchRegistry = (ctx as unknown as { connection?: { fetch?: FetchRegistry } })
+        .connection?.fetch;
       if (fetchRegistry === undefined) return;
       const disposeRpc = registerStatusRpc(fetchRegistry, {
         status: () => channel.status(),

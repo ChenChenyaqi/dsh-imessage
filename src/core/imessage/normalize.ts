@@ -117,7 +117,5 @@ export function normalizeRows(rows: readonly ChatDbRow[]): NormalizeResult[] {
   for (const row of rows) {
     if (!byGuid.has(row.guid)) byGuid.set(row.guid, row); // 首行为主体
   }
-  return [...byGuid.values()]
-    .sort((a, b) => a.rowid - b.rowid)
-    .map((row) => normalizeOne(row));
+  return [...byGuid.values()].sort((a, b) => a.rowid - b.rowid).map((row) => normalizeOne(row));
 }

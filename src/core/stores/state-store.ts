@@ -9,12 +9,7 @@
 import { renameSync } from 'node:fs';
 
 import { JsonCorruptError, readJson, writeJsonAtomic } from './atomic';
-import {
-  isChannelState,
-  makeChannelState,
-  STATE_VERSION,
-  type ChannelState,
-} from '../types/state';
+import { isChannelState, makeChannelState, STATE_VERSION, type ChannelState } from '../types/state';
 
 /** 读不认识的 state.json：留档改名后返回初始状态（可用性优先）。 */
 function quarantineAndReset(stateFile: string): ChannelState {

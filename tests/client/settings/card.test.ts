@@ -132,7 +132,11 @@ describe('settings card · add entry', () => {
   });
 
   it('blocks saving while an invalid draft is pending', () => {
-    const state = setLocaleDraft(initialState({ value: { locale: 'zh', allowlist: [PHONE] } }), 'en', saved);
+    const state = setLocaleDraft(
+      initialState({ value: { locale: 'zh', allowlist: [PHONE] } }),
+      'en',
+      saved,
+    );
     // 语言已改、本可保存；新增行里有非法输入时必须拦住
     const invalid = updateAddDraft(beginAdd(state), 'not-a-number');
 
@@ -143,7 +147,10 @@ describe('settings card · add entry', () => {
 
   it('appends a valid number and closes the add row', () => {
     const next = confirmAdd(
-      updateAddDraft(beginAdd(initialState({ value: { locale: 'zh', allowlist: [PHONE] } })), PHONE_2),
+      updateAddDraft(
+        beginAdd(initialState({ value: { locale: 'zh', allowlist: [PHONE] } })),
+        PHONE_2,
+      ),
       saved,
     );
 
@@ -155,7 +162,10 @@ describe('settings card · add entry', () => {
 
   it('rejects an invalid number without touching the list', () => {
     const next = confirmAdd(
-      updateAddDraft(beginAdd(initialState({ value: { locale: 'zh', allowlist: [PHONE] } })), 'not-a-number'),
+      updateAddDraft(
+        beginAdd(initialState({ value: { locale: 'zh', allowlist: [PHONE] } })),
+        'not-a-number',
+      ),
       saved,
     );
 
@@ -170,7 +180,10 @@ describe('settings card · add entry', () => {
 
   it('rejects a duplicate number', () => {
     const next = confirmAdd(
-      updateAddDraft(beginAdd(initialState({ value: { locale: 'zh', allowlist: [PHONE] } })), ` ${PHONE} `),
+      updateAddDraft(
+        beginAdd(initialState({ value: { locale: 'zh', allowlist: [PHONE] } })),
+        ` ${PHONE} `,
+      ),
       saved,
     );
 
@@ -180,7 +193,10 @@ describe('settings card · add entry', () => {
   });
 
   it('treats confirming an empty draft as cancel', () => {
-    const next = confirmAdd(beginAdd(initialState({ value: { locale: 'zh', allowlist: [PHONE] } })), saved);
+    const next = confirmAdd(
+      beginAdd(initialState({ value: { locale: 'zh', allowlist: [PHONE] } })),
+      saved,
+    );
 
     expect(next.adding.active).toBe(false);
     expect(next.allowlist.draft).toEqual([PHONE]);
@@ -188,14 +204,21 @@ describe('settings card · add entry', () => {
 
   it('closes and clears the add row on cancel', () => {
     const next = cancelAdd(
-      updateAddDraft(beginAdd(initialState({ value: { locale: 'zh', allowlist: [PHONE] } })), 'not-a-number'),
+      updateAddDraft(
+        beginAdd(initialState({ value: { locale: 'zh', allowlist: [PHONE] } })),
+        'not-a-number',
+      ),
     );
 
     expect(next.adding).toEqual({ active: false, input: '', error: null });
   });
 
   it('tracks locale changes independently of the allowlist', () => {
-    const next = setLocaleDraft(initialState({ value: { locale: 'zh', allowlist: [PHONE] } }), 'en', saved);
+    const next = setLocaleDraft(
+      initialState({ value: { locale: 'zh', allowlist: [PHONE] } }),
+      'en',
+      saved,
+    );
 
     expect(next.locale.dirty).toBe(true);
     expect(next.allowlist.dirty).toBe(false);
@@ -216,7 +239,11 @@ describe('settings card · remove entry', () => {
 
   it('removing the last entry warns but stays savable', () => {
     // 空白名单 = 全拒是合法但危险的状态：提示归提示，保存归保存
-    const next = removeEntry(initialState({ value: { locale: 'zh', allowlist: [PHONE] } }), 0, saved);
+    const next = removeEntry(
+      initialState({ value: { locale: 'zh', allowlist: [PHONE] } }),
+      0,
+      saved,
+    );
 
     expect(next.allowlist.draft).toEqual([]);
     expect(next.warning).toBe('empty');
@@ -252,7 +279,13 @@ describe('settings card · chunked replies', () => {
 
   it('reads configured values back', () => {
     const state = initialState({
-      value: { locale: 'zh', allowlist: [PHONE], chunkedReplies: true, maxChunks: 3, delayFactor: 0 },
+      value: {
+        locale: 'zh',
+        allowlist: [PHONE],
+        chunkedReplies: true,
+        maxChunks: 3,
+        delayFactor: 0,
+      },
     });
 
     expect(state.chunked.draft).toBe(true);
@@ -271,7 +304,11 @@ describe('settings card · chunked replies', () => {
 
   it('rejects invalid maxChunks drafts while chunking is on', () => {
     // 1..50 的整数才合法：0 / 负数 / 小数 / 非数字都不行
-    const base = setChunkedDraft(initialState({ value: { locale: 'zh', allowlist: [PHONE] } }), true, saved);
+    const base = setChunkedDraft(
+      initialState({ value: { locale: 'zh', allowlist: [PHONE] } }),
+      true,
+      saved,
+    );
     for (const bad of ['0', '-1', '2.5', 'abc', '']) {
       expect(setMaxChunksDraft(base, bad, saved).maxChunksError).toBe(true);
     }
@@ -282,7 +319,11 @@ describe('settings card · chunked replies', () => {
 
   it('rejects invalid delayFactor drafts while chunking is on', () => {
     // 0..5 的数字（小数可以）；0 = 分段不延时
-    const base = setChunkedDraft(initialState({ value: { locale: 'zh', allowlist: [PHONE] } }), true, saved);
+    const base = setChunkedDraft(
+      initialState({ value: { locale: 'zh', allowlist: [PHONE] } }),
+      true,
+      saved,
+    );
     for (const bad of ['-0.1', '5.5', 'abc', '']) {
       expect(setDelayFactorDraft(base, bad, saved).delayFactorError).toBe(true);
     }
@@ -292,7 +333,11 @@ describe('settings card · chunked replies', () => {
   });
 
   it('blocks saving while a style field is invalid', () => {
-    const base = setChunkedDraft(initialState({ value: { locale: 'zh', allowlist: [PHONE] } }), true, saved);
+    const base = setChunkedDraft(
+      initialState({ value: { locale: 'zh', allowlist: [PHONE] } }),
+      true,
+      saved,
+    );
     const invalid = setMaxChunksDraft(base, 'abc', saved);
 
     expect(invalid.canSave).toBe(false);
@@ -301,7 +346,11 @@ describe('settings card · chunked replies', () => {
 
   it('clears style errors when chunking is toggled off', () => {
     // 开关关掉后子输入不可见，残留的校验错误必须清掉（否则保存被永久卡死）
-    const base = setChunkedDraft(initialState({ value: { locale: 'zh', allowlist: [PHONE] } }), true, saved);
+    const base = setChunkedDraft(
+      initialState({ value: { locale: 'zh', allowlist: [PHONE] } }),
+      true,
+      saved,
+    );
     const invalid = setMaxChunksDraft(base, 'abc', saved);
 
     const off = setChunkedDraft(invalid, false, saved);
@@ -315,7 +364,11 @@ describe('settings card · chunked replies', () => {
 
   it('does not validate number fields while chunking is off', () => {
     // 关着的时候草稿里是什么都无所谓（输入框都不可见）
-    const state = setMaxChunksDraft(initialState({ value: { locale: 'zh', allowlist: [PHONE] } }), 'abc', saved);
+    const state = setMaxChunksDraft(
+      initialState({ value: { locale: 'zh', allowlist: [PHONE] } }),
+      'abc',
+      saved,
+    );
 
     expect(state.maxChunksError).toBe(false);
   });
@@ -332,11 +385,7 @@ describe('settings card · chunked replies', () => {
       saved,
     );
 
-    await save(
-      { form, texts: TEXT, readSnapshot: () => ({}) },
-      state,
-      saved,
-    );
+    await save({ form, texts: TEXT, readSnapshot: () => ({}) }, state, saved);
 
     expect(calls[0]).toContainEqual({ op: 'set', path: ['chunkedReplies'], value: true });
     expect(calls[0]).toContainEqual({ op: 'set', path: ['maxChunks'], value: 5 });
@@ -367,7 +416,9 @@ describe('settings card · agent preset', () => {
   });
 
   it('reads a configured preset back', () => {
-    const state = initialState({ value: { locale: 'zh', allowlist: [PHONE], agentPreset: 'plain' } });
+    const state = initialState({
+      value: { locale: 'zh', allowlist: [PHONE], agentPreset: 'plain' },
+    });
 
     expect(state.preset.draft).toBe('plain');
   });
@@ -398,17 +449,19 @@ describe('settings card · agent preset', () => {
     });
 
     // 用户显式选择永远赢
-    expect(effectivePreset(withRoster(setPresetDraft(base(), 'plain', saved), [
-      { id: 'dafeiyu', isDefault: true },
-    ]))).toBe('plain');
+    expect(
+      effectivePreset(
+        withRoster(setPresetDraft(base(), 'plain', saved), [{ id: 'dafeiyu', isDefault: true }]),
+      ),
+    ).toBe('plain');
     // 未设置 + dafeiyu 已安装 → 默认选中它
-    expect(effectivePreset(withRoster(base(), [
-      { id: 'standard', isDefault: true }, { id: 'dafeiyu' },
-    ]))).toBe('dafeiyu');
+    expect(
+      effectivePreset(withRoster(base(), [{ id: 'standard', isDefault: true }, { id: 'dafeiyu' }])),
+    ).toBe('dafeiyu');
     // 未设置 + dafeiyu 未安装 → 宿主默认（dafeiyu 不出现）
-    expect(effectivePreset(withRoster(base(), [
-      { id: 'standard', isDefault: true }, { id: 'plain' },
-    ]))).toBe('standard');
+    expect(
+      effectivePreset(withRoster(base(), [{ id: 'standard', isDefault: true }, { id: 'plain' }])),
+    ).toBe('standard');
     // 无 roster：空（视图退化为当前值兜底）
     expect(effectivePreset(base())).toBe('');
   });
@@ -420,22 +473,25 @@ describe('settings card · agent preset', () => {
     // 未设置 + roster 到达（显示默认 dafeiyu）→ 不点亮保存
     expect(derivePresetDirty({ ...base, presetOptions: roster }, { agentPreset: '' })).toBe(false);
     // 显式选择 → dirty
-    expect(derivePresetDirty(
-      setPresetDraft(base, 'plain', saved),
-      { agentPreset: '' },
-    )).toBe(true);
+    expect(derivePresetDirty(setPresetDraft(base, 'plain', saved), { agentPreset: '' })).toBe(true);
   });
 
   it('save writes the effective preset and skips the op when it resolves empty', async () => {
     const explicit = { form: makeForm(true), roster: [{ id: 'plain' }] };
     const state = setPresetDraft(
-      { ...initialState({ value: { locale: 'zh', allowlist: [PHONE] } }),
-        presetOptions: presetOptions(explicit.roster as never, 'plain') },
+      {
+        ...initialState({ value: { locale: 'zh', allowlist: [PHONE] } }),
+        presetOptions: presetOptions(explicit.roster as never, 'plain'),
+      },
       'plain',
       saved,
     );
     await save({ form: explicit.form.form, texts: TEXT, readSnapshot: () => ({}) }, state, saved);
-    expect(explicit.form.calls[0]).toContainEqual({ op: 'set', path: ['agentPreset'], value: 'plain' });
+    expect(explicit.form.calls[0]).toContainEqual({
+      op: 'set',
+      path: ['agentPreset'],
+      value: 'plain',
+    });
 
     // 空 roster + 未设置 → 不产生 agentPreset 写入（留给宿主默认）
     const bare = makeForm(true);
@@ -450,10 +506,10 @@ describe('settings card · agent preset', () => {
 
 describe('settings card · preset roster options', () => {
   it('turns a roster into options carrying the default marker', () => {
-    const options = presetOptions([
-      { id: 'dafeiyu', name: '大肥鱼', isDefault: true },
-      { id: 'plain' },
-    ], 'plain');
+    const options = presetOptions(
+      [{ id: 'dafeiyu', name: '大肥鱼', isDefault: true }, { id: 'plain' }],
+      'plain',
+    );
 
     expect(options).toEqual([
       { id: 'dafeiyu', label: '大肥鱼', isDefault: true, broken: false },
@@ -464,21 +520,24 @@ describe('settings card · preset roster options', () => {
   it('localizes shipped preset ids through the builtin name map', () => {
     // 官方事实：系统预设不发布 name，显示名在客户端词典按 id 映射
     // （display.ts BUILT_IN_PRESET_KEYS）——照搬，中文界面显示中文名
-    const options = presetOptions([
-      { id: 'standard', isDefault: true },
-      { id: 'dafeiyu', name: '大肥鱼' },
-    ], 'standard', { standard: '标准模式' });
+    const options = presetOptions(
+      [
+        { id: 'standard', isDefault: true },
+        { id: 'dafeiyu', name: '大肥鱼' },
+      ],
+      'standard',
+      { standard: '标准模式' },
+    );
 
     expect(options.map((option) => option.label)).toEqual(['标准模式', '大肥鱼']);
     // 无映射且无 name：退 id
-    expect(presetOptions([{ id: 'mystery' }], 'mystery', { standard: '标准模式' })[0]?.label)
-      .toBe('mystery');
+    expect(presetOptions([{ id: 'mystery' }], 'mystery', { standard: '标准模式' })[0]?.label).toBe(
+      'mystery',
+    );
   });
 
   it('drops broken presets entirely (dropdown lists only installed and enabled ones)', () => {
-    const options = presetOptions([
-      { id: 'ok' }, { id: 'bad', broken: 'activation failed' },
-    ], 'ok');
+    const options = presetOptions([{ id: 'ok' }, { id: 'bad', broken: 'activation failed' }], 'ok');
 
     expect(options.map((option) => option.id)).toEqual(['ok']);
   });
@@ -506,12 +565,19 @@ describe('settings card · saving', () => {
   it('writes locale and allowlist in one atomic mutation', async () => {
     const { form, calls } = makeForm(true);
     const state = confirmAdd(
-      updateAddDraft(beginAdd(initialState({ value: { locale: 'zh', allowlist: [PHONE] } })), PHONE_2),
+      updateAddDraft(
+        beginAdd(initialState({ value: { locale: 'zh', allowlist: [PHONE] } })),
+        PHONE_2,
+      ),
       saved,
     );
 
     const next = await save(
-      { form, texts: TEXT, readSnapshot: () => ({ value: { locale: 'zh', allowlist: [PHONE, PHONE_2] } }) },
+      {
+        form,
+        texts: TEXT,
+        readSnapshot: () => ({ value: { locale: 'zh', allowlist: [PHONE, PHONE_2] } }),
+      },
       state,
       saved,
     );
@@ -533,7 +599,11 @@ describe('settings card · saving', () => {
 
   it('keeps the draft and reports an error when the host rejects', async () => {
     const { form } = makeForm(false);
-    const state = removeEntry(initialState({ value: { locale: 'zh', allowlist: [PHONE, PHONE_2] } }), 0, saved);
+    const state = removeEntry(
+      initialState({ value: { locale: 'zh', allowlist: [PHONE, PHONE_2] } }),
+      0,
+      saved,
+    );
 
     const next = await save({ form, texts: TEXT, readSnapshot: () => ({}) }, state, saved);
 
@@ -544,7 +614,11 @@ describe('settings card · saving', () => {
 
   it('treats a thrown write as a failure instead of crashing', async () => {
     const { form } = makeForm(new Error('rpc down'));
-    const state = removeEntry(initialState({ value: { locale: 'zh', allowlist: [PHONE, PHONE_2] } }), 0, saved);
+    const state = removeEntry(
+      initialState({ value: { locale: 'zh', allowlist: [PHONE, PHONE_2] } }),
+      0,
+      saved,
+    );
 
     const next = await save({ form, texts: TEXT, readSnapshot: () => ({}) }, state, saved);
 
@@ -554,7 +628,10 @@ describe('settings card · saving', () => {
 
   it('refuses to write while an add draft is invalid', async () => {
     const { form, calls } = makeForm(true);
-    const state = updateAddDraft(beginAdd(initialState({ value: { locale: 'zh', allowlist: [PHONE] } })), 'not-a-number');
+    const state = updateAddDraft(
+      beginAdd(initialState({ value: { locale: 'zh', allowlist: [PHONE] } })),
+      'not-a-number',
+    );
 
     const next = await save({ form, texts: TEXT, readSnapshot: () => ({}) }, state, saved);
 
@@ -566,7 +643,11 @@ describe('settings card · saving', () => {
 
 describe('settings card · transitions', () => {
   it('disables saving while a write is in flight', () => {
-    const state = removeEntry(initialState({ value: { locale: 'zh', allowlist: [PHONE, PHONE_2] } }), 0, saved);
+    const state = removeEntry(
+      initialState({ value: { locale: 'zh', allowlist: [PHONE, PHONE_2] } }),
+      0,
+      saved,
+    );
 
     const next = beginSave(state);
 
@@ -585,7 +666,11 @@ describe('settings card · transitions', () => {
   });
 
   it('recomputes savability after a failure so the user can retry', () => {
-    const dirty = removeEntry(initialState({ value: { locale: 'zh', allowlist: [PHONE, PHONE_2] } }), 0, saved);
+    const dirty = removeEntry(
+      initialState({ value: { locale: 'zh', allowlist: [PHONE, PHONE_2] } }),
+      0,
+      saved,
+    );
 
     const next = saveFailed(beginSave(dirty), TEXT, saved);
 

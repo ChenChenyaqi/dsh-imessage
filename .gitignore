@@ -10,3 +10,5 @@ docs/*.png
 # Playwright 产物（失败追踪/报告）
 test-results/
 playwright-report/
+
+.vscode/

@@ -97,9 +97,7 @@ function isLoopbackAuthority(authority: string): boolean {
     }
     const hostname = url.hostname.replace(/\.$/u, '');
     return (
-      hostname === 'localhost'
-      || hostname === '[::1]'
-      || /^127\.\d+\.\d+\.\d+$/u.test(hostname)
+      hostname === 'localhost' || hostname === '[::1]' || /^127\.\d+\.\d+\.\d+$/u.test(hostname)
     );
   } catch {
     return false;
@@ -113,10 +111,7 @@ function isLoopbackAuthority(authority: string): boolean {
 export const STATUS_ENDPOINT = '/api/dsh-imessage/status';
 
 /** 挂载 status 路由；返回卸载函数。 */
-export function registerStatusRpc(
-  registry: FetchRegistry,
-  deps: StatusRpcDeps,
-): () => void {
+export function registerStatusRpc(registry: FetchRegistry, deps: StatusRpcDeps): () => void {
   return registry.register({
     path: STATUS_ENDPOINT,
     methods: ['POST'],
@@ -129,7 +124,11 @@ export function registerStatusRpc(
       if (request.method !== 'POST') {
         return new Response('method not allowed', { status: 405 });
       }
-      const contentType = request.headers.get('content-type')?.split(';', 1)[0]?.trim().toLowerCase();
+      const contentType = request.headers
+        .get('content-type')
+        ?.split(';', 1)[0]
+        ?.trim()
+        .toLowerCase();
       if (contentType !== 'application/json') {
         return new Response('content type must be application/json', { status: 415 });
       }
@@ -140,7 +139,9 @@ export function registerStatusRpc(
         return new Response('body is not JSON', { status: 400 });
       }
       const rpcId =
-        message !== null && typeof message === 'object' && typeof (message as { rpcId?: unknown }).rpcId === 'string'
+        message !== null &&
+        typeof message === 'object' &&
+        typeof (message as { rpcId?: unknown }).rpcId === 'string'
           ? (message as { rpcId: string }).rpcId
           : null;
       if (rpcId === null) {

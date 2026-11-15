@@ -16,11 +16,7 @@ import type { ImessageSender } from '@/core/imessage/sender';
 
 describe('splitReplyParts', () => {
   it('splits plain lines into one part per line', () => {
-    expect(splitReplyParts('第一行\n第二行\n第三行')).toEqual([
-      '第一行',
-      '第二行',
-      '第三行',
-    ]);
+    expect(splitReplyParts('第一行\n第二行\n第三行')).toEqual(['第一行', '第二行', '第三行']);
   });
 
   it('drops empty lines and trims each part', () => {
@@ -29,7 +25,11 @@ describe('splitReplyParts', () => {
 
   it('keeps fenced code blocks intact as a single part', () => {
     const text = '看代码：\n```js\nconst a = 1;\nconst b = 2;\n```\n跑通了';
-    expect(splitReplyParts(text)).toEqual(['看代码：', '```js\nconst a = 1;\nconst b = 2;\n```', '跑通了']);
+    expect(splitReplyParts(text)).toEqual([
+      '看代码：',
+      '```js\nconst a = 1;\nconst b = 2;\n```',
+      '跑通了',
+    ]);
   });
 
   it('keeps an unclosed fence intact to the end', () => {

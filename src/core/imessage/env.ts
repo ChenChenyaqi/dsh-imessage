@@ -79,10 +79,7 @@ export const nodeProbeDeps: ProbeDeps = {
  * chat.db 不存在也归入 disk 失败（detail 区分「文件不存在」与「无权读取」，
  * 前者典型于非 macOS 或路径配错）。
  */
-export function probeEnvironment(
-  chatDbPath: string,
-  deps: ProbeDeps = nodeProbeDeps,
-): EnvProbe {
+export function probeEnvironment(chatDbPath: string, deps: ProbeDeps = nodeProbeDeps): EnvProbe {
   let disk: ProbeStatus;
   if (!deps.statFile(chatDbPath)) {
     disk = { ok: false, detail: `chat.db not found at ${chatDbPath}` };

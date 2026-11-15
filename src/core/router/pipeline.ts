@@ -92,8 +92,7 @@ export interface RunResult {
 // ---------------------------------------------------------------------------
 
 const isPermissionError = (err: unknown): boolean =>
-  err instanceof Error &&
-  (err as SendError).kind === 'automation-permission';
+  err instanceof Error && (err as SendError).kind === 'automation-permission';
 
 export interface MessageOutcome {
   readonly kind: 'done' | 'retry' | 'permission-stopped';
@@ -107,28 +106,30 @@ export async function runPipeline(
   deps: PipelineDeps,
   options: PipelineOptions = {},
 ): Promise<RunResult> {
-  const {
-    fetchRows, sender, port, router,
-    loadState, saveState, log,
-  } = deps;
+  const { fetchRows, sender, port, router, loadState, saveState, log } = deps;
   // policy / 文案不解构定格：每次使用时读 deps（通道热更换白名单/语言
   // 即改 deps 字段，运行中的循环立即生效——见 hot config swap 测试）
   const signal = options.signal;
   const intervalMs = options.intervalMs ?? 2_000;
   const maxBackoffMs = options.maxBackoffMs ?? 60_000;
   const batchLimit = options.batchLimit ?? 50;
-  const sleep = options.sleep ?? (async (ms, sig) => {
-    await new Promise<void>((resolve, reject) => {
-      const t = setTimeout(resolve, ms);
-      sig?.addEventListener('abort', () => {
-        clearTimeout(t);
-        reject(sig.reason ?? new Error('aborted'));
-      }, { once: true });
+  const sleep =
+    options.sleep ??
+    (async (ms, sig) => {
+      await new Promise<void>((resolve, reject) => {
+        const t = setTimeout(resolve, ms);
+        sig?.addEventListener(
+          'abort',
+          () => {
+            clearTimeout(t);
+            reject(sig.reason ?? new Error('aborted'));
+          },
+          { once: true },
+        );
+      });
     });
-  });
 
-  const aborted = () =>
-    signal?.aborted === true ? (signal.reason ?? new Error('aborted')) : null;
+  const aborted = () => (signal?.aborted === true ? (signal.reason ?? new Error('aborted')) : null);
 
   /** 时间源（测试注入假钟；core 层不直接读真时钟）。 */
   const now = options.now ?? Date.now;
@@ -151,7 +152,11 @@ export async function runPipeline(
   }
 
   /** 处理一条 accepted 消息（claim 已落盘前提下的后半程）。 */
-  const processAccepted = async (key: string, guid: string, text: string): Promise<MessageOutcome> => {
+  const processAccepted = async (
+    key: string,
+    guid: string,
+    text: string,
+  ): Promise<MessageOutcome> => {
     let asked = false; // send 阶段前始终保持可重试
     const askStart = now();
     try {
@@ -160,7 +165,12 @@ export async function runPipeline(
         // 归档换绑告知走系统路径；失败按 pre-ask 处理（重试不再告知）
         await sender.sendSystem(key, deps.sessionSwitchedText);
       }
-      log?.info('pipeline.ask-start', { guid, key, sessionId: routed.sessionId, chars: text.length });
+      log?.info('pipeline.ask-start', {
+        guid,
+        key,
+        sessionId: routed.sessionId,
+        chars: text.length,
+      });
       const chunks: string[] = [];
       let firstDeltaMs: number | undefined;
       for await (const chunk of port.ask({ sessionId: routed.sessionId, prompt: text, signal })) {
@@ -195,14 +205,16 @@ export async function runPipeline(
       if (asked) {
         // send 阶段失败：终态吞（定案：不重试不重复回复）
         log?.warn('pipeline.send-failed', {
-          guid, key,
+          guid,
+          key,
           error: err instanceof Error ? err.message : String(err),
         });
         return { kind: 'done' };
       }
       // pre-ask 失败：零副作用，恢复重试
       log?.warn('pipeline.message-failed', {
-        guid, key,
+        guid,
+        key,
         error: err instanceof Error ? err.message : String(err),
       });
       return { kind: 'retry' };
@@ -225,7 +237,8 @@ export async function runPipeline(
       rows = fetchRows(cursor, batchLimit);
       fetchFailStreak = 0; // 拉到（哪怕空批）= 通道活着，清零
       // 空批不打点：2 秒一条心跳会把日志刷爆
-      if (rows.length > 0) log?.info('pipeline.fetch', { fetched: rows.length, cursor: batchStart });
+      if (rows.length > 0)
+        log?.info('pipeline.fetch', { fetched: rows.length, cursor: batchStart });
     } catch (err) {
       fetchFailStreak += 1;
       log?.error('pipeline.fetch-failed', {
@@ -268,7 +281,10 @@ export async function runPipeline(
         if (!verdict.pass && verdict.reason === 'already-seen') {
           // 终态恢复（上次崩溃在 claim 后/吞后）：cursor 补推进即完成
           log?.info('pipeline.message-skipped', {
-            guid: msg.guid, rowId: msg.rowId, key: msg.conversationKey, reason: 'already-seen',
+            guid: msg.guid,
+            rowId: msg.rowId,
+            key: msg.conversationKey,
+            reason: 'already-seen',
           });
           persist(msg.rowId, seenNow());
           processed += 1;
@@ -277,7 +293,10 @@ export async function runPipeline(
         if (!verdict.pass) {
           // 白名单拒绝：直接回答"为什么没回"
           log?.info('pipeline.message-skipped', {
-            guid: msg.guid, rowId: msg.rowId, key: msg.conversationKey, reason: 'not-allowlisted',
+            guid: msg.guid,
+            rowId: msg.rowId,
+            key: msg.conversationKey,
+            reason: 'not-allowlisted',
           });
           persist(msg.rowId, seenNow()); // cursor 过、不 mark
           continue;
@@ -288,7 +307,10 @@ export async function runPipeline(
         const claimAt = now();
         persist(cursor, markSeen(seenNow(), msg.guid));
         log?.info('pipeline.message-claimed', {
-          guid: msg.guid, rowId: msg.rowId, key: msg.conversationKey, chars: msg.text.length,
+          guid: msg.guid,
+          rowId: msg.rowId,
+          key: msg.conversationKey,
+          chars: msg.text.length,
         });
 
         const outcome = await processAccepted(msg.conversationKey, msg.guid, msg.text);
@@ -312,7 +334,11 @@ export async function runPipeline(
           persist(msg.rowId, loadState().seenIds);
           processed += 1;
           retryCounts.delete(msg.guid);
-          log?.warn('pipeline.retry-exhausted', { guid: msg.guid, key: msg.conversationKey, attempts: failures });
+          log?.warn('pipeline.retry-exhausted', {
+            guid: msg.guid,
+            key: msg.conversationKey,
+            attempts: failures,
+          });
           try {
             await sender.sendSystem(msg.conversationKey, deps.replyUnavailableText);
           } catch (err) {
@@ -332,7 +358,9 @@ export async function runPipeline(
         retryCounts.delete(msg.guid);
         processed += 1;
         log?.info('pipeline.message-done', {
-          guid: msg.guid, rowId: msg.rowId, totalMs: now() - claimAt,
+          guid: msg.guid,
+          rowId: msg.rowId,
+          totalMs: now() - claimAt,
         });
       }
     } catch (err) {

@@ -208,7 +208,9 @@ describe('card controller · editing', () => {
   it('keeps loaded roster options across host snapshot pushes', () => {
     // 真机 bug：打开设置页会推一次 form 快照，roster 不能被冲掉
     const { controller, fake } = makeController({ allowlist: [PHONE] });
-    controller.setPresetOptions([{ id: 'dafeiyu', label: '大肥鱼（dafeiyu）', isDefault: false, broken: false }]);
+    controller.setPresetOptions([
+      { id: 'dafeiyu', label: '大肥鱼（dafeiyu）', isDefault: false, broken: false },
+    ]);
 
     fake.push({ locale: 'en' });
 
@@ -221,7 +223,9 @@ describe('card controller · editing', () => {
     const listener = vi.fn();
     controller.subscribe(listener);
 
-    controller.setPresetOptions([{ id: 'dafeiyu', label: '大肥鱼（dafeiyu）', isDefault: false, broken: false }]);
+    controller.setPresetOptions([
+      { id: 'dafeiyu', label: '大肥鱼（dafeiyu）', isDefault: false, broken: false },
+    ]);
 
     expect(controller.getSnapshot().presetOptions).toHaveLength(1);
     expect(listener).toHaveBeenCalled();
@@ -230,7 +234,9 @@ describe('card controller · editing', () => {
   it('keeps the roster after a successful save', async () => {
     // 真机 bug：保存成功走 initialState 重建，roster 被冲成空
     const { controller } = makeController({ allowlist: [PHONE] });
-    controller.setPresetOptions([{ id: 'dafeiyu', label: '大肥鱼（dafeiyu）', isDefault: false, broken: false }]);
+    controller.setPresetOptions([
+      { id: 'dafeiyu', label: '大肥鱼（dafeiyu）', isDefault: false, broken: false },
+    ]);
     controller.setLocaleDraft('en');
 
     await controller.save();
@@ -242,7 +248,9 @@ describe('card controller · editing', () => {
   it('reset keeps the loaded roster (remote state, not a draft)', () => {
     // 关设置页丢的是"草稿"；roster 来自 remote 通道，丢了下拉就空了
     const { controller } = makeController({ allowlist: [PHONE] });
-    controller.setPresetOptions([{ id: 'dafeiyu', label: '大肥鱼（dafeiyu）', isDefault: false, broken: false }]);
+    controller.setPresetOptions([
+      { id: 'dafeiyu', label: '大肥鱼（dafeiyu）', isDefault: false, broken: false },
+    ]);
 
     controller.reset();
 
@@ -266,8 +274,6 @@ describe('card controller · editing', () => {
     expect(state.adding).toEqual({ active: false, input: '', error: null });
     expect(state.canSave).toBe(false);
   });
-
-
 
   it('clears the draft when a save succeeds', async () => {
     const { controller } = makeController({ allowlist: [PHONE] });

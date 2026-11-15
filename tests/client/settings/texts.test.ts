@@ -8,7 +8,9 @@ import { settingsMessages, settingsTexts } from '@/client/settings/texts';
 
 describe('settings texts · dictionaries', () => {
   it('carries the same keys in every locale', () => {
-    expect(Object.keys(settingsMessages.zh).sort()).toEqual(Object.keys(settingsMessages.en).sort());
+    expect(Object.keys(settingsMessages.zh).sort()).toEqual(
+      Object.keys(settingsMessages.en).sort(),
+    );
   });
 
   it('has no empty string in either locale', () => {

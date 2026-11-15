@@ -120,9 +120,7 @@ function assertText(text: string): void {
 
 /** 把执行错误归类为 SendError。 */
 function classify(err: unknown, address: string): SendError {
-  const stderr = String(
-    (err as { stderr?: unknown })?.stderr ?? (err as Error)?.message ?? err,
-  );
+  const stderr = String((err as { stderr?: unknown })?.stderr ?? (err as Error)?.message ?? err);
   if (/not authorized|(-1743)/i.test(stderr)) {
     return new SendError('automation-permission', address, err);
   }
@@ -145,7 +143,6 @@ export function makeSender(deps: SenderDeps = nodeSenderDeps): ImessageSender {
   };
   return {
     sendText: (address, text) => dispatch(address, text),
-    sendSystem: (address, text) =>
-      dispatch(address, `${DSH_PREFIX} ${text}`),
+    sendSystem: (address, text) => dispatch(address, `${DSH_PREFIX} ${text}`),
   };
 }

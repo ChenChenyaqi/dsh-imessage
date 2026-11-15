@@ -99,9 +99,10 @@ export function makeFileSink(
 
   /** 本地时区 YYYYMMDD（用户视角的“一天”）。 */
   const dateKey = (d: Date): string =>
-    `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(
-      d.getDate(),
-    ).padStart(2, '0')}`;
+    `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(
+      2,
+      '0',
+    )}`;
 
   /** 删掉早于保留窗口的日期文件；不匹配模式的文件一律不动（保守）。 */
   const cleanup = (today: Date): void => {

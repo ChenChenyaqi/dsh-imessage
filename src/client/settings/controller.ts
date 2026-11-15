@@ -88,9 +88,18 @@ export function createCardController(deps: {
       locale: readLocale(snapshot),
       allowlist: readAllowlist(snapshot),
       chunkedReplies: snapshot.value?.['chunkedReplies'] === true,
-      maxChunks: typeof snapshot.value?.['maxChunks'] === 'number' ? snapshot.value?.['maxChunks'] as number : 8,
-      delayFactor: typeof snapshot.value?.['delayFactor'] === 'number' ? snapshot.value?.['delayFactor'] as number : 1,
-      agentPreset: typeof snapshot.value?.['agentPreset'] === 'string' ? snapshot.value?.['agentPreset'] as string : 'dafeiyu',
+      maxChunks:
+        typeof snapshot.value?.['maxChunks'] === 'number'
+          ? (snapshot.value?.['maxChunks'] as number)
+          : 8,
+      delayFactor:
+        typeof snapshot.value?.['delayFactor'] === 'number'
+          ? (snapshot.value?.['delayFactor'] as number)
+          : 1,
+      agentPreset:
+        typeof snapshot.value?.['agentPreset'] === 'string'
+          ? (snapshot.value?.['agentPreset'] as string)
+          : 'dafeiyu',
     };
   };
 
