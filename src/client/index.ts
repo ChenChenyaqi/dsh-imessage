@@ -1,7 +1,7 @@
 // 客户端半身入口：只声明身份与依赖，接线交给 settings/mount。
 //
 // 分层（每层单独可测，互不越界）：
-//   host.ts                 宿主服务契约（类型）
+//   host.d.ts              宿主服务契约（纯类型声明，无运行时）
 //   settings/ids.ts         身份常量（菜单 id / 配置命名空间）
 //   settings/texts.ts       界面词条（zh/en）
 //   settings/card.ts        纯状态机（无 React、无宿主）
