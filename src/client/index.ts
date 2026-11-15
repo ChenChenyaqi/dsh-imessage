@@ -19,8 +19,6 @@ import { mountSettingsSection } from './settings/mount';
  * 自身也静态注入它，客户端恒在；缺失时 roster 读失败 → 下拉退化为空）。 */
 export const inject = ['slots', 'locale', 'configForms', 'remote', 'remote.agentPresets'];
 
-export { ENTRY_ID, LOCALE_NAMESPACE, SECTION_ID, SECTION_ORDER } from './settings/ids';
-
 /**
  * 挂载插件。
  * @param ctx - 浏览器插件上下文。
