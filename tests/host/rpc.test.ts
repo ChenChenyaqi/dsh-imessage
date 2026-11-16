@@ -105,7 +105,12 @@ function makeDeps(overrides: { status?: ChannelStatus } = {}) {
 }
 
 const JSON_HEADERS = { 'content-type': 'application/json', host: 'localhost:3080' };
-const OK_BODY = { type: 'client-request', rpcId: 'rpc-1', method: 'dsh-imessage/status', payload: {} };
+const OK_BODY = {
+  type: 'client-request',
+  rpcId: 'rpc-1',
+  method: 'dsh-imessage/status',
+  payload: {},
+};
 
 // ---------------------------------------------------------------------------
 // 规格
@@ -193,7 +198,9 @@ describe('rpc · status endpoint', () => {
 
   it('includes the error when start failed', async () => {
     const reg = makeRegistry();
-    const { deps } = makeDeps({ status: { phase: 'start-failed', error: 'unable to open database file' } });
+    const { deps } = makeDeps({
+      status: { phase: 'start-failed', error: 'unable to open database file' },
+    });
 
     registerStatusRpc(reg.registry as never, deps);
 
@@ -222,7 +229,8 @@ describe('rpc · status endpoint', () => {
   });
 });
 
-describe('rpc · request guards', () => {  it('rejects non-POST methods with 405', async () => {
+describe('rpc · request guards', () => {
+  it('rejects non-POST methods with 405', async () => {
     const reg = makeRegistry();
     const { deps } = makeDeps();
     registerStatusRpc(reg.registry as never, deps);
@@ -237,7 +245,11 @@ describe('rpc · request guards', () => {  it('rejects non-POST methods with 405
     const { deps } = makeDeps();
     registerStatusRpc(reg.registry as never, deps);
 
-    const response = await reg.call('POST', { 'content-type': 'text/plain', host: 'localhost:3080' }, OK_BODY);
+    const response = await reg.call(
+      'POST',
+      { 'content-type': 'text/plain', host: 'localhost:3080' },
+      OK_BODY,
+    );
 
     expect(response.status).toBe(415);
   });
@@ -247,7 +259,11 @@ describe('rpc · request guards', () => {  it('rejects non-POST methods with 405
     const { deps } = makeDeps();
     registerStatusRpc(reg.registry as never, deps);
 
-    const response = await reg.call('POST', { 'content-type': 'application/json', host: 'example.com:3080' }, OK_BODY);
+    const response = await reg.call(
+      'POST',
+      { 'content-type': 'application/json', host: 'example.com:3080' },
+      OK_BODY,
+    );
 
     expect(response.status).toBe(403);
   });
@@ -257,7 +273,11 @@ describe('rpc · request guards', () => {  it('rejects non-POST methods with 405
     const { deps } = makeDeps();
     registerStatusRpc(reg.registry as never, deps);
 
-    const withCreds = await reg.call('POST', { ...JSON_HEADERS, host: 'user:pw@localhost:3080' }, OK_BODY);
+    const withCreds = await reg.call(
+      'POST',
+      { ...JSON_HEADERS, host: 'user:pw@localhost:3080' },
+      OK_BODY,
+    );
     const withPath = await reg.call('POST', { ...JSON_HEADERS, host: 'localhost:3080/x' }, OK_BODY);
 
     expect(withCreds.status).toBe(403);
@@ -310,12 +330,14 @@ describe('rpc · request guards', () => {  it('rejects non-POST methods with 405
     const { deps } = makeDeps();
     registerStatusRpc(reg.registry as never, deps);
     // 直接构造路由请求：json() 抛错（真实 fetch 对非法 JSON 即如此）
-    const route = (reg as unknown as { registry: { register(d: never): unknown } });
+    const route = reg as unknown as { registry: { register(d: never): unknown } };
     void route;
 
     const response = await reg.callRaw({
       method: 'POST',
-      headers: { get: (n: string) => (n.toLowerCase() === 'host' ? 'localhost:3080' : 'application/json') },
+      headers: {
+        get: (n: string) => (n.toLowerCase() === 'host' ? 'localhost:3080' : 'application/json'),
+      },
       json: async () => {
         throw new SyntaxError('Unexpected token');
       },
@@ -343,4 +365,3 @@ describe('rpc · request guards', () => {  it('rejects non-POST methods with 405
     expect(await count()).toBe(2);
   });
 });
-

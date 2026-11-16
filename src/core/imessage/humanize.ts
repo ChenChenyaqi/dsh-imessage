@@ -196,10 +196,7 @@ export async function sendHumanized(
     });
     // 系数先乘、再夹回节奏上限：clamp 只发生在乘之前会让大系数把
     // 单段等待放大到上限的 N 倍（真机踩过：系数 5 → 25s）
-    const delay = Math.min(
-      HUMANIZE_DEFAULTS.maxDelayMs,
-      Math.round(base * style.delayFactor),
-    );
+    const delay = Math.min(HUMANIZE_DEFAULTS.maxDelayMs, Math.round(base * style.delayFactor));
     // 系数 0 = 分段但不等待：连 sleep 调用都不发生
     if (delay > 0) await deps.sleep(delay, options.signal);
     await sender.sendText(address, part);

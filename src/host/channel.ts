@@ -12,7 +12,7 @@ import type { DatabaseSync } from 'node:sqlite';
 import type { Locale } from '@/core/i18n';
 import { makeT } from '@/core/i18n';
 import type { ReplyStyle } from '@/core/imessage/humanize';
-import { DEFAULT_CONFIG } from '@/core/types/config';
+import { DEFAULT_CONFIG, DEFAULT_PRESET_ID } from '@/core/types/config';
 import type { ImessageSender } from '@/core/imessage/sender';
 import { makeSender } from '@/core/imessage/sender';
 import { defaultChatDbPath, nodeProbeDeps, probeEnvironment } from '@/core/imessage/env';
@@ -108,10 +108,7 @@ export interface ChannelHandle {
 // 装配
 // ---------------------------------------------------------------------------
 
-export function startImessageChannel(
-  config: ChannelConfig,
-  env: ChannelEnv,
-): ChannelHandle {
+export function startImessageChannel(config: ChannelConfig, env: ChannelEnv): ChannelHandle {
   // 生效配置的活容器：updateConfig 改它 + deps 字段（运行中的循环
   // 用时读 deps，立即生效）；probe-failed 也能答"当前配置"
   const live: {
@@ -138,12 +135,14 @@ export function startImessageChannel(
   // 可变 deps：运行中通道才登记（probe-failed 保持 undefined，热更新仅记录）
   // 运行中通道才登记（probe-failed 保持 undefined，热更新仅记录）
   const mutableDeps: {
-    current: {
-      policy: { allowlist: readonly string[] };
-      sessionSwitchedText: string;
-      replyUnavailableText: string;
-      replyStyle: () => ReplyStyle;
-    } | undefined;
+    current:
+      | {
+          policy: { allowlist: readonly string[] };
+          sessionSwitchedText: string;
+          replyUnavailableText: string;
+          replyStyle: () => ReplyStyle;
+        }
+      | undefined;
   } = { current: undefined };
 
   const paths = env.paths ?? resolvePaths();
@@ -151,14 +150,15 @@ export function startImessageChannel(
     sink: env.logSink ?? makeFileSink(paths.logDir),
   });
 
-/** 热更新落点：改 live 容器 + 运行中的 deps 字段，打一行留痕日志。 */
+  /** 热更新落点：改 live 容器 + 运行中的 deps 字段，打一行留痕日志。 */
   function applyHotConfig(patch: HotConfigPatch): void {
     const changed: string[] = [];
     if (patch.locale !== undefined && patch.locale !== live.locale) changed.push('locale');
     // 白名单按元素比较：顺序即用户输入顺序，长度或任一位不同才算变
-    const sameAllowlist = patch.allowlist !== undefined
-      && patch.allowlist.length === live.allowlist.length
-      && patch.allowlist.every((entry, index) => entry === live.allowlist[index]);
+    const sameAllowlist =
+      patch.allowlist !== undefined &&
+      patch.allowlist.length === live.allowlist.length &&
+      patch.allowlist.every((entry, index) => entry === live.allowlist[index]);
     if (patch.allowlist !== undefined && !sameAllowlist) changed.push('allowlist');
     if (patch.locale !== undefined) live.locale = patch.locale;
     if (patch.allowlist !== undefined) live.allowlist = patch.allowlist;
@@ -171,9 +171,11 @@ export function startImessageChannel(
     if (patch.delayFactor !== undefined && patch.delayFactor !== live.style.delayFactor) {
       changed.push('delayFactor');
     }
-    if (patch.chunkedReplies !== undefined
-      || patch.maxChunks !== undefined
-      || patch.delayFactor !== undefined) {
+    if (
+      patch.chunkedReplies !== undefined ||
+      patch.maxChunks !== undefined ||
+      patch.delayFactor !== undefined
+    ) {
       live.style = {
         chunked: patch.chunkedReplies ?? live.style.chunked,
         maxChunks: patch.maxChunks ?? live.style.maxChunks,
@@ -187,7 +189,8 @@ export function startImessageChannel(
     // 运行中的 pipeline 用时读 deps：直接改字段即热生效
     if (mutableDeps.current !== undefined) {
       const t = makeT(live.locale);
-      if (patch.allowlist !== undefined) mutableDeps.current.policy = { allowlist: patch.allowlist };
+      if (patch.allowlist !== undefined)
+        mutableDeps.current.policy = { allowlist: patch.allowlist };
       mutableDeps.current.sessionSwitchedText = t('session.switched');
       mutableDeps.current.replyUnavailableText = t('reply.unavailable');
     }
@@ -257,7 +260,7 @@ export function startImessageChannel(
     port,
     // 用时读：热更预设只影响之后新建的会话（composition 定格事实）。
     // 未设置（空）→ 意图 dafeiyu；装没装由 dsh-port 的 roster resolve 兜底
-    preset: () => live.agentPreset || 'dafeiyu',
+    preset: () => live.agentPreset || DEFAULT_PRESET_ID,
     loadState: () => loadState(stateFile),
     saveState: (state) => saveState(stateFile, state),
     log,
@@ -290,7 +293,7 @@ export function startImessageChannel(
     locale: config.locale ?? 'zh',
     allowlist: config.allowlist ?? [],
     allowlistCount: (config.allowlist ?? []).length,
-    agentPreset: live.agentPreset || 'dafeiyu',
+    agentPreset: live.agentPreset || DEFAULT_PRESET_ID,
     chunkedReplies: live.style.chunked,
     maxChunks: live.style.maxChunks,
     delayFactor: live.style.delayFactor,

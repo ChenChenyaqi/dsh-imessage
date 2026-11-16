@@ -24,8 +24,14 @@ export class ChatDbSchemaError extends Error {
 /** 查询依赖的列（schema 探测用）。 */
 const REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   message: [
-    'ROWID', 'guid', 'text', 'attributedBody', 'is_from_me', 'handle_id',
-    'date', 'thread_originator_guid',
+    'ROWID',
+    'guid',
+    'text',
+    'attributedBody',
+    'is_from_me',
+    'handle_id',
+    'date',
+    'thread_originator_guid',
   ],
   chat: ['ROWID', 'guid', 'style'],
   handle: ['ROWID', 'id', 'service'],
@@ -106,7 +112,10 @@ export function assertSchema(db: DatabaseSync): void {
   const missing: string[] = [];
   for (const [table, columns] of Object.entries(REQUIRED_COLUMNS)) {
     const present = new Set(
-      db.prepare(`PRAGMA table_info(${table})`).all().map((c) => c.name),
+      db
+        .prepare(`PRAGMA table_info(${table})`)
+        .all()
+        .map((c) => c.name),
     );
     if (present.size === 0) missing.push(`${table}(table)`);
     for (const col of columns) {
@@ -119,8 +128,7 @@ export function assertSchema(db: DatabaseSync): void {
 /** 当前最大 ROWID（首次启动的水位基准）；空库返回 undefined。 */
 export function readMaxRowId(db: DatabaseSync): number | undefined {
   const row = db.prepare('SELECT MAX(ROWID) AS max FROM message').get() as
-    | { max: number | null }
-    | undefined;
+    { max: number | null } | undefined;
   return row?.max ?? undefined;
 }
 
@@ -128,10 +136,6 @@ export function readMaxRowId(db: DatabaseSync): number | undefined {
  * 增量拉取：ROWID > afterRowId 的对方消息（is_from_me=0 已在 SQL 过滤），
  * 按 ROWID 升序、最多 limit 行（行≠消息数：多附件会展开，normalize 层合并）。
  */
-export function fetchBatch(
-  db: DatabaseSync,
-  afterRowId: number,
-  limit: number,
-): ChatDbRow[] {
+export function fetchBatch(db: DatabaseSync, afterRowId: number, limit: number): ChatDbRow[] {
   return db.prepare(FETCH_SQL).all(afterRowId, limit) as unknown as ChatDbRow[];
 }

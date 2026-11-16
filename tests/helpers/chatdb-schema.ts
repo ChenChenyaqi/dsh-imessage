@@ -37,12 +37,14 @@ export function insertIncomingMessage(
      VALUES (?, ?, 45)
      ON CONFLICT(ROWID) DO NOTHING`,
   ).run(input.rowid + 100, `CHAT-${input.guid}`);
-  db.prepare(
-    `INSERT INTO chat_message_join (chat_id, message_id) VALUES (?, ?)`,
-  ).run(input.rowid + 100, input.rowid);
-  db.prepare(
-    `INSERT INTO chat_handle_join (chat_id, handle_id) VALUES (?, ?)`,
-  ).run(input.rowid + 100, input.rowid);
+  db.prepare(`INSERT INTO chat_message_join (chat_id, message_id) VALUES (?, ?)`).run(
+    input.rowid + 100,
+    input.rowid,
+  );
+  db.prepare(`INSERT INTO chat_handle_join (chat_id, handle_id) VALUES (?, ?)`).run(
+    input.rowid + 100,
+    input.rowid,
+  );
   db.prepare(
     `INSERT INTO message (ROWID, guid, text, is_from_me, handle_id, date)
      VALUES (?, ?, ?, 0, ?, 815743613388000000)`,

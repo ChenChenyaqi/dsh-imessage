@@ -24,11 +24,14 @@ export interface HostLocale {
   subscribe(listener: () => void): () => void;
 }
 
+/** 槽位渲染的组件签名（宿主按无 props 函数组件调用；收敛断言用）。 */
+export type SlotComponent = (props: Record<string, never>) => unknown;
+
 /** 槽位注册面（settings.section 是列表槽位，按 id 唯一）。 */
 export interface HostSlots {
   register(
     options: { name: string; id: string; order: number; label: () => string },
-    component: (props: Record<string, never>) => unknown,
+    component: SlotComponent,
   ): () => void;
   inject(key: string, callback: () => () => void): () => void;
 }

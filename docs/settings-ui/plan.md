@@ -110,3 +110,53 @@ chrome-devtools 脚本化验收：
 | Step 3–4 组件与入口 | 0.5 天 |
 | Step 5 联调验收 | 0.5 天 |
 | **合计** | **剩余 1.5–2 天** |
+
+## 6. 架构演进：hooks 化 → store 化（2026-11-15，refactor/cleanup 分支）
+
+Step 2–4 落地后又做了一轮解耦重构：controller/card 大状态机解体为字段级
+hooks，随后按 react-hook-form 的形态收敛为「草稿 store + 字段级订阅」
+（hooks 真正下沉到各域组件）。本文档上面各节保留为历史规划记录；
+现行架构以此节为准。
+
+### 目录约定（维护者定案）
+
+- `settings/<域>/` 每个字段一个目录：`xxx.tsx`（hook 就地执行 + 渲染，
+  词条从卡片 context 自取）+ `useXxx.ts`（订阅 hook）+ `logic.ts`（纯函数）
+- 现有域：`locale/`、`allowlist/`、`chunked/`、`preset/`、`save-bar/`
+- 跨域共享：`styles.ts`（设计令牌样式）、`form.ts`（快照类型面）、
+  `draft-store.ts`（草稿 override store，纯 TS）、`card-context.ts`
+  （卡片 context：saved 基准 / mutate / 词条 / remote）、
+  `useSave.ts`（canSave 派生 + 原子写，SaveBar 内执行）
+- 组装：`host.tsx`（表单订阅 + store 生命周期 + Provider）→
+  `view.tsx`（静态组合树，零 props）→ 各域组件自治
+
+### 关键语义（有测试钉死，重构时别破坏）
+
+- **override 模式**：草稿 store 只存覆盖值（undefined = 未编辑）。
+  未编辑 → draft 取 saved（宿主推送自动跟随）；编辑过 → 草稿赢
+  （同字段推送不冲掉）。锁定用例：`useAllowlist.test` 的 draft-wins。
+- **细粒度订阅不需要 selector 基建**：store 广播通知，
+  `useSyncExternalStore` 的 getSnapshot 按字段取值，React 引用比较
+  自动过滤——输入只重渲染当前字段，未编辑字段推送跟随是低频整树。
+- **保存 = 全量覆盖原子写**：一次 `mutate` 携带全部字段的 op（六个 op
+  顺序固定，生效预设为空时省略 agentPreset op）。锁定用例：`useSave.test`
+  的 six-ops 用例。
+- **保存成功靠宿主写入回流收敛**（override 与新基准相等自然 clean），
+  不主动清草稿；失败保留草稿可重试。
+- **关页 = 组件卸载 = store 销毁 = 草稿丢弃**：无需 reset 补偿。
+- **roster 是 remote 态**：usePreset 拉取一次写进 store 的
+  presetOptions 键（保存聚合直接读）；服务缺失/失败降级空列表；
+  词典 builtinNames 走 ref（不能进 effect deps，否则每渲染新引用
+  → 死循环，实测踩坑）。
+- **DOM 契约冻结**（e2e 依赖）：`[data-dsh-imessage-card]` 根标记、
+  `select[data-field="preset"]`、`getByLabel('Max chunks'/'Delay factor')`。
+
+### 测试基建
+
+- `tests/helpers/render-card.ts`：jsdom 渲染（Provider 包裹 + rerender
+  推送 + fire 事件；原生 setter 写值绕 React value tracker，否则
+  onChange 不触发——实测踩坑）
+- `tests/helpers/render-hook.ts`：手写 renderHook（createRoot + act，
+  wrapper 注入 context；需设 `IS_REACT_ACT_ENVIRONMENT`）
+- `tests/helpers/element-tree.ts`：无 React 的元素树断言（仅剩纯
+  logic 直测在用）

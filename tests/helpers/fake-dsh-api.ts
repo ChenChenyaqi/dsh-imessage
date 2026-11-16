@@ -89,7 +89,10 @@ export interface FakeDshHost {
     };
   };
   /** 对齐 ctx.on 的事件订阅：返回卸载函数。 */
-  on<E extends HostEventName>(event: E, listener: (...args: HostEventPayloads[E]) => void): () => void;
+  on<E extends HostEventName>(
+    event: E,
+    listener: (...args: HostEventPayloads[E]) => void,
+  ): () => void;
   /** 手动发射一条持久事件（测试自定义事件用）。 */
   emitSessionEvent(type: string, data: Record<string, unknown>, sessionId?: string): void;
   /** 编排 followup 后的成功回复（FIFO 消耗）。 */
@@ -112,7 +115,7 @@ export interface FakeDshHost {
   readonly archivedSessionIds: HostSessionId[];
   readonly log: FakeHostLogEntry[];
   /** mount 调用记录（按序）。 */
-  readonly presetMounts: ReadonlyArray<{ id: string }>
+  readonly presetMounts: ReadonlyArray<{ id: string }>;
 }
 
 /** 构造 followup 入参消息（与真宿主的 UserMessage 形状一致，含 role）。 */
@@ -190,7 +193,11 @@ export function makeFakeDshHost(): FakeDshHost {
     return { id: sessionId } as unknown as HostBareAgent;
   }
 
-  function sessionEvent(type: string, data: Record<string, unknown>, sessionId: HostSessionId): void {
+  function sessionEvent(
+    type: string,
+    data: Record<string, unknown>,
+    sessionId: HostSessionId,
+  ): void {
     const event = { type, seq: eventSeq++, data } as HostSessionEvent;
     emit('session/event', sessionRef(sessionId), event);
   }
@@ -207,7 +214,11 @@ export function makeFakeDshHost(): FakeDshHost {
       else setImmediate(resolve);
     });
 
-  async function runScript(record: AgentRecord, script: Script, message: HostUserMessage): Promise<void> {
+  async function runScript(
+    record: AgentRecord,
+    script: Script,
+    message: HostUserMessage,
+  ): Promise<void> {
     const sessionId = record.handle.agent.session.id;
     const turn = ++record.turn;
     // 真宿主事实：cancel 只作用于**当前活动 turn**；上一轮遗留的取消标记
@@ -217,9 +228,17 @@ export function makeFakeDshHost(): FakeDshHost {
     emit('agent/status', { agent: agentRef(sessionId), status: 'running' });
 
     // 入箱 + 开 turn + 领取（探针实测顺序）
-    sessionEvent('agent/inbox/spliced', { target: 'inbox', start: 0, inserted: [message] }, sessionId);
+    sessionEvent(
+      'agent/inbox/spliced',
+      { target: 'inbox', start: 0, inserted: [message] },
+      sessionId,
+    );
     sessionEvent('turn/start', { turn }, sessionId);
-    sessionEvent('agent/inbox/spliced', { target: 'turn', start: 0, removedCount: 1, inserted: [] }, sessionId);
+    sessionEvent(
+      'agent/inbox/spliced',
+      { target: 'turn', start: 0, removedCount: 1, inserted: [] },
+      sessionId,
+    );
 
     const cancelled = () => record.cancelRequested !== undefined;
 
@@ -232,7 +251,13 @@ export function makeFakeDshHost(): FakeDshHost {
     };
 
     if (script.kind === 'hang') {
-      streamFrame(sessionId, { type: 'start', attemptId: randomUUID(), revision: 1, turn, step: 1 });
+      streamFrame(sessionId, {
+        type: 'start',
+        attemptId: randomUUID(),
+        revision: 1,
+        turn,
+        step: 1,
+      });
       streamFrame(sessionId, {
         type: 'chunk',
         chunk: { type: 'text-delta', text: script.text },
@@ -255,7 +280,13 @@ export function makeFakeDshHost(): FakeDshHost {
       }
       if (cancelled()) {
         // 源码事实（abort）：中止后流收口为 end，turn 以 aborted 结束
-        streamFrame(sessionId, { type: 'end', attemptId, revision: 1, index: 0, outcome: { kind: 'abandoned' } });
+        streamFrame(sessionId, {
+          type: 'end',
+          attemptId,
+          revision: 1,
+          index: 0,
+          outcome: { kind: 'abandoned' },
+        });
         finishTurn({ kind: 'aborted', reason: record.cancelRequested });
         record.cancelRequested = undefined;
         return;
@@ -270,14 +301,12 @@ export function makeFakeDshHost(): FakeDshHost {
         index: 2,
         outcome: { kind: 'committed', eventType: 'assistant/message', seq: messageSeq },
       });
-      finishTurn(
-        { kind: 'completed' },
-        () =>
-          sessionEvent(
-            'assistant/message',
-            { turn, step: 1, message: { content: [{ type: 'text', text: script.text }] } },
-            sessionId,
-          ),
+      finishTurn({ kind: 'completed' }, () =>
+        sessionEvent(
+          'assistant/message',
+          { turn, step: 1, message: { content: [{ type: 'text', text: script.text }] } },
+          sessionId,
+        ),
       );
       return;
     }
@@ -288,13 +317,25 @@ export function makeFakeDshHost(): FakeDshHost {
       streamFrame(sessionId, { type: 'start', attemptId, revision: attempt, turn, step: 1 });
       await pause(0);
       if (cancelled()) {
-        streamFrame(sessionId, { type: 'end', attemptId, revision: attempt, index: 0, outcome: { kind: 'abandoned' } });
+        streamFrame(sessionId, {
+          type: 'end',
+          attemptId,
+          revision: attempt,
+          index: 0,
+          outcome: { kind: 'abandoned' },
+        });
         finishTurn({ kind: 'aborted', reason: record.cancelRequested });
         record.cancelRequested = undefined;
         return;
       }
       const finish: HostStreamChunk = { type: 'finish', reason: 'error' };
-      streamFrame(sessionId, { type: 'chunk', attemptId, revision: attempt, index: 0, chunk: finish });
+      streamFrame(sessionId, {
+        type: 'chunk',
+        attemptId,
+        revision: attempt,
+        index: 0,
+        chunk: finish,
+      });
       const attemptSeq = eventSeq + 1;
       streamFrame(sessionId, {
         type: 'end',
@@ -358,7 +399,7 @@ export function makeFakeDshHost(): FakeDshHost {
       if (typeof input.setup === 'function') {
         // 真宿主事实：setup 在注册表发布前执行（组合挂载的唯一时机）
         await input.setup({ fake: 'agent-context' } as never);
-        const row = log[log.length - 1] as typeof log[number] & { setupRan?: boolean };
+        const row = log[log.length - 1] as (typeof log)[number] & { setupRan?: boolean };
         if (row && 'setupRan' in row) row.setupRan = true;
       }
       const record: AgentRecord = {
@@ -495,8 +536,18 @@ export function makeFakeDshHost(): FakeDshHost {
     agentDefaultModel: HostAgentDefaultModelService;
     sessionTitle: HostSessionTitleService;
     agentsCreateMeta: { lastCreateMeta: Record<string, unknown> | undefined };
-    agentPresets: { resolve(id?: string): Promise<{ id: string }>; mount(ctx: unknown, id: string): Promise<unknown> };
-  } = { agents: agentsService, workspaceRegistry, agentDefaultModel, sessionTitle, agentsCreateMeta: servicesMeta, agentPresets: defaultPresets() };
+    agentPresets: {
+      resolve(id?: string): Promise<{ id: string }>;
+      mount(ctx: unknown, id: string): Promise<unknown>;
+    };
+  } = {
+    agents: agentsService,
+    workspaceRegistry,
+    agentDefaultModel,
+    sessionTitle,
+    agentsCreateMeta: servicesMeta,
+    agentPresets: defaultPresets(),
+  };
   // 默认带 agentPresets 最小面（preset 全链路用例；注入失败走 dsh-port 测试）
   const presetMounts: Array<{ id: string }> = [];
   function defaultPresets() {

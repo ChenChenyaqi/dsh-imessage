@@ -18,7 +18,14 @@
 // 由 normalize 层降级为占位文本，**绝不丢消息**（PLAN 风险对策）。
 
 const NSString_CLASS_BYTES: Readonly<Uint8Array> = new Uint8Array([
-  0x4e, 0x53, 0x53, 0x74, 0x72, 0x69, 0x6e, 0x67, // "NSString"
+  0x4e,
+  0x53,
+  0x53,
+  0x74,
+  0x72,
+  0x69,
+  0x6e,
+  0x67, // "NSString"
 ]);
 
 /** 内联 NSString payload 标签。 */
@@ -33,9 +40,7 @@ export const OBJECT_REPLACEMENT_CHAR = '\uFFFC';
  * 空串语义 = 解码成功但剥离 U+FFFC 后无文本（纯附件），
  * 与 null（失败）区分，供 normalize 层分派不同占位。
  */
-export function decodeAttributedBodyText(
-  blob: Uint8Array | null | undefined,
-): string | null {
+export function decodeAttributedBodyText(blob: Uint8Array | null | undefined): string | null {
   if (!blob || blob.length === 0) return null;
 
   const marker = indexOfBytes(blob, NSString_CLASS_BYTES);

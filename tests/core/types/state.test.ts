@@ -42,7 +42,11 @@ describe('recordBinding · first bind', () => {
 
 describe('recordBinding · rebind', () => {
   const setup = () =>
-    recordBinding(recordBinding(makeChannelState(), '+8613800000000', asSessionId('s1')), '+8613800000000', asSessionId('s2'));
+    recordBinding(
+      recordBinding(makeChannelState(), '+8613800000000', asSessionId('s1')),
+      '+8613800000000',
+      asSessionId('s2'),
+    );
 
   it('moves the pointer and appends history', () => {
     const b = setup().sessions['+8613800000000']!;
@@ -51,9 +55,7 @@ describe('recordBinding · rebind', () => {
   });
 
   it('never changes the derived workspace dir', () => {
-    expect(setup().sessions['+8613800000000']!.workspaceDir).toBe(
-      'conversations/+8613800000000',
-    );
+    expect(setup().sessions['+8613800000000']!.workspaceDir).toBe('conversations/+8613800000000');
   });
 });
 
@@ -89,7 +91,9 @@ describe('recordBinding · purity', () => {
 describe('isChannelState', () => {
   it('accepts a fresh and a bound state', () => {
     expect(isChannelState(makeChannelState())).toBe(true);
-    expect(isChannelState(recordBinding(makeChannelState(), '+8613800000000', asSessionId('s1')))).toBe(true);
+    expect(
+      isChannelState(recordBinding(makeChannelState(), '+8613800000000', asSessionId('s1'))),
+    ).toBe(true);
   });
 
   it('rejects malformed objects', () => {

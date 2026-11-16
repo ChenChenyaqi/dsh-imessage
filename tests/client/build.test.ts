@@ -57,7 +57,10 @@ function materialize(wrapped: string): { row: LoadedRow; exports: Record<string,
 
 describe('client bundle · wrapper', () => {
   it('emits a module-loader registration with the package id', () => {
-    const wrapped = wrapClientFactory({ id: '@chenchenyaqi/dsh-imessage', code: 'exports.probe = 1;' });
+    const wrapped = wrapClientFactory({
+      id: '@chenchenyaqi/dsh-imessage',
+      code: 'exports.probe = 1;',
+    });
 
     expect(wrapped).toContain('__ModuleLoader__');
     expect(wrapped).toContain('load(');

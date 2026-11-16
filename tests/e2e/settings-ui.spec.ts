@@ -35,12 +35,20 @@ test.afterAll(async () => {
  *  DSH's internal notice version: click whatever dismiss control exists. */
 async function dismissGates(page: import('@playwright/test').Page): Promise<void> {
   for (let attempt = 0; attempt < 40; attempt += 1) {
-    if (await page.locator('[role="dialog"]').count() === 0) return;
+    if ((await page.locator('[role="dialog"]').count()) === 0) return;
     const dismiss = page
       .getByRole('button', { name: 'Continue' })
       .or(page.getByRole('button', { name: 'Close' }));
-    if (await dismiss.first().isVisible().catch(() => false)) {
-      await dismiss.first().click({ timeout: 2000 }).catch(() => undefined);
+    if (
+      await dismiss
+        .first()
+        .isVisible()
+        .catch(() => false)
+    ) {
+      await dismiss
+        .first()
+        .click({ timeout: 2000 })
+        .catch(() => undefined);
       continue;
     }
     await page.keyboard.press('Escape').catch(() => undefined);
@@ -57,8 +65,11 @@ const mark = (label: string): void => {
 test('settings card edits the allowlist and the system message language', async ({ page }) => {
   await test.step('client half boots without activation failures', async () => {
     await page.goto(host.url);
-    const booted = await page.evaluate(() =>
-      window.__DSH_BOOT__?.entries?.some((row) => row.id === '@chenchenyaqi/dsh-imessage') ?? false);
+    const booted = await page.evaluate(
+      () =>
+        window.__DSH_BOOT__?.entries?.some((row) => row.id === '@chenchenyaqi/dsh-imessage') ??
+        false,
+    );
     expect(booted, 'client row missing from the boot manifest').toBe(true);
     await expect(page.getByText('did not activate')).toHaveCount(0);
     mark('boot ok');
@@ -69,7 +80,8 @@ test('settings card edits the allowlist and the system message language', async 
   // 方案 A：平时没有输入框，点「Add number」才展开一行
   const openAdd = () => card.getByRole('button', { name: 'Add number' }).click();
   // 白名单添加行输入（预设字段是常驻 textbox，必须按 placeholder 区分）
-  const addField = () => card.getByPlaceholder('Phone numbers need a country code, e.g. +8613800000000');
+  const addField = () =>
+    card.getByPlaceholder('Phone numbers need a country code, e.g. +8613800000000');
 
   await test.step('settings dialog exposes the iMessage section with host values', async () => {
     // An isolated DSH_HOME is signed out, so first-run gates appear.
@@ -104,10 +116,11 @@ test('settings card edits the allowlist and the system message language', async 
     await save.click();
 
     await expect.poll(() => host.readPatch(), { timeout: 15_000 }).toContain(PHONE_2);
-    await expect.poll(
-      () => host.readLog().some((row) => row.event === 'channel.config-updated'),
-      { timeout: 15_000 },
-    ).toBe(true);
+    await expect
+      .poll(() => host.readLog().some((row) => row.event === 'channel.config-updated'), {
+        timeout: 15_000,
+      })
+      .toBe(true);
     await expect(save).toBeDisabled();
     mark('allowlist saved');
   });
@@ -150,12 +163,11 @@ test('settings card edits the allowlist and the system message language', async 
     await card.getByLabel('Delay factor').fill('0');
     await save.click();
 
-    await expect.poll(() => host.readPatch(), { timeout: 15_000 })
+    await expect
+      .poll(() => host.readPatch(), { timeout: 15_000 })
       .toMatch(/chunkedReplies:\s*true/u);
-    await expect.poll(() => host.readPatch(), { timeout: 15_000 })
-      .toMatch(/maxChunks:\s*5/u);
-    await expect.poll(() => host.readPatch(), { timeout: 15_000 })
-      .toMatch(/delayFactor:\s*0/u);
+    await expect.poll(() => host.readPatch(), { timeout: 15_000 }).toMatch(/maxChunks:\s*5/u);
+    await expect.poll(() => host.readPatch(), { timeout: 15_000 }).toMatch(/delayFactor:\s*0/u);
   });
 
   await test.step('an invalid style field blocks the save', async () => {
@@ -163,7 +175,10 @@ test('settings card edits the allowlist and the system message language', async 
     // 把 'abc' 塞进 React 状态（真机里 IME/脚本路径也会产生这种草稿）
     const field = card.getByLabel('Max chunks');
     await field.evaluate((node) => {
-      const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set;
+      const setter = Object.getOwnPropertyDescriptor(
+        window.HTMLInputElement.prototype,
+        'value',
+      )?.set;
       setter?.call(node, 'abc');
       node.dispatchEvent(new Event('input', { bubbles: true }));
     });
@@ -184,9 +199,9 @@ test('settings card edits the allowlist and the system message language', async 
     await expect(select).toHaveValue('dafeiyu');
     // 自定义预设显示自己发布的名称
     await expect(select.locator('option')).toContainText(['大肥鱼']);
-    const ids = await select.locator('option').evaluateAll(
-      (options) => options.map((option) => (option as HTMLOptionElement).value),
-    );
+    const ids = await select
+      .locator('option')
+      .evaluateAll((options) => options.map((option) => (option as HTMLOptionElement).value));
     expect(ids).toContain('dafeiyu');
     expect(ids.length).toBeGreaterThanOrEqual(2); // 至少还有一个系统预设
 
@@ -195,7 +210,8 @@ test('settings card edits the allowlist and the system message language', async 
     await select.selectOption(other);
     await expect(save).toBeEnabled();
     await save.click();
-    await expect.poll(() => host.readPatch(), { timeout: 15_000 })
+    await expect
+      .poll(() => host.readPatch(), { timeout: 15_000 })
       .toMatch(new RegExp(`agentPreset:\\s*${other}`, 'u'));
 
     // 重开设置页：显式选择被记住，不被 dafeiyu 抢回

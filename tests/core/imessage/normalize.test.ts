@@ -58,7 +58,10 @@ function makeRow(over: Partial<ChatDbRow> = {}): ChatDbRow {
 function accepted(result: NormalizeResult | undefined) {
   expect(result).toBeDefined();
   expect(result!.status).toBe('accepted');
-  return result! as unknown as { status: 'accepted'; message: { text: string; [k: string]: unknown } };
+  return result! as unknown as {
+    status: 'accepted';
+    message: { text: string; [k: string]: unknown };
+  };
 }
 
 function skipped(result: NormalizeResult | undefined) {
@@ -95,16 +98,12 @@ describe('normalizeRows · text sources', () => {
   });
 
   it('falls back to typedstream decode when text column is empty', () => {
-    const [r] = normalizeRows([
-      makeRow({ text: null, attributedBody: makeBlob('正文来自 BLOB') }),
-    ]);
+    const [r] = normalizeRows([makeRow({ text: null, attributedBody: makeBlob('正文来自 BLOB') })]);
     expect(accepted(r).message.text).toBe('正文来自 BLOB');
   });
 
   it('maps attachment-only bodies to the attachment placeholder', () => {
-    const [r] = normalizeRows([
-      makeRow({ text: null, attributedBody: makeBlob('￼') }),
-    ]);
+    const [r] = normalizeRows([makeRow({ text: null, attributedBody: makeBlob('￼') })]);
     expect(accepted(r).message.text).toBe(ATTACHMENT_PLACEHOLDER);
   });
 

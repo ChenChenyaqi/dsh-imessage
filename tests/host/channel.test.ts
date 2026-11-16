@@ -129,9 +129,7 @@ describe('channel · probe gate', () => {
 
     expect(channel.status().phase).toBe('probe-failed');
     expect(env.openDbCalls.count).toBe(0); // 半瘫防线：不碰库不轮询
-    expect(env.logLines).toContainEqual(
-      expect.objectContaining({ event: 'channel.probe-failed' }),
-    );
+    expect(env.logLines).toContainEqual(expect.objectContaining({ event: 'channel.probe-failed' }));
     await channel.stop(); // 无害
   });
 
@@ -260,9 +258,7 @@ describe('channel · lifecycle', () => {
     await waitFor(() => channel.status().phase === 'stopped', 2000);
 
     expect(channel.status()).toMatchObject({ phase: 'stopped', reason: 'fatal' });
-    expect(env.logLines).toContainEqual(
-      expect.objectContaining({ event: 'channel.fatal' }),
-    );
+    expect(env.logLines).toContainEqual(expect.objectContaining({ event: 'channel.fatal' }));
   });
 });
 
@@ -499,17 +495,20 @@ describe('channel · hot config update', () => {
     // 极简配置（宿主 schema 填默认前的裸形态）：不炸、默认生效
     const root = mkdtempSync(join(tmpdir(), 'ch-min-'));
     tempRoots.push(root);
-    const channel = startImessageChannel({}, {
-      services: makeFakeDshHost().services,
-      events: makeFakeDshHost(),
-      paths: {
-        root,
-        stateFile: join(root, 'state.json'),
-        logDir: join(root, 'logs'),
-        conversationsDir: join(root, 'conversations'),
+    const channel = startImessageChannel(
+      {},
+      {
+        services: makeFakeDshHost().services,
+        events: makeFakeDshHost(),
+        paths: {
+          root,
+          stateFile: join(root, 'state.json'),
+          logDir: join(root, 'logs'),
+          conversationsDir: join(root, 'conversations'),
+        },
+        probe: { ...greenProbe, statFile: () => false },
       },
-      probe: { ...greenProbe, statFile: () => false },
-    });
+    );
     expect(channel.status().phase).toBe('probe-failed');
     expect(channel.currentAllowlist()).toEqual([]);
   });
@@ -545,10 +544,7 @@ describe('channel · end-to-end happy path', () => {
 
     const channel = env.start();
     // 等首启水位落定，再插入"启动后新到"的消息（水位不回放历史——M3 定案）
-    await waitFor(
-      () => env.logLines.some((l) => l.event === 'pipeline.cursor-initialized'),
-      1000,
-    );
+    await waitFor(() => env.logLines.some((l) => l.event === 'pipeline.cursor-initialized'), 1000);
     env.insertAfterStart('在吗', 'E2E-1');
 
     // humanize 真 sleep（思考 600–1800ms + 打字节奏），预算放宽
@@ -572,10 +568,7 @@ describe('channel · end-to-end happy path', () => {
     const env = makeEnv();
 
     const channel = env.start();
-    await waitFor(
-      () => env.logLines.some((l) => l.event === 'pipeline.cursor-initialized'),
-      1000,
-    );
+    await waitFor(() => env.logLines.some((l) => l.event === 'pipeline.cursor-initialized'), 1000);
     env.insertAfterStart('spam', 'E2E-STRANGER', '+8613900000000'); // 不在白名单
     // 等 cursor 推进（拒绝路径静默无日志，以状态为准）
     await waitFor(() => loadState(env.paths.stateFile).cursor === 1, 2000);

@@ -9,7 +9,15 @@
 // 下一次启动前先扫掉残留（sweepLeftovers），避免越积越多。
 
 import { spawn, type ChildProcess } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
@@ -51,7 +59,8 @@ export interface HostRun {
 const verbose = process.env.E2E_VERBOSE !== '0';
 const started = Date.now();
 function phase(label: string): void {
-  if (verbose) console.log(`[host +${String(((Date.now() - started) / 1000).toFixed(1))}s] ${label}`);
+  if (verbose)
+    console.log(`[host +${String(((Date.now() - started) / 1000).toFixed(1))}s] ${label}`);
 }
 
 /** 跑一个命令，失败时抛出带 stderr 的错误。 */
@@ -60,8 +69,12 @@ function run(command: string, args: string[], env: NodeJS.ProcessEnv): Promise<s
     const child = spawn(command, args, { env, stdio: ['ignore', 'pipe', 'pipe'] });
     let stdout = '';
     let stderr = '';
-    child.stdout.on('data', (chunk: Buffer) => { stdout += String(chunk); });
-    child.stderr.on('data', (chunk: Buffer) => { stderr += String(chunk); });
+    child.stdout.on('data', (chunk: Buffer) => {
+      stdout += String(chunk);
+    });
+    child.stderr.on('data', (chunk: Buffer) => {
+      stderr += String(chunk);
+    });
     child.on('error', bad);
     child.on('exit', (code) => {
       if (code === 0) ok(stdout);
@@ -84,15 +97,21 @@ export function sweepLeftovers(): void {
 /** 等宿主打印带 token 的 URL。 */
 async function waitForUrl(child: ChildProcess, timeoutMs: number): Promise<string> {
   let buffer = '';
-  child.stdout?.on('data', (chunk: Buffer) => { buffer += String(chunk); });
-  child.stderr?.on('data', (chunk: Buffer) => { buffer += String(chunk); });
+  child.stdout?.on('data', (chunk: Buffer) => {
+    buffer += String(chunk);
+  });
+  child.stderr?.on('data', (chunk: Buffer) => {
+    buffer += String(chunk);
+  });
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     const match = /(http:\/\/127\.0\.0\.1:\d+\/\?token=[A-Za-z0-9_-]+)/u.exec(buffer);
     if (match !== null) return match[1] as string;
     await new Promise((done) => setTimeout(done, 150));
   }
-  throw new Error(`dsh did not print a web url within ${String(timeoutMs)}ms\n${buffer.slice(-2000)}`);
+  throw new Error(
+    `dsh did not print a web url within ${String(timeoutMs)}ms\n${buffer.slice(-2000)}`,
+  );
 }
 
 /**
@@ -119,17 +138,21 @@ export async function startHost(options: { allowlist?: readonly string[] } = {})
   await run('dsh', ['plugin', '--profile', PROFILE, 'add', join(ROOT, 'preset')], env);
   phase('writing patch');
   const allowlist = options.allowlist ?? ['+8613800000000'];
-  writeFileSync(patchPath, [
-    '# e2e 临时 patch（每次运行重建，结束后整个 DSH_HOME 删除）',
-    `- id: ${ENTRY_ID}`,
-    '  config:',
-    '    locale: zh',
-    '    allowlist:',
-    ...allowlist.map((entry) => `      - '${entry}'`),
-    '    intervalMs: 2000',
-    '    maxBackoffMs: 60000',
-    '',
-  ].join('\n'), 'utf8');
+  writeFileSync(
+    patchPath,
+    [
+      '# e2e 临时 patch（每次运行重建，结束后整个 DSH_HOME 删除）',
+      `- id: ${ENTRY_ID}`,
+      '  config:',
+      '    locale: zh',
+      '    allowlist:',
+      ...allowlist.map((entry) => `      - '${entry}'`),
+      '    intervalMs: 2000',
+      '    maxBackoffMs: 60000',
+      '',
+    ].join('\n'),
+    'utf8',
+  );
 
   // detached：拿到独立进程组，收尾时整组杀掉（pnpm/dsh 会派生孙进程）
   const child = spawn('dsh', ['--profile', PROFILE, '--no-open', '--port', '0'], {
@@ -168,12 +191,16 @@ export async function startHost(options: { allowlist?: readonly string[] } = {})
       if (pid !== undefined) {
         try {
           process.kill(-pid, 'SIGTERM');
-        } catch { /* 已退出 */ }
+        } catch {
+          /* 已退出 */
+        }
         await new Promise<void>((done) => {
           const timer = setTimeout(() => {
             try {
               process.kill(-pid, 'SIGKILL');
-            } catch { /* 已退出 */ }
+            } catch {
+              /* 已退出 */
+            }
             done();
           }, 5000);
           child.once('exit', () => {

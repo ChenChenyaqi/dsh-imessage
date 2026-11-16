@@ -17,12 +17,8 @@ describe('makeT · lookup', () => {
 
 describe('makeT · interpolation', () => {
   it('fills {placeholder} values', () => {
-    expect(makeT('zh')('common.unknownCommand', { command: '/foo' })).toBe(
-      '不认识的命令：/foo',
-    );
-    expect(makeT('en')('common.unknownCommand', { command: '/foo' })).toBe(
-      'Unknown command: /foo',
-    );
+    expect(makeT('zh')('common.unknownCommand', { command: '/foo' })).toBe('不认识的命令：/foo');
+    expect(makeT('en')('common.unknownCommand', { command: '/foo' })).toBe('Unknown command: /foo');
   });
 
   it('accepts numbers and ignores extra params', () => {

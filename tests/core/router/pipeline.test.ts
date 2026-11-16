@@ -67,22 +67,21 @@ function makeHarness(initialMaxRowId = 4): Harness {
     saveState,
   });
   // 拉取脚本：喂入顺序 = 消费顺序（错误/数据交替可精确编排）
-  const fetchPlan: Array<
-    | { kind: 'rows'; rows: ChatDbRow[] }
-    | { kind: 'error'; err: Error }
-  > = [];
+  const fetchPlan: Array<{ kind: 'rows'; rows: ChatDbRow[] } | { kind: 'error'; err: Error }> = [];
   const sleeps: number[] = [];
   const fetchCursors: number[] = [];
   const logLines: Harness['logLines'] = [];
   let maxRowId = initialMaxRowId;
 
-
   // 记录字段：链路日志的断言依赖 guid/key/chars/耗时等
   const log: Logger = {
     debug: () => {},
-    info: (event, fields) => logLines.push({ level: 'info', event, ...(fields === undefined ? {} : { fields }) }),
-    warn: (event, fields) => logLines.push({ level: 'warn', event, ...(fields === undefined ? {} : { fields }) }),
-    error: (event, fields) => logLines.push({ level: 'error', event, ...(fields === undefined ? {} : { fields }) }),
+    info: (event, fields) =>
+      logLines.push({ level: 'info', event, ...(fields === undefined ? {} : { fields }) }),
+    warn: (event, fields) =>
+      logLines.push({ level: 'warn', event, ...(fields === undefined ? {} : { fields }) }),
+    error: (event, fields) =>
+      logLines.push({ level: 'error', event, ...(fields === undefined ? {} : { fields }) }),
   };
 
   // deps 是跨 run 共享的可变对象：policy / 文案字段可被热更换，
@@ -133,8 +132,8 @@ function makeHarness(initialMaxRowId = 4): Harness {
       (deps as { replyUnavailableText: string }).replyUnavailableText = text;
     },
     swapReplyStyle: (style) => {
-      (deps as { replyStyle: () => import('@/core/imessage/humanize').ReplyStyle }).replyStyle
-        = () => style;
+      (deps as { replyStyle: () => import('@/core/imessage/humanize').ReplyStyle }).replyStyle =
+        () => style;
     },
     feed(rows) {
       fetchPlan.push({ kind: 'rows', rows });
@@ -149,18 +148,15 @@ function makeHarness(initialMaxRowId = 4): Harness {
       // 一次 run = 一次进程生命周期：独立的 abort 信号（idle 停机不污染下一次）
       const controller = new AbortController();
       controllerAbort = () => controller.abort(new Error('idle-stop'));
-      return runPipeline(
-        deps,
-        {
-          signal: controller.signal,
-          intervalMs: 10,
-          sleep: async (ms, sig) => {
-            sleeps.push(ms);
-            if (sig?.aborted) throw sig.reason ?? new Error('aborted');
-          },
-          ...overrides, // 传 sleep: undefined 可显式切回 runPipeline 内联的默认实现
+      return runPipeline(deps, {
+        signal: controller.signal,
+        intervalMs: 10,
+        sleep: async (ms, sig) => {
+          sleeps.push(ms);
+          if (sig?.aborted) throw sig.reason ?? new Error('aborted');
         },
-      );
+        ...overrides, // 传 sleep: undefined 可显式切回 runPipeline 内联的默认实现
+      });
     },
   };
 }
@@ -180,9 +176,7 @@ describe('pipeline · happy path', () => {
     const result = await h.run();
 
     expect(result).toEqual({ reason: 'aborted', processed: 1 });
-    expect(h.sender.sent).toEqual([
-      { kind: 'text', address: '+8613800000000', text: '你好呀' },
-    ]);
+    expect(h.sender.sent).toEqual([{ kind: 'text', address: '+8613800000000', text: '你好呀' }]);
     expect(h.port.askCalls[0]?.prompt).toBe('在吗');
     expect(h.state().cursor).toBe(5);
     expect(h.state().seenIds).toEqual(['m5']);
@@ -245,8 +239,11 @@ describe('pipeline · trace logs', () => {
     const h = makeHarness();
     h.feed([
       makeRow({
-        rowid: 6, guid: 'm6', text: '陌生人',
-        handleText: '+8613900000000', chatGuid: 'iMessage;-;+8613900000000',
+        rowid: 6,
+        guid: 'm6',
+        text: '陌生人',
+        handleText: '+8613900000000',
+        chatGuid: 'iMessage;-;+8613900000000',
       }),
     ]);
 
@@ -449,9 +446,7 @@ describe('pipeline · ask failure retries after restart', () => {
     h.port.queueAsk({ chunks: ['好了'] });
     const second = await h.run();
     expect(second).toEqual({ reason: 'aborted', processed: 1 });
-    expect(h.sender.sent).toEqual([
-      { kind: 'text', address: '+8613800000000', text: '好了' },
-    ]);
+    expect(h.sender.sent).toEqual([{ kind: 'text', address: '+8613800000000', text: '好了' }]);
     expect(h.state().cursor).toBe(5);
     expect(h.port.askCalls).toHaveLength(2); // 总共问过两次（1 失败 + 1 成功）
   });
@@ -468,7 +463,9 @@ describe('pipeline · send failure swallows (no retry, no duplicate)', () => {
     expect(result).toEqual({ reason: 'aborted', processed: 1 });
     expect(h.state().cursor).toBe(5);
     expect(h.state().seenIds).toEqual(['m5']); // claim 保留
-    expect(h.logLines).toContainEqual(expect.objectContaining({ level: 'warn', event: 'pipeline.send-failed' }));
+    expect(h.logLines).toContainEqual(
+      expect.objectContaining({ level: 'warn', event: 'pipeline.send-failed' }),
+    );
   });
 });
 
@@ -483,7 +480,9 @@ describe('pipeline · permission loss stops the loop', () => {
     expect(result).toEqual({ reason: 'permission-stopped', processed: 1 });
     expect(h.state().cursor).toBe(5);
     expect(h.state().seenIds).toEqual(['m5']);
-    expect(h.logLines).toContainEqual(expect.objectContaining({ level: 'error', event: 'pipeline.permission-stopped' }));
+    expect(h.logLines).toContainEqual(
+      expect.objectContaining({ level: 'error', event: 'pipeline.permission-stopped' }),
+    );
   });
 });
 
@@ -586,7 +585,9 @@ describe('pipeline · bookkeeping', () => {
     const result = await h.run();
 
     expect(result).toEqual({ reason: 'fetch-exhausted', processed: 0 });
-    expect(h.logLines).toContainEqual(expect.objectContaining({ level: 'error', event: 'pipeline.fetch-exhausted' }));
+    expect(h.logLines).toContainEqual(
+      expect.objectContaining({ level: 'error', event: 'pipeline.fetch-exhausted' }),
+    );
     expect(h.sleeps).toHaveLength(9); // 第 10 次失败直接终止，不再等待
     // 退避节奏：10 → 20 → 40 → …，第 5 次起夹逼在 60s
     expect(h.sleeps.slice(0, 5)).toEqual([10, 20, 40, 80, 160]);
@@ -628,7 +629,9 @@ describe('pipeline · ask retry budget', () => {
     expect(h.sender.sent).toEqual([
       { kind: 'system', address: '+8613800000000', text: UNAVAILABLE_TEXT },
     ]);
-    expect(h.logLines).toContainEqual(expect.objectContaining({ level: 'warn', event: 'pipeline.retry-exhausted' }));
+    expect(h.logLines).toContainEqual(
+      expect.objectContaining({ level: 'warn', event: 'pipeline.retry-exhausted' }),
+    );
 
     // 后续新消息正常处理（不因历史耗尽受影响）
     h.feed([makeRow({ rowid: 6, guid: 'm6', text: '新消息' })]);
@@ -649,7 +652,9 @@ describe('pipeline · ask retry budget', () => {
     // 终态已落盘，告知失败仅留痕
     expect(h.state().cursor).toBe(5);
     expect(h.state().seenIds).toEqual(['m5']);
-    expect(h.logLines).toContainEqual(expect.objectContaining({ level: 'warn', event: 'pipeline.notify-failed' }));
+    expect(h.logLines).toContainEqual(
+      expect.objectContaining({ level: 'warn', event: 'pipeline.notify-failed' }),
+    );
   });
 
   it('stops with permission-stopped if the notification hits a permission error', async () => {
@@ -740,10 +745,7 @@ describe('pipeline · crash recovery matrix', () => {
     h.mutate((s) => ({ ...s, cursor: 3 }));
 
     // 生命周期 2：重拉 m4（fromMe）再被 normalize 拒，无副作用
-    h.feed([
-      makeRow({ rowid: 4, guid: 'm4', isFromMe: 1 }),
-      R5({ text: '新消息' }),
-    ]);
+    h.feed([makeRow({ rowid: 4, guid: 'm4', isFromMe: 1 }), R5({ text: '新消息' })]);
     h.port.queueAsk({ chunks: ['回复'] });
     const second = await h.run();
     expect(second.processed).toBe(1);
@@ -782,7 +784,9 @@ describe('pipeline · edge coverage', () => {
 
     expect(result).toEqual({ reason: 'fatal', processed: 0 });
     expect(h.state().seenIds).toEqual([]); // 账本未被污染
-    expect(h.logLines).toContainEqual(expect.objectContaining({ level: 'error', event: 'pipeline.fatal' }));
+    expect(h.logLines).toContainEqual(
+      expect.objectContaining({ level: 'error', event: 'pipeline.fatal' }),
+    );
   });
 
   it('persists the piggybacked cursor at batch tail for an all-skipped batch', async () => {

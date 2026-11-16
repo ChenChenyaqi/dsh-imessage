@@ -129,9 +129,11 @@ describe('apply · volatile config', () => {
   it('marks locale and allowlist as volatile in the Config schema', async () => {
     // 设置页只渲染 volatile 字段（settings/src/schema.ts volatileForm）
     const { Config } = await import('@/host/index');
-    const dict = (Config as unknown as {
-      dict: Record<string, { meta?: { volatile?: boolean } }>;
-    }).dict;
+    const dict = (
+      Config as unknown as {
+        dict: Record<string, { meta?: { volatile?: boolean } }>;
+      }
+    ).dict;
     expect(dict.locale?.meta?.volatile).toBe(true);
     expect(dict.allowlist?.meta?.volatile).toBe(true);
     // 调优字段保持普通（改动走重挂载，不进设置页）
@@ -164,7 +166,9 @@ describe('apply · volatile config', () => {
     // 极简宿主防御：没有 on API 就不注册（不抛错）
     const { ctx, disposers } = makeCtx();
     delete (ctx as { on?: unknown }).on;
-    expect(() => apply(ctx as never, { locale: 'zh', allowlist: [] }, { probe: failingProbe })).not.toThrow();
+    expect(() =>
+      apply(ctx as never, { locale: 'zh', allowlist: [] }, { probe: failingProbe }),
+    ).not.toThrow();
     for (const dispose of disposers) void dispose();
   });
 
@@ -252,7 +256,9 @@ describe('apply · wiring', () => {
   it('treats a non-en locale as zh', () => {
     const { ctx, disposers } = makeCtx();
     // schema 层是宽松 string：非法值应在 apply 处收窄为 zh（i18n 回退一致）
-    expect(() => apply(ctx as never, { locale: 'fr', allowlist: [] }, { probe: failingProbe })).not.toThrow();
+    expect(() =>
+      apply(ctx as never, { locale: 'fr', allowlist: [] }, { probe: failingProbe }),
+    ).not.toThrow();
     for (const dispose of disposers) void dispose();
   });
 });

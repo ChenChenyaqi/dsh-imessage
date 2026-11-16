@@ -36,7 +36,10 @@ describe('makeLogger · output format', () => {
   it('supports all four levels', () => {
     const { lines, sink } = memorySink();
     const log = makeLogger({ sink, minLevel: 'debug' });
-    log.debug('a'); log.info('b'); log.warn('c'); log.error('d');
+    log.debug('a');
+    log.info('b');
+    log.warn('c');
+    log.error('d');
     expect(lines.map((l) => JSON.parse(l).level)).toEqual(['debug', 'info', 'warn', 'error']);
   });
 });
@@ -118,7 +121,11 @@ describe('makeFileSink · daily rotation', () => {
       const sink = makeFileSink(dir, { now: day('2026-11-06'), keepDays: 7 });
       sink('{"x":1}');
       const names = readdirSync(dir).sort();
-      expect(names).toEqual(['imessage-20261031.jsonl', 'imessage-20261106.jsonl', 'unrelated.txt']);
+      expect(names).toEqual([
+        'imessage-20261031.jsonl',
+        'imessage-20261106.jsonl',
+        'unrelated.txt',
+      ]);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

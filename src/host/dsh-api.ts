@@ -63,7 +63,9 @@ export type HostSessionEvent =
       readonly data: {
         readonly turn: number;
         readonly step: number;
-        readonly message: { readonly content: ReadonlyArray<{ readonly type: string; readonly text?: string }> };
+        readonly message: {
+          readonly content: ReadonlyArray<{ readonly type: string; readonly text?: string }>;
+        };
         readonly interrupted?: boolean;
       };
     }
@@ -85,7 +87,11 @@ export type HostSessionEvent =
         readonly failure: HostLlmFailure;
       };
     }
-  | { readonly type: string; readonly seq: number; readonly data: Readonly<Record<string, unknown>> };
+  | {
+      readonly type: string;
+      readonly seq: number;
+      readonly data: Readonly<Record<string, unknown>>;
+    };
 
 // ---------------------------------------------------------------------------
 // token 级流帧（ctx.on('agent/assistant-stream', ({ agent, frame }) => ...)）
@@ -99,11 +105,21 @@ export type HostStreamChunk =
 
 /** 尝试收口：committed 指明固化为哪个持久事件。 */
 export type HostStreamOutcome =
-  | { readonly kind: 'committed'; readonly eventType: 'assistant/message' | 'assistant/attempt'; readonly seq: number }
+  | {
+      readonly kind: 'committed';
+      readonly eventType: 'assistant/message' | 'assistant/attempt';
+      readonly seq: number;
+    }
   | { readonly kind: 'abandoned' };
 
 export type HostAssistantStreamFrame =
-  | { readonly type: 'start'; readonly attemptId: string; readonly revision: number; readonly turn: number; readonly step: number }
+  | {
+      readonly type: 'start';
+      readonly attemptId: string;
+      readonly revision: number;
+      readonly turn: number;
+      readonly step: number;
+    }
   | {
       readonly type: 'chunk';
       readonly attemptId: string;
@@ -111,7 +127,13 @@ export type HostAssistantStreamFrame =
       readonly index: number;
       readonly chunk: HostStreamChunk;
     }
-  | { readonly type: 'end'; readonly attemptId: string; readonly revision: number; readonly index: number; readonly outcome: HostStreamOutcome };
+  | {
+      readonly type: 'end';
+      readonly attemptId: string;
+      readonly revision: number;
+      readonly index: number;
+      readonly outcome: HostStreamOutcome;
+    };
 
 // ---------------------------------------------------------------------------
 // 入会消息（agent.followup 入参；探针/源码事实：fire-and-forget）

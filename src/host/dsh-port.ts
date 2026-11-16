@@ -95,7 +95,8 @@ export interface DshEventSource {
 
 export function makeDshPort(deps: DshPortDeps): DshPort {
   const { services, dataRoot } = deps;
-  const mkdir = deps.mkdir ?? ((dir: string) => fsMkdir(dir, { recursive: true }).then(() => undefined));
+  const mkdir =
+    deps.mkdir ?? ((dir: string) => fsMkdir(dir, { recursive: true }).then(() => undefined));
 
   async function createSession(input: {
     workspaceDir: string;
@@ -274,7 +275,10 @@ export function makeDshPort(deps: DshPortDeps): DshPort {
             // turn/end：按 reason 收口（源码事实：五态）
             const reason = item.reason as { kind?: string; error?: HostLlmFailure } | undefined;
             if (signal?.aborted) throw signal.reason ?? new Error('ask aborted');
-            if (reason?.kind === 'error') throw new DshAskError(reason.error ?? { message: 'unknown failure', code: 'UNKNOWN' });
+            if (reason?.kind === 'error')
+              throw new DshAskError(
+                reason.error ?? { message: 'unknown failure', code: 'UNKNOWN' },
+              );
             if (reason?.kind === 'aborted') {
               // 非本方 signal 的中止（宿主侧外部取消）：按 abort 语义上抛
               throw new Error('ask aborted by host');
@@ -284,7 +288,10 @@ export function makeDshPort(deps: DshPortDeps): DshPort {
           if (settled && queue.length === 0) {
             // 不变量：settled 只由 turn/end（队列有项）或超时定时器产生，
             // 故走到这里必然是没有 turn/end 的超时收口
-            throw new DshAskError({ message: 'ask timed out waiting for turn/end', code: 'TIMEOUT' });
+            throw new DshAskError({
+              message: 'ask timed out waiting for turn/end',
+              code: 'TIMEOUT',
+            });
           }
         }
       } finally {

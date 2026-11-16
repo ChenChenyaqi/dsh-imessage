@@ -1,6 +1,13 @@
 # lefthook config — https://lefthook.dev
 pre-commit:
+  # piped：串行执行——format 必须先于 typecheck/lint 落盘，否则检查的是未格式化的文件
+  piped: true
   commands:
+    format:
+      glob: "*.{js,mjs,ts,tsx,json}"
+      run: pnpm exec prettier --write {staged_files}
+      # 格式化产物自动并入本次提交（无改动则零 diff）
+      stage_fixed: true
     quality:
       run: pnpm typecheck && pnpm lint && pnpm test
 

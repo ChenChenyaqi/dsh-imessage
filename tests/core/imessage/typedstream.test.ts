@@ -3,10 +3,7 @@ import { join } from 'node:path';
 
 import { describe, expect, it } from 'vitest';
 
-import {
-  decodeAttributedBodyText,
-  OBJECT_REPLACEMENT_CHAR,
-} from '@/core/imessage/typedstream';
+import { decodeAttributedBodyText, OBJECT_REPLACEMENT_CHAR } from '@/core/imessage/typedstream';
 
 // ---------------------------------------------------------------------------
 // helpers
@@ -28,13 +25,7 @@ function makeBlob(
   lengthPrefix: Uint8Array = new Uint8Array([payload.length]),
 ): Uint8Array {
   const head = new Uint8Array([0x04, 0x0b, ...UTF8.encode('streamtyped')]);
-  const parts = [
-    head,
-    UTF8.encode('NSString'),
-    new Uint8Array([0x2b]),
-    lengthPrefix,
-    payload,
-  ];
+  const parts = [head, UTF8.encode('NSString'), new Uint8Array([0x2b]), lengthPrefix, payload];
   const total = parts.reduce((n, p) => n + p.length, 0);
   const out = new Uint8Array(total);
   let off = 0;
@@ -83,9 +74,7 @@ describe('decodeAttributedBodyText · structure fixtures', () => {
     // 单字节字面长度与 0x81 两字节长度都必须出现在结构样本里
     const encodings = FIXTURE.map((x) => {
       const b = hexToBytes(x.hex);
-      const marker = b.findIndex((_, i) =>
-        NSStringAt(b, i),
-      );
+      const marker = b.findIndex((_, i) => NSStringAt(b, i));
       let tag = marker + 8;
       while (b[tag] !== 0x2b) tag++;
       return b[tag + 1] === 0x81 ? '0x81' : 'literal';

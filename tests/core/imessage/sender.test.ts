@@ -113,7 +113,11 @@ describe('makeSender · error classification', () => {
   }
 
   it('classifies TCC denial (stderr -1743) as automation-permission', async () => {
-    const captured: Captured = { sources: [], failWith: () => errWithStderr('execution error: Not authorized to send Apple events. (-1743)') };
+    const captured: Captured = {
+      sources: [],
+      failWith: () =>
+        errWithStderr('execution error: Not authorized to send Apple events. (-1743)'),
+    };
     const sender = makeSender(makeDeps(captured));
     await expect(sender.sendText('+8613800000000', 'hi')).rejects.toMatchObject({
       name: 'SendError',
@@ -122,7 +126,10 @@ describe('makeSender · error classification', () => {
   });
 
   it('classifies missing service as no-imessage-service', async () => {
-    const captured: Captured = { sources: [], failWith: () => errWithStderr('execution error: No iMessage service is available') };
+    const captured: Captured = {
+      sources: [],
+      failWith: () => errWithStderr('execution error: No iMessage service is available'),
+    };
     const sender = makeSender(makeDeps(captured));
     await expect(sender.sendText('+8613800000000', 'hi')).rejects.toMatchObject({
       kind: 'no-imessage-service',

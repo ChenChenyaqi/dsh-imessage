@@ -1,10 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import {
-  evaluateGate,
-  markSeen,
-  unmarkSeen,
-} from '@/core/router/gate';
+import { evaluateGate, markSeen, unmarkSeen } from '@/core/router/gate';
 import { makePolicy } from '@/core/types/policy';
 import { makeMessage } from '../../helpers/messages';
 

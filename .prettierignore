@@ -1,0 +1,18 @@
+# 与 eslint 忽略惯例对齐 + 明确排除的非代码文件（范围 A：只格式化代码）
+lib/
+coverage/
+test-results/
+scripts/
+node_modules/
+
+# 数据/生成文件：格式化会破坏结构保真或无意义
+pnpm-lock.yaml
+preset/
+cordis.patch.yml
+tests/core/imessage/fixtures/
+.vscode/
+
+# 范围 A 不含文档与 yaml（prose/缩进风格各随其主，不强制）
+*.md
+*.yaml
+*.yml
