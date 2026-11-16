@@ -4,7 +4,7 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { settingsMessages, settingsTexts } from '@/client/settings/texts';
+import { settingsMessages } from '@/client/i18n/text';
 
 describe('settings texts · dictionaries', () => {
   it('carries the same keys in every locale', () => {
@@ -19,26 +19,5 @@ describe('settings texts · dictionaries', () => {
         expect(`${locale}.${key}=${value}`).not.toMatch(/=$/u);
       }
     }
-  });
-});
-
-describe('settings texts · lookup', () => {
-  it('serves the requested locale', () => {
-    expect(settingsTexts('zh').save).toBe('保存');
-    expect(settingsTexts('en').save).toBe('Save');
-  });
-
-  it('falls back to zh for unknown or missing locales', () => {
-    // 与 core i18n / apply 的收窄方向一致：只认 'en'，其余一律 zh
-    expect(settingsTexts('fr').save).toBe('保存');
-    expect(settingsTexts(undefined).save).toBe('保存');
-  });
-
-  it('returns a detached copy (callers may not mutate the dictionary)', () => {
-    const texts = settingsTexts('en');
-
-    texts.save = 'mutated';
-
-    expect(settingsMessages.en.save).toBe('Save');
   });
 });

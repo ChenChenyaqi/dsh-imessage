@@ -28,10 +28,14 @@ function makeForm(initial: { locale?: string; allowlist?: string[] } = {}) {
   const notify = (): void => {
     for (const listener of listeners) listener();
   };
+  // useSyncExternalStore 契约：值未变时必须返回同一引用
+  let cached: { value: Record<string, unknown>; revision: number } | null = null;
+  const snapshotOf = () =>
+    cached && cached.value === value ? cached : (cached = { value, revision });
   return {
     writes,
     form: {
-      getSnapshot: () => ({ value, revision, writable: true }),
+      getSnapshot: snapshotOf,
       subscribe(listener: () => void) {
         listeners.add(listener);
         return () => {
@@ -71,6 +75,7 @@ function makeCtx(
   } = {},
 ) {
   const fake = makeForm(options);
+  const formNamespaces: string[] = [];
   let localeId = options.locale ?? 'zh';
   const localeListeners = new Set<() => void>();
   const registrations: Array<{ options: Record<string, unknown>; component: unknown }> = [];
@@ -95,7 +100,12 @@ function makeCtx(
         };
       },
     },
-    configForms: { get: () => fake.form },
+    configForms: {
+      get(ns: string) {
+        formNamespaces.push(ns);
+        return fake.form;
+      },
+    },
     ...(options.presets === undefined
       ? {}
       : {
@@ -114,6 +124,7 @@ function makeCtx(
   return {
     ctx,
     form: fake,
+    formNamespaces,
     registrations,
     setLocale(next: string) {
       localeId = next;
@@ -209,8 +220,10 @@ describe('settings card · mounted', () => {
   it('registers the menu under the profile entry namespace', () => {
     const app = mount();
 
-    // 菜单 id 与配置命名空间是两件事（真机踩过的坑）
+    // 菜单 id 与配置命名空间是两件事（真机踩过的坑）：表单必须绑
+    // entry id（chenchenyaqi-dsh-imessage），用错就永远读到空快照
     expect(app.registrations[0]?.options['id']).toBe(SECTION_ID);
+    expect(app.formNamespaces).toEqual([ENTRY_ID]);
     expect(ENTRY_ID).not.toBe(SECTION_ID);
     app.unmount();
   });

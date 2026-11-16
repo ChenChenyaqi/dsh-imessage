@@ -76,14 +76,3 @@ export const settingsMessages = {
     saveFailed: 'Save failed, please retry',
   },
 } as const;
-
-/** 词条值：字符串或嵌套词典组（presetNames 按系统预设 id 映射显示名）。 */
-export type SettingsMessageValue = string | Readonly<Record<string, string>>;
-
-export type SettingsMessages = Record<keyof (typeof settingsMessages)['zh'], SettingsMessageValue>;
-
-/** 取某语言的词条（未知语言回退 zh，与 core i18n 的收窄方向一致）。 */
-export function settingsTexts(locale: string | undefined): SettingsMessages {
-  const table = locale === 'en' ? settingsMessages.en : settingsMessages.zh;
-  return { ...table };
-}

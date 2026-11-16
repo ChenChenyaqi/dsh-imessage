@@ -9,6 +9,3 @@ export const ENTRY_ID = 'chenchenyaqi-dsh-imessage';
 
 /** 菜单排序：落在内置插件之后（官方段位 -10..40）。 */
 export const SECTION_ORDER = 50;
-
-/** 词条命名空间（我们自己的 i18n 字典 key）。 */
-export const LOCALE_NAMESPACE = 'settings.imessage';

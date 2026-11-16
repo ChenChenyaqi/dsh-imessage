@@ -12,7 +12,7 @@ import type { DatabaseSync } from 'node:sqlite';
 import type { Locale } from '@/core/i18n';
 import { makeT } from '@/core/i18n';
 import type { ReplyStyle } from '@/core/imessage/humanize';
-import { DEFAULT_CONFIG } from '@/core/types/config';
+import { DEFAULT_CONFIG, DEFAULT_PRESET_ID } from '@/core/types/config';
 import type { ImessageSender } from '@/core/imessage/sender';
 import { makeSender } from '@/core/imessage/sender';
 import { defaultChatDbPath, nodeProbeDeps, probeEnvironment } from '@/core/imessage/env';
@@ -260,7 +260,7 @@ export function startImessageChannel(config: ChannelConfig, env: ChannelEnv): Ch
     port,
     // 用时读：热更预设只影响之后新建的会话（composition 定格事实）。
     // 未设置（空）→ 意图 dafeiyu；装没装由 dsh-port 的 roster resolve 兜底
-    preset: () => live.agentPreset || 'dafeiyu',
+    preset: () => live.agentPreset || DEFAULT_PRESET_ID,
     loadState: () => loadState(stateFile),
     saveState: (state) => saveState(stateFile, state),
     log,
@@ -293,7 +293,7 @@ export function startImessageChannel(config: ChannelConfig, env: ChannelEnv): Ch
     locale: config.locale ?? 'zh',
     allowlist: config.allowlist ?? [],
     allowlistCount: (config.allowlist ?? []).length,
-    agentPreset: live.agentPreset || 'dafeiyu',
+    agentPreset: live.agentPreset || DEFAULT_PRESET_ID,
     chunkedReplies: live.style.chunked,
     maxChunks: live.style.maxChunks,
     delayFactor: live.style.delayFactor,

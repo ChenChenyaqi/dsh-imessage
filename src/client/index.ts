@@ -2,13 +2,18 @@
 //
 // 分层（每层单独可测，互不越界）：
 //   host.d.ts              宿主服务契约（纯类型声明，无运行时）
+//   i18n/                  词条字典（text.ts；卡片直读，不经宿主 locale 系统——
+//                          presetNames 非平字符串塞不进 LocaleDict，已核实
+//                          宿主不消费第三方 ns 的注册）
+//   settings/mount.tsx     槽位接线（settings.section 组件注册）
 //   settings/ids.ts         身份常量（菜单 id / 配置命名空间）
-//   settings/texts.ts       界面词条（zh/en）
-//   settings/card.ts        纯状态机（无 React、无宿主）
-//   settings/controller.ts  订阅与写入时序（无 React）
-//   settings/view.tsx       纯渲染（无 hook）
-//   settings/host.tsx       hook 组件（useSyncExternalStore）
-//   settings/mount.tsx      槽位/词条/controller 接线
+//   settings/draft-store.ts 草稿 override store（纯 TS，细粒度订阅靠 React 引用比较）
+//   settings/card-context.ts 卡片 context（saved 基准/mutate/词条/remote）
+//   settings/<域>/           字段目录：xxx.tsx（hook 就地执行 + 渲染）
+//                           + useXxx.ts（订阅 hook）+ logic.ts（纯函数）
+//   settings/useSave.ts     canSave 派生 + 全量覆盖式原子写（SaveBar 内执行）
+//   settings/view.tsx       静态组合树（零 props）
+//   settings/host.tsx       组装层（唯一的宿主服务消费者：表单订阅 + store 生命周期）
 //   本文件                   插件入口（inject + apply）
 
 import type { ClientContext } from './host';

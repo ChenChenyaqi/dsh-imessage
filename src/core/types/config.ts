@@ -24,6 +24,9 @@ export interface PluginConfig {
   readonly agentPreset: string;
 }
 
+/** 内置默认预设 id（client 下拉与 host 会话路由共享同一事实）。 */
+export const DEFAULT_PRESET_ID = 'dafeiyu';
+
 /** 各字段默认值（Schemastery schema 的 default 与此保持一致）。 */
 export const DEFAULT_CONFIG: PluginConfig = Object.freeze({
   allowlist: [],

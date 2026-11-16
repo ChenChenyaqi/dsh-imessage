@@ -1,59 +1,55 @@
-// 卡片宿主组件：把 controller 的快照与界面语言喂给纯视图。
+// 卡片宿主组件（组装层）：宿主表单订阅 + 草稿 store 生命周期 + context 注入。
 //
-// 这里是客户端半身唯一允许出现 hook 的地方（useSyncExternalStore），
-// 因此它单独成文件：纯视图保持无 hook（元素树可直接断言），状态机保持
-// 无 React（node 单测），只有这一层需要真渲染器（jsdom / 真机）。
+// 分层契约（不变）：域组件与聚合 hook 从卡片 context 自取（hooks 下沉，
+// 无 props drilling）；只有这一层碰真宿主服务。关页 = 组件卸载 =
+// 草稿 store 销毁，草稿自然丢弃（无需 reset 补偿）。
 
-import { useEffect, useSyncExternalStore } from 'react';
+import { useCallback, useMemo, useState, useSyncExternalStore } from 'react';
 
-import type { HostLocale } from '../host';
-import type { CardController } from './controller';
-import { SettingsCardView, type SettingsCardText } from './view';
-import { settingsTexts } from './texts';
-
-export interface CardHostProps {
-  readonly controller: CardController;
-  readonly locale: HostLocale;
-}
+import type { ClientContext } from '../host';
+import { settingsMessages } from '../i18n/text';
+import { CardProvider } from './card-context';
+import { createDraftStore } from './draft-store';
+import { ENTRY_ID } from './ids';
+import { useCardForm } from './useCardForm';
+import { SettingsCardView } from './view';
 
 /**
- * 渲染设置卡片（订阅 controller 与界面语言）。
- * @param props.controller - 已绑定的 controller。
- * @param props.locale - 宿主语言服务（渲染期读取当前语言）。
+ * 渲染设置卡片（组装层）。
+ * @param props.ctx - 浏览器插件上下文（configForms/locale/remote）。
  * @returns 元素树。
  */
-export function CardHost(props: CardHostProps) {
-  // 只跑在浏览器里，不需要服务端快照（getServerSnapshot 省略）
-  const state = useSyncExternalStore(
-    (listener) => props.controller.subscribe(listener),
-    () => props.controller.getSnapshot(),
-  );
-  // 界面语言也要订阅：切语言时卡片文案跟着变
-  const localeId = useSyncExternalStore(
-    (listener) => props.locale.subscribe(listener),
-    () => props.locale.getSnapshot().active,
-  );
-  // controller 比视图活得久（apply 期建、插件卸载才销毁）：关设置页必须
-  // 丢弃未保存草稿，否则重开看到的是旧草稿、重启又变回来（真机 bug）。
-  useEffect(() => () => props.controller.reset(), [props.controller]);
+export function SettingsCardHost(props: { readonly ctx: ClientContext }) {
+  const { ctx } = props;
 
-  // presetNames 是 id→名称映射（下拉数据源），不属于卡片渲染文案
-  const { presetNames: _names, ...cardText } = settingsTexts(localeId);
+  const form = ctx.configForms.get(ENTRY_ID);
+  const { saved, mutate } = useCardForm(form);
+  // 草稿 store 与卡片组件同生命周期：卸载即丢弃全部草稿
+  const [store] = useState(createDraftStore);
+
+  // 界面语言也要订阅：切语言时卡片文案与预设显示名跟着变
+  // （subscribe 包 useCallback：稳定引用避免每次渲染重订阅）
+  const subscribeLocale = useCallback(
+    (listener: () => void) => ctx.locale.subscribe(listener),
+    [ctx.locale],
+  );
+  const localeId = useSyncExternalStore(subscribeLocale, () => ctx.locale.getSnapshot().active);
+  const messages = localeId === 'en' ? settingsMessages.en : settingsMessages.zh;
+
+  const value = useMemo(
+    () => ({
+      store,
+      saved,
+      mutate,
+      messages,
+      remote: ctx.remote?.agentPresets,
+    }),
+    [store, saved, mutate, messages, ctx.remote],
+  );
+
   return (
-    <SettingsCardView
-      state={state}
-      text={cardText as unknown as SettingsCardText}
-      onLocaleChange={(value: string) => props.controller.setLocaleDraft(value)}
-      onBeginAdd={() => props.controller.beginAdd()}
-      onUpdateAddDraft={(value: string) => props.controller.updateAddDraft(value)}
-      onConfirmAdd={() => props.controller.confirmAdd()}
-      onCancelAdd={() => props.controller.cancelAdd()}
-      onRemoveEntry={(index: number) => props.controller.removeEntry(index)}
-      onChunkedChange={(value: boolean) => props.controller.setChunkedDraft(value)}
-      onMaxChunksChange={(value: string) => props.controller.setMaxChunksDraft(value)}
-      onDelayFactorChange={(value: string) => props.controller.setDelayFactorDraft(value)}
-      onPresetChange={(value: string) => props.controller.setPresetDraft(value)}
-      onSave={() => void props.controller.save()}
-    />
+    <CardProvider value={value}>
+      <SettingsCardView />
+    </CardProvider>
   );
 }

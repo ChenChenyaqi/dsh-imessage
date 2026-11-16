@@ -11,18 +11,17 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { ENTRY_ID, SECTION_ID, SECTION_ORDER } from '@/client/settings/ids';
+import { SECTION_ID, SECTION_ORDER } from '@/client/settings/ids';
 import { mountSettingsSection } from '@/client/settings/mount';
 
 /** 最小 fake ClientContext：记录槽位注册、locale 字典与表单绑定。 */
 function makeCtx(options: { locale?: string } = {}) {
   const registrations: Array<{ options: Record<string, unknown>; component: unknown }> = [];
   const waits: Array<{ key: string; run: () => void }> = [];
-  const dictionaries: Array<{ ns: string; dict: unknown }> = [];
   const forms: string[] = [];
   const disposers: Array<() => unknown> = [];
   const form = {
-    getSnapshot: () => ({ value: { locale: 'zh', allowlist: [] }, revision: 1, writable: true }),
+    getSnapshot: () => ({ value: { locale: 'zh', allowlist: [] }, revision: 1 }),
     subscribe: () => () => undefined,
     mutate: async () => true,
   };
@@ -42,8 +41,7 @@ function makeCtx(options: { locale?: string } = {}) {
       },
     },
     locale: {
-      register(ns: string, dict: unknown) {
-        dictionaries.push({ ns, dict });
+      register() {
         return () => undefined;
       },
       getSnapshot: () => ({ active: options.locale ?? 'zh', revision: 1 }),
@@ -59,33 +57,10 @@ function makeCtx(options: { locale?: string } = {}) {
       disposers.push(fn());
     },
   };
-  return { ctx, registrations, waits, dictionaries, forms, disposers };
+  return { ctx, registrations, waits, forms, disposers };
 }
 
 describe('settings mount · wiring', () => {
-  it('binds the host form for the profile entry id, not the menu id', () => {
-    // 真机事实：配置命名空间 = profile patch 的 entry id（chenchenyaqi-dsh-imessage），
-    // 菜单 id 只是 UI 身份；用错就永远读到空快照
-    const { ctx, forms } = makeCtx();
-
-    mountSettingsSection(ctx as never);
-
-    expect(forms).toEqual([ENTRY_ID]);
-    expect(ENTRY_ID).not.toBe(SECTION_ID);
-  });
-
-  it('registers dictionaries with the same keys in every locale', () => {
-    const { ctx, dictionaries } = makeCtx();
-
-    mountSettingsSection(ctx as never);
-
-    const dict = dictionaries.find((row) => row.ns === 'settings.imessage')?.dict as
-      Record<string, Record<string, string>> | undefined;
-    expect(dict).toBeDefined();
-    // 缺一个 key 就会回退到另一语言，界面语言会串
-    expect(Object.keys(dict?.['zh'] ?? {}).sort()).toEqual(Object.keys(dict?.['en'] ?? {}).sort());
-  });
-
   it('waits for the section declaration before registering', () => {
     const { ctx, registrations, waits } = makeCtx();
 
