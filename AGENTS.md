@@ -50,6 +50,12 @@
 | `pnpm test:report:ai` | AI 补测任务清单（未覆盖分支 + 源码行 + 留白标记） |
 | `pnpm dev` | 真机手工 CLI（probe/peek/send/listen，不进 npm 包） |
 
+## 本地参考源码
+
+探索 DSH 宿主或 dsh-im 参考实现源码时，先读根目录 `LOCAL_REPOS.md`
+（gitignore，不入库）登记的本地仓路径，直接读本地文件；
+没有本地 clone 时才走线上。机器/路径变更时同步更新该文件。
+
 ## 测试
 
 - 测试目录镜像 src 结构；fake / 测试工厂放 `tests/helpers/`。

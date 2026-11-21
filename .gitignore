@@ -12,3 +12,6 @@ test-results/
 playwright-report/
 
 .vscode/
+
+# 本地参考源码路径登记（AI 探索 DSH/dsh-im 源码用，见 AGENTS.md）
+/LOCAL_REPOS.md
