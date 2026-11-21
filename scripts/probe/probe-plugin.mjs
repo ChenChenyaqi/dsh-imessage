@@ -1,7 +1,7 @@
 // dsh-imessage · Step 0 真机探针（A 路线 / webhook 范式）
 //
 // 目标：在真 DSH 宿主进程内验证 M4 适配层依赖的全部 API 形状，
-// 与源码事实（docs/host-api/*.md）互证。输出脱敏 result.json：
+// 与源码事实（docs/host-integration/host-api/*.md）互证。输出脱敏 result.json：
 // 只记结构（类型/字段名/长度/顺序），不落任何用户数据。
 //
 // 用法：dsh web --patch /tmp/dsh-probe/probe.yml

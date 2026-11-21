@@ -35,7 +35,7 @@ ConfigField → form.set() → settings.mutate RPC → configEditor.edit()
 
 ## 2. 步骤
 
-### Step 0 · 客户端加载可行性探针（✅ 已完成 2026-11-12）
+### Step 0 · 客户端加载可行性探针（[x] 已完成 2026-11-12）
 最小客户端半身：只注册一个 `settings.section` 显示 "dsh-imessage probe"。
 - 产出 `lib/client.js`（手写 closure-factory 包装）+ `dsh.client` 清单
 - 隔离 web profile（`DSH_IMESSAGE_HOME` 指向临时目录，白名单填假号码）
@@ -75,7 +75,7 @@ ConfigField → form.set() → settings.mutate RPC → configEditor.edit()
 `src/client/index.ts`：`export const inject = ['slots','locale','configForms']`、
 注册 `settings.section`、注册 zh/en 字典。
 
-### Step 5 · 真机联调 + 收尾（✅ 已完成 2026-11-12）
+### Step 5 · 真机联调 + 收尾（[x] 已完成 2026-11-12）
 chrome-devtools 脚本化验收：
 1. 设置 → iMessage 菜单存在
 2. 改白名单 → 保存 → 日志 `channel.config-updated`（新数量）
@@ -88,7 +88,7 @@ chrome-devtools 脚本化验收：
 
 | 风险 | 应对 |
 |---|---|
-| ~~双面包扫描不认 file: link 包~~ | ✅ Step 0 已验证支持，不再需要拆包 |
+| ~~双面包扫描不认 file: link 包~~ | [x] Step 0 已验证支持，不再需要拆包 |
 | externals 未命中平台表 → 运行时报错 | Step 0 抓到真实错误信息再定 externals 清单 |
 | 客户端 bundle 误引 node 模块（如 core/chatdb） | 客户端只允许 import `@/core/i18n` 与类型；esbuild 加 platform=browser，node 内置直接报错 |
 | 桌面 app 客户端清单校验更严 | Step 0 在 web 验证 + 桌面 app 复验一次 |
@@ -104,7 +104,7 @@ chrome-devtools 脚本化验收：
 
 | 步骤 | 工作量 |
 |---|---|
-| Step 0 探针 | ✅ 已完成 |
+| Step 0 探针 | [x] 已完成 |
 | Step 1 构建接线 | 0.5 天 |
 | Step 2 controller + 测试 | 0.5 天 |
 | Step 3–4 组件与入口 | 0.5 天 |

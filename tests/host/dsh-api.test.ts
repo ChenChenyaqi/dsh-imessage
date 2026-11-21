@@ -3,9 +3,9 @@
 // 这是 M4 Step 1 的「测试先行」载体：先写规格（本文件），再写
 // tests/helpers/fake-dsh-api.ts 的实现让本文件转绿。fake 是 Step 2
 // （host/dsh-port.ts 适配层）测试的宿主模拟器，规格来源：
-// - docs/host-api/plugin.md（服务面、inject、生命周期）
-// - docs/host-api/ask.md（事件协议、abort、错误形态）
-// - docs/host-api/rpc.md（workspace、归档判定）
+// - docs/host-integration/host-api/plugin.md（服务面、inject、生命周期）
+// - docs/host-integration/host-api/ask.md（事件协议、abort、错误形态）
+// - docs/host-integration/host-api/rpc.md（workspace、归档判定）
 // - /tmp/dsh-probe 两轮真机探针（行为语义互证，见各断言旁标注）
 //
 // fake 只模拟 DshPort 适配层会消费的面：事件序列保真到适配层关心的
