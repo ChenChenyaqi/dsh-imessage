@@ -4,7 +4,8 @@ pre-commit:
   piped: true
   commands:
     format:
-      glob: "*.{js,mjs,ts,tsx,json}"
+      # glob 与 prettier 默认支持范围对齐；不匹配任何 staged 文件时 piped 会因 skip 中断
+      glob: "*.{js,mjs,cjs,ts,tsx,json,md,yaml,yml}"
       run: pnpm exec prettier --write {staged_files}
       # 格式化产物自动并入本次提交（无改动则零 diff）
       stage_fixed: true
