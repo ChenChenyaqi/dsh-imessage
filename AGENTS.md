@@ -14,6 +14,8 @@
 
 ## 提交
 
+- **不在 main 上直接提交**：新建分支（`type/slug` 命名，如 `docs/foo`、
+  `feat/bar`）开发，以 PR 方式合入；分支保护不允许直接 push main。
 - Conventional Commits（`type: subject`）；subject 不得以大写英文单词
   开头（commitlint `subject-case` 规则会拦截，`M2`、`JSONL` 均被拦过）。
 - 提交门：`pnpm check` 全绿（typecheck + lint + build + test）。
