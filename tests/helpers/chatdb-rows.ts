@@ -18,6 +18,8 @@ export function makeRow(init: Partial<ChatDbRow> = {}): ChatDbRow {
     memberCount: init.memberCount ?? 1,
     attachmentPath: init.attachmentPath ?? null,
     attachmentMime: init.attachmentMime ?? null,
+    attachmentName: init.attachmentName ?? null,
+    attachmentBytes: init.attachmentBytes ?? null,
     quotedText: init.quotedText ?? null,
     quotedDateNs: init.quotedDateNs ?? null,
     ...init,

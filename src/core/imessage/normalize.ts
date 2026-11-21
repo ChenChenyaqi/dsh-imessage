@@ -4,8 +4,9 @@
 // - date 转换：Mac 绝对纳秒 → epoch 毫秒（BigInt 无损通道）
 // - 双源文本合并：text 列优先，空则 typedstream 解码 attributedBody
 // - 占位降级（协议标记，故意英文不走 i18n，AI 理解后自行本地化转述）：
-//     纯附件（解码成功但剥 U+FFFC 后空）→ [attachment: image, not yet supported]
-//     解码失败（null）                  → [undecodable message]
+//     纯附件且无图（解码成功但剥 U+FFFC 后空）→ [attachment: image, not yet supported]
+//     解码失败（null）                        → [undecodable message]
+//     带图附件且正文空（纯图/图文无字）       → ''（纯图消息，图走内容块，M6.1）
 // - 防循环过滤：fromMe 防御滤 / [dsh] 前缀 / 群聊 / 无 handle / 非法 handle
 // - conversationKey 派生：normalizePhone；归一化失败按默认拒绝跳过
 // - 多行合并：同 guid 多附件展开行（fetchBatch 的 LIMIT 语义）合为一条
@@ -16,7 +17,11 @@
 
 import type { ChatDbRow } from './chatdb';
 import { decodeAttributedBodyText } from './typedstream';
-import { makeNormalizedMessage, type NormalizedMessage } from '../types/messages';
+import {
+  makeNormalizedMessage,
+  type MessageAttachment,
+  type NormalizedMessage,
+} from '../types/messages';
 import { normalizePhone } from '../types/phone';
 
 // ---------------------------------------------------------------------------
@@ -66,29 +71,48 @@ export function macAbsoluteToEpochMs(dateNs: string): number {
   }
 }
 
-/** 解析正文：text 列优先；空则解码 BLOB；最后分派占位。 */
-function resolveText(row: ChatDbRow): string | null {
+/** 解析正文：text 列优先；空则解码 BLOB；最后分派占位。
+ * M6.1：有图片附件时，空文本（双源空/剥 U+FFFC 后空）降为 '' 而非
+ * 占位/skip——纯图消息的正文就是图，内容块化在 pipeline 层完成。 */
+function resolveText(row: ChatDbRow, hasImageAttachment: boolean): string | null {
   if (row.text !== null && row.text !== '') return row.text;
 
   if (row.attributedBody && row.attributedBody.length > 0) {
     const decoded = decodeAttributedBodyText(row.attributedBody);
     if (decoded === null) return UNDECODABLE_PLACEHOLDER; // 解码失败
-    if (decoded === '') return ATTACHMENT_PLACEHOLDER; // 纯附件
+    if (decoded === '') return hasImageAttachment ? '' : ATTACHMENT_PLACEHOLDER; // 纯附件
     return decoded;
   }
-  return null; // 双源皆空
+  // 双源皆空：纯图消息进得来（SQL image 分支），其余交给 skip empty
+  return hasImageAttachment ? '' : null;
+}
+
+/** 从 JOIN 行提取附件元数据（准入态：未完成/贴纸/无 filename 的行此字段全空）。 */
+function attachmentOf(row: ChatDbRow): MessageAttachment | null {
+  if (row.attachmentPath === null) return null;
+  return {
+    path: row.attachmentPath,
+    mediaType: row.attachmentMime,
+    name: row.attachmentName,
+    bytes: row.attachmentBytes,
+  };
+}
+
+/** 是否携带图片附件（mime 前缀判定；null mime 不算——media 层同款准入）。 */
+function hasImageAttachment(attachments: readonly MessageAttachment[]): boolean {
+  return attachments.some((a) => a.mediaType?.startsWith('image/') === true);
 }
 
 function skip(guid: string, rowId: number, reason: SkipReason): NormalizeResult {
   return { status: 'skipped', guid, rowId, reason };
 }
 
-function normalizeOne(row: ChatDbRow): NormalizeResult {
+function normalizeOne(row: ChatDbRow, attachments: readonly MessageAttachment[]): NormalizeResult {
   if (row.isFromMe !== 0) return skip(row.guid, row.rowid, 'from-me');
   if (row.memberCount > 1) return skip(row.guid, row.rowid, 'group-chat');
   if (row.handleText === null) return skip(row.guid, row.rowid, 'no-handle');
 
-  const text = resolveText(row);
+  const text = resolveText(row, hasImageAttachment(attachments));
   if (text === null) return skip(row.guid, row.rowid, 'empty');
   if (text.startsWith(DSH_PREFIX)) return skip(row.guid, row.rowid, 'bot-prefix');
 
@@ -103,19 +127,37 @@ function normalizeOne(row: ChatDbRow): NormalizeResult {
     text,
     conversationKey,
     quotedText: row.quotedText ?? undefined,
+    // 无附件不设字段（旧 fixture / 序列化兼容）；media 策略过滤在 media 层
+    ...(attachments.length > 0 ? { attachments } : {}),
   });
   return { status: 'accepted', message };
 }
 
 /**
- * 批量归一：先按 guid 合并多附件展开行（同 guid 取首行主体，附件信息
- * 合并至 M5 使用），再逐条归一。输出按 rowid 升序——不依赖上游
- * fetchBatch 的排序约定，输出契约自洽。
+ * 批量归一：先按 guid 合并多附件展开行（同 guid 取首行主体，各行的
+ * 附件元数据按 path 去重聚合为 attachments，M6.1），再逐条归一。
+ * 输出按 rowid 升序——不依赖上游 fetchBatch 的排序约定，输出契约自洽。
  */
 export function normalizeRows(rows: readonly ChatDbRow[]): NormalizeResult[] {
-  const byGuid = new Map<string, ChatDbRow>();
+  const byGuid = new Map<string, { head: ChatDbRow; attachments: MessageAttachment[] }>();
+  const seenPaths = new Map<string, Set<string>>();
   for (const row of rows) {
-    if (!byGuid.has(row.guid)) byGuid.set(row.guid, row); // 首行为主体
+    let entry = byGuid.get(row.guid);
+    if (!entry) {
+      entry = { head: row, attachments: [] };
+      byGuid.set(row.guid, entry);
+      seenPaths.set(row.guid, new Set());
+    }
+    const att = attachmentOf(row);
+    if (att !== null) {
+      const seen = seenPaths.get(row.guid)!;
+      if (!seen.has(att.path)) {
+        seen.add(att.path);
+        entry.attachments.push(att);
+      }
+    }
   }
-  return [...byGuid.values()].sort((a, b) => a.rowid - b.rowid).map((row) => normalizeOne(row));
+  return [...byGuid.values()]
+    .sort((a, b) => a.head.rowid - b.head.rowid)
+    .map((entry) => normalizeOne(entry.head, Object.freeze(entry.attachments)));
 }

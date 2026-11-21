@@ -13,7 +13,11 @@ export const SCHEMA_SQL = `
   CREATE TABLE chat_message_join (chat_id INTEGER, message_id INTEGER);
   CREATE TABLE chat_handle_join (chat_id INTEGER, handle_id INTEGER);
   CREATE TABLE message_attachment_join (message_id INTEGER, attachment_id INTEGER);
-  CREATE TABLE attachment (ROWID INTEGER PRIMARY KEY, filename TEXT, mime_type TEXT);
+  CREATE TABLE attachment (
+    ROWID INTEGER PRIMARY KEY, filename TEXT, mime_type TEXT,
+    is_sticker INTEGER DEFAULT 0, transfer_state INTEGER,
+    transfer_name TEXT, total_bytes INTEGER
+  );
 `;
 
 /** 插一条对方文本消息（handle/chat/join 按需补行——fetchBatch 是 JOIN 查询）。

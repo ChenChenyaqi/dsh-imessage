@@ -21,7 +21,11 @@ interface Fixture {
   readonly dispose: () => void;
 }
 
-/** 建内存库并灌一组覆盖各场景的 fixture 数据。 */
+/** 建内存库并灌一组覆盖各场景的 fixture 数据。
+ * M6.1 起附件 JOIN 带准入（is_sticker=0 / transfer_state=5 / filename 非空），
+ * fixture 覆盖准入矩阵：完成态图片（M6）、未完成（M7）、贴纸（M8）、
+ * 无 filename（M9）、非图片 mime（M10 文本+mov / M13 纯 mov 不返回）、
+ * 纯图（M11）、多附件扇出（M12）、空消息不返回（M14）。 */
 function makeDb(): Fixture {
   const db = new DatabaseSync(':memory:');
   db.exec(SCHEMA_SQL);
@@ -32,6 +36,19 @@ function makeDb(): Fixture {
     INSERT INTO chat (ROWID, guid, style) VALUES
       (10, 'CHAT-ONE', 45),
       (11, 'CHAT-GROUP', 45);
+
+    INSERT INTO attachment (
+      ROWID, filename, mime_type, is_sticker, transfer_state, transfer_name, total_bytes
+    ) VALUES
+      (90, '/tmp/IMG_0001.heic', 'image/heic', 0, 5, 'IMG_0001.heic', 546000),
+      (91, '/tmp/dl.png', 'image/png', 0, 0, 'dl.png', 1000),
+      (92, '/tmp/sticker.png', 'image/png', 1, 5, 'sticker.png', 2000),
+      (93, NULL, 'image/png', 0, 5, 'nofile.png', 3000),
+      (94, '/tmp/clip.mov', 'video/quicktime', 0, 5, 'clip.mov', 8000000),
+      (95, '/tmp/a.png', 'image/png', 0, 5, 'a.png', 95000),
+      (96, '/tmp/b.png', 'image/png', 0, 5, 'b.png', 96000),
+      (97, '/tmp/solo.mov', 'video/quicktime', 0, 5, 'solo.mov', 7000000),
+      (98, '/tmp/solo.png', 'image/png', 0, 5, 'solo.png', 98000);
 
     -- ROWID 1：普通对方文本消息
     INSERT INTO message (ROWID, guid, text, is_from_me, handle_id, date)
@@ -48,15 +65,45 @@ function makeDb(): Fixture {
     -- ROWID 5：引用 M1 的回复
     INSERT INTO message (ROWID, guid, text, is_from_me, handle_id, date, thread_originator_guid)
       VALUES (5, 'M5', 're: hello', 0, 1, 815743613788000000, 'M1');
-    -- ROWID 6：带附件
+    -- ROWID 6：带完成态图片附件（无正文，纯图）
     INSERT INTO message (ROWID, guid, text, is_from_me, handle_id, date)
       VALUES (6, 'M6', NULL, 0, 1, 815743613888000000);
     INSERT INTO message_attachment_join (message_id, attachment_id) VALUES (6, 90);
-    INSERT INTO attachment (ROWID, filename, mime_type)
-      VALUES (90, '/tmp/IMG_0001.heic', 'image/heic');
+    -- ROWID 7：附件传输未完成（transfer_state=0）——消息照返，附件字段空
+    INSERT INTO message (ROWID, guid, text, is_from_me, handle_id, date)
+      VALUES (7, 'M7', 'still downloading', 0, 1, 815743613988000000);
+    INSERT INTO message_attachment_join (message_id, attachment_id) VALUES (7, 91);
+    -- ROWID 8：贴纸附件（is_sticker=1）——同上，附件字段空
+    INSERT INTO message (ROWID, guid, text, is_from_me, handle_id, date)
+      VALUES (8, 'M8', 'sticker msg', 0, 1, 815743614088000000);
+    INSERT INTO message_attachment_join (message_id, attachment_id) VALUES (8, 92);
+    -- ROWID 9：无 filename 附件——同上，附件字段空
+    INSERT INTO message (ROWID, guid, text, is_from_me, handle_id, date)
+      VALUES (9, 'M9', 'no filename', 0, 1, 815743614188000000);
+    INSERT INTO message_attachment_join (message_id, attachment_id) VALUES (9, 93);
+    -- ROWID 10：文本 + 非 image 附件（mov）——准入不含 mime，附件照带
+    INSERT INTO message (ROWID, guid, text, is_from_me, handle_id, date)
+      VALUES (10, 'M10', 'look at this video', 0, 1, 815743614288000000);
+    INSERT INTO message_attachment_join (message_id, attachment_id) VALUES (10, 94);
+    -- ROWID 11：纯图（双源空 + 完成态 png）——WHERE image 分支纳入
+    INSERT INTO message (ROWID, guid, text, is_from_me, handle_id, date)
+      VALUES (11, 'M11', NULL, 0, 1, 815743614388000000);
+    INSERT INTO message_attachment_join (message_id, attachment_id) VALUES (11, 98);
+    -- ROWID 12：多附件纯图（JOIN 扇出 2 行，normalize 层折叠）
+    INSERT INTO message (ROWID, guid, text, is_from_me, handle_id, date)
+      VALUES (12, 'M12', NULL, 0, 1, 815743614488000000);
+    INSERT INTO message_attachment_join (message_id, attachment_id) VALUES (12, 95), (12, 96);
+    -- ROWID 13：纯 mov（双源空 + 非 image 附件）——不返回
+    INSERT INTO message (ROWID, guid, text, is_from_me, handle_id, date)
+      VALUES (13, 'M13', NULL, 0, 1, 815743614588000000);
+    INSERT INTO message_attachment_join (message_id, attachment_id) VALUES (13, 97);
+    -- ROWID 14：空消息（tapback 类）——不返回
+    INSERT INTO message (ROWID, guid, text, is_from_me, handle_id, date)
+      VALUES (14, 'M14', NULL, 0, 1, 815743614688000000);
 
     INSERT INTO chat_message_join (chat_id, message_id) VALUES
-      (10, 1), (10, 2), (10, 3), (11, 4), (10, 5), (10, 6);
+      (10, 1), (10, 2), (10, 3), (11, 4), (10, 5), (10, 6), (10, 7), (10, 8),
+      (10, 9), (10, 10), (10, 11), (10, 12), (10, 13), (10, 14);
     INSERT INTO chat_handle_join (chat_id, handle_id) VALUES
       (10, 1), (11, 1), (11, 2);
   `);
@@ -68,8 +115,21 @@ describe('fetchBatch', () => {
     const { db, dispose } = makeDb();
     try {
       const rows = fetchBatch(db, 0, 100);
-      // M2（fromMe）被 SQL 过滤，共 5 行
-      expect(rows.map((r) => r.guid)).toEqual(['M1', 'M3', 'M4', 'M5', 'M6']);
+      // M2（fromMe）/M13（纯 mov）/M14（空）被 SQL 过滤；M12 扇出 2 行
+      expect(rows.map((r) => r.guid)).toEqual([
+        'M1',
+        'M3',
+        'M4',
+        'M5',
+        'M6',
+        'M7',
+        'M8',
+        'M9',
+        'M10',
+        'M11',
+        'M12',
+        'M12',
+      ]);
       const m1 = rows[0]!;
       expect(m1.handleText).toBe('+8613800000000');
       expect(m1.service).toBe('iMessage');
@@ -130,13 +190,47 @@ describe('fetchBatch', () => {
     }
   });
 
-  it('joins attachment path and mime type', () => {
+  it('joins attachment path, mime type, name and bytes', () => {
     const { db, dispose } = makeDb();
     try {
       const rows = fetchBatch(db, 0, 100);
       const m6 = rows.find((r) => r.guid === 'M6')!;
       expect(m6.attachmentPath).toBe('/tmp/IMG_0001.heic');
       expect(m6.attachmentMime).toBe('image/heic');
+      expect(m6.attachmentName).toBe('IMG_0001.heic');
+      expect(m6.attachmentBytes).toBe(546000);
+    } finally {
+      dispose();
+    }
+  });
+
+  it('admits only completed non-sticker attachments with a filename', () => {
+    const { db, dispose } = makeDb();
+    try {
+      const rows = fetchBatch(db, 0, 100);
+      const byGuid = new Map(rows.map((r) => [r.guid, r]));
+      // 未完成（M7）/贴纸（M8）/无 filename（M9）：消息照返、附件字段空
+      for (const guid of ['M7', 'M8', 'M9']) {
+        expect(byGuid.get(guid)!.attachmentPath).toBeNull();
+        expect(byGuid.get(guid)!.attachmentName).toBeNull();
+        expect(byGuid.get(guid)!.attachmentBytes).toBeNull();
+      }
+      // 非 image mime 不在 JOIN 准入内（准入只看状态，不看类型）
+      expect(byGuid.get('M10')!.attachmentPath).toBe('/tmp/clip.mov');
+      expect(byGuid.get('M10')!.attachmentMime).toBe('video/quicktime');
+    } finally {
+      dispose();
+    }
+  });
+
+  it('includes image-only messages via the image branch of WHERE', () => {
+    const { db, dispose } = makeDb();
+    try {
+      const rows = fetchBatch(db, 0, 100);
+      const m11 = rows.find((r) => r.guid === 'M11')!;
+      expect(m11.text).toBeNull();
+      expect(m11.attributedBody).toBeNull();
+      expect(m11.attachmentPath).toBe('/tmp/solo.png');
     } finally {
       dispose();
     }
@@ -145,9 +239,9 @@ describe('fetchBatch', () => {
   it('respects the cursor (ROWID > afterRowId, ascending)', () => {
     const { db, dispose } = makeDb();
     try {
-      const rows = fetchBatch(db, 3, 100);
-      expect(rows.map((r) => r.rowid)).toEqual([4, 5, 6]);
-      expect(rows.map((r) => r.guid)).toEqual(['M4', 'M5', 'M6']);
+      const rows = fetchBatch(db, 10, 100);
+      expect(rows.map((r) => r.rowid)).toEqual([11, 12, 12]);
+      expect(rows.map((r) => r.guid)).toEqual(['M11', 'M12', 'M12']);
     } finally {
       dispose();
     }
@@ -168,9 +262,9 @@ describe('readMaxRowId', () => {
   it('returns the max ROWID over ALL messages (watermark incl. own sends)', () => {
     const { db, dispose } = makeDb();
     try {
-      // 全库最大是 6（M6），不是对方消息的最大——水位必须盖住 fromMe 行，
+      // 全库最大是 14（M14），不是对方消息的最大——水位必须盖住 fromMe 行，
       // 否则下轮会把它们拉出来再滤一次
-      expect(readMaxRowId(db)).toBe(6);
+      expect(readMaxRowId(db)).toBe(14);
     } finally {
       dispose();
     }

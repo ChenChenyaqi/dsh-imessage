@@ -49,6 +49,8 @@ function makeRow(over: Partial<ChatDbRow> = {}): ChatDbRow {
     memberCount: 1,
     attachmentPath: null,
     attachmentMime: null,
+    attachmentName: null,
+    attachmentBytes: null,
     quotedText: null,
     quotedDateNs: null,
     ...over,
@@ -60,7 +62,11 @@ function accepted(result: NormalizeResult | undefined) {
   expect(result!.status).toBe('accepted');
   return result! as unknown as {
     status: 'accepted';
-    message: { text: string; [k: string]: unknown };
+    message: {
+      text: string;
+      attachments?: readonly import('@/core/types/messages').MessageAttachment[];
+      [k: string]: unknown;
+    };
   };
 }
 
@@ -201,6 +207,102 @@ describe('normalizeRows · multi-row merge', () => {
     expect(results).toHaveLength(2);
     expect(accepted(results[0]!).message.text).toBe('两个附件的消息');
     expect(accepted(results[1]!).message.text).toBe('下一条');
+  });
+
+  it('collects attachments of every expanded row, deduped by path (M6.1)', () => {
+    const rows = [
+      makeRow({
+        rowid: 7,
+        guid: 'G',
+        text: '两个附件',
+        attachmentPath: '/a1.heic',
+        attachmentMime: 'image/heic',
+        attachmentName: 'a1.heic',
+        attachmentBytes: 100,
+      }),
+      makeRow({
+        rowid: 7,
+        guid: 'G',
+        text: '两个附件',
+        attachmentPath: '/a2.png',
+        attachmentMime: 'image/png',
+        attachmentName: 'a2.png',
+        attachmentBytes: 200,
+      }),
+      // 同 path 重复行（防御 JOIN 重复）：去重
+      makeRow({
+        rowid: 7,
+        guid: 'G',
+        text: '两个附件',
+        attachmentPath: '/a1.heic',
+        attachmentMime: 'image/heic',
+      }),
+    ];
+    const [r] = normalizeRows(rows);
+    expect(accepted(r).message.attachments).toEqual([
+      { path: '/a1.heic', mediaType: 'image/heic', name: 'a1.heic', bytes: 100 },
+      { path: '/a2.png', mediaType: 'image/png', name: 'a2.png', bytes: 200 },
+    ]);
+  });
+
+  it('keeps non-image attachments in metadata (media layer decides)', () => {
+    const rows = [
+      makeRow({
+        text: 'look',
+        attachmentPath: '/clip.mov',
+        attachmentMime: 'video/quicktime',
+        attachmentName: 'clip.mov',
+        attachmentBytes: 8000,
+      }),
+    ];
+    const [r] = normalizeRows(rows);
+    expect(accepted(r).message.attachments).toEqual([
+      { path: '/clip.mov', mediaType: 'video/quicktime', name: 'clip.mov', bytes: 8000 },
+    ]);
+  });
+
+  it('omits the attachments field when no row carries one', () => {
+    const rows = [makeRow({ text: '纯文本' }), makeRow({ rowid: 1, text: '纯文本' })];
+    const [r] = normalizeRows(rows);
+    expect(accepted(r).message.attachments).toBeUndefined();
+  });
+
+  it('normalizes image-only messages to empty text (image speaks)', () => {
+    const rows = [
+      makeRow({
+        text: null,
+        attributedBody: null,
+        attachmentPath: '/img.png',
+        attachmentMime: 'image/png',
+        attachmentName: 'img.png',
+        attachmentBytes: 300,
+      }),
+    ];
+    const [r] = normalizeRows(rows);
+    expect(accepted(r).message.text).toBe('');
+    expect(accepted(r).message.attachments).toEqual([
+      { path: '/img.png', mediaType: 'image/png', name: 'img.png', bytes: 300 },
+    ]);
+  });
+
+  it('keeps the attachment placeholder when the only attachment is not an image', () => {
+    // BLOB 剥 U+FFFC 后空 + mov 附件：无图可代言，维持占位降级
+    const rows = [
+      makeRow({
+        text: null,
+        attributedBody: makeBlob('￼'),
+        attachmentPath: '/clip.mov',
+        attachmentMime: 'video/quicktime',
+      }),
+    ];
+    const [r] = normalizeRows(rows);
+    expect(accepted(r).message.text).toBe(ATTACHMENT_PLACEHOLDER);
+  });
+
+  it('still skips empty messages without attachments (defensive)', () => {
+    const rows = [makeRow({ text: null, attributedBody: null })];
+    const [r] = normalizeRows(rows);
+    expect(skipped(r).reason).toBe('empty');
   });
 
   it('preserves rowid ascending order', () => {

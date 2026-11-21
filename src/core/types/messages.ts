@@ -23,6 +23,22 @@ export interface NormalizedMessage {
   readonly conversationKey: string;
   /** 引用消息的原文（P1 引用回复用，占位可选）。 */
   readonly quotedText?: string;
+  /** 图片/附件元数据（M6.1 收图）。path 保持 chat.db 原始 `~/` 形态，
+   *  展开是 media 加载层的职责；无附件消息不设该字段（旧 fixture 零改动）。
+   *  媒体策略（image 准入/转码）不在这层——normalize 只管元数据透传。 */
+  readonly attachments?: readonly MessageAttachment[];
+}
+
+/** 附件元数据（chat.db attachment 行的准入态投影，M6.1）。 */
+export interface MessageAttachment {
+  /** chat.db 原始路径（`~/Library/Messages/Attachments/…` 波浪号形态）。 */
+  readonly path: string;
+  /** MIME（mime_type 列；实测少量 null——media 层按非 image 跳过）。 */
+  readonly mediaType: string | null;
+  /** 展示名（transfer_name，可空）。 */
+  readonly name: string | null;
+  /** 字节数（total_bytes，可空）。 */
+  readonly bytes: number | null;
 }
 
 /** 工厂入参：字段与 NormalizedMessage 同构但整体不可变约束未施加。 */
@@ -42,7 +58,26 @@ export function isNormalizedMessage(value: unknown): value is NormalizedMessage 
     typeof v.text === 'string' &&
     typeof v.conversationKey === 'string' &&
     v.conversationKey !== '' &&
-    (v.quotedText === undefined || typeof v.quotedText === 'string')
+    (v.quotedText === undefined || typeof v.quotedText === 'string') &&
+    (v.attachments === undefined || isMessageAttachmentList(v.attachments))
+  );
+}
+
+/** 附件数组形状守卫（isNormalizedMessage 子项）。 */
+function isMessageAttachmentList(value: unknown): value is readonly MessageAttachment[] {
+  if (!Array.isArray(value)) return false;
+  return value.every(
+    (a) =>
+      typeof a === 'object' &&
+      a !== null &&
+      typeof (a as MessageAttachment).path === 'string' &&
+      (a as MessageAttachment).path !== '' &&
+      ((a as MessageAttachment).mediaType === null ||
+        typeof (a as MessageAttachment).mediaType === 'string') &&
+      ((a as MessageAttachment).name === null ||
+        typeof (a as MessageAttachment).name === 'string') &&
+      ((a as MessageAttachment).bytes === null ||
+        typeof (a as MessageAttachment).bytes === 'number'),
   );
 }
 
