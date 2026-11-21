@@ -1,8 +1,11 @@
 # dsh-imessage · 架构蓝图
 
-> 本文档是对 `dsh-im`（@xmanrui/dsh-im）中 iMessage 渠道的完整解构，作为本独立项目重写的蓝图。
+> 本文档是对 `dsh-im`（@xmanrui/dsh-im）中 iMessage 渠道的完整解构，作为本项目重写的事实参考（D7）。
 > dsh-im 代码仓：https://github.com/xmanrui/dsh-im
 > 范围：仅 iMessage 渠道。起点基线：commit `642ad21b`（移除消息机器人前缀）及之后的 34 个提交为本项目作者本人所加功能。
+> **本项目实际架构**（cordis 插件形态，定案 D1）以根 README「架构」段与
+> `docs/` 各需求目录的 `plan.md` 为准（索引见 `docs/README.md`）；
+> 本文第九章的 Electron 建议是立项期方案，已被 D1 取代，仅存档。
 
 ---
 
@@ -15,12 +18,36 @@
 - **主动陪伴（companion）**：按昼夜节奏、动机、情绪主动发消息
 - **多用户隔离**：每个手机号一个独立工作区 + 独立 DSH 会话，白名单控制准入
 
-技术栈：**Electron（或 Node 服务）承担核心链路 + React/TS 管理面板**。
-核心链路（读 chat.db、跑 osascript）只能跑在 Node/Electron 主进程，React 只做设置 UI。
+技术栈（定案 D1，取代立项期的 Electron 建议）：**DSH 官方 cordis 插件**——
+core 纯 TS 内核进程内跑在宿主里，设置页走 DSH 客户端 UI 体系，不做独立
+Node/Electron 服务。
+
+架构铁律：
+
+- **core 零真 IO**：数据库 / osascript / 文件系统全部依赖注入，CI/Linux 可
+  全量单测；真 IO 实现只出现在 host 组装层与 dev CLI。
+- **设计定案随需求目录放**：消息处理状态机（claim 时序、cursor/seen
+  分工、重试预算、双路径发送）见 `docs/session-pipeline/plan.md`，其余
+  见各需求目录 `plan.md`（索引 `docs/README.md`）；改动核心语义前先读
+  对应 plan.md，拿不准就问，不要按直觉"修复"。
 
 ---
 
-## 二、总体架构（4 层）
+## 二、已确认决策（定案，实施中不再摇摆）
+
+| #   | 决策 | 依据 |
+| --- | --- | --- |
+| D1  | 形态：DSH 官方 cordis 插件（`deepseek-ai/deepseek-harness` 标准），不做独立 Node 服务 | desktop 用户工作流；进程内 apiProxy 免 HTTP/鉴权；继承 DeepSeek Harness.app 已有的 FDA + Messages 自动化授权 |
+| D2  | 分层：`core/`（零框架依赖内核）+ `host/`（薄 cordis 适配层） | 内核可独立单测、架构自主；与 dsh-im 的无边界 shared 层形成代差 |
+| D3  | TypeScript + ESM + Node ≥22 + vitest；运行时零外部依赖 | `node:sqlite`/`fetch`/`WebSocket` 全内置 |
+| D4  | 单 bot：不做 dsh-im 的多机器人注册/token 层 | 单机 iMessage 天然单身份，配置直写 |
+| D5  | 数据完全独立：数据根 `~/.dsh-imessage/`（含 per-conversation 工作区），不碰 dsh-im 的任何目录 | 与 dsh-im 共存、切换互不污染；可用 `DSH_IMESSAGE_HOME` 覆盖（测试/自定义安装） |
+| D6  | i18n 保留：zh/en 起步，轻量 `t()` 层放 core | 用户要求 |
+| D7  | 借用 dsh-im 验证过的 **macOS 事实**（chat.db SQL、typedstream 解码、绑定事务踩坑、osascript 用法），代码全部自研 | 这些是事实知识，不是代码 |
+| D8  | 安全边界：chat.db 只读；发送只走 Messages.app 自动化；白名单默认拒绝 | 沿用 dsh-im 原则 |
+| D9  | 业务配置走 DSH 官方体系：插件导出 Config Schemastery schema → cordis 加载时校验 → 存 profile；DSH 设置页据 schema 自动生成表单，用户不碰任何 JSON 文件。`~/.dsh-imessage/` 只存运行时状态（state/日志/会话工作区）。插件启停用 DSH 插件列表开关，不设业务级 `enabled`。**白名单约定**：条目必须带区号（设置页表单校验强制，不带/邮箱不合法保存不了）；直接改配置文件的非法条目静默丢弃（归一化后匹配不上任何消息，等价于不在白名单）；系统内不做国家码猜测、无默认区号配置（简化） | 查证 DSH 源码 `packages/settings`（autoGenerate 表单 + 乐观锁/脱敏/HMR）；避免自建配置体系与宿主双轨 |
+
+## 三、总体架构（4 层）
 
 ```
 ┌─ 设置 UI（React + TS）──────────────────────────────────┐
@@ -44,7 +71,7 @@
 
 ---
 
-## 三、核心数据流
+## 四、核心数据流
 
 ### 3.1 收消息（轮询）
 
@@ -95,7 +122,7 @@ scheduler（何时）→ motives（为什么开口）→ mood（warmth 衰减）
 
 ---
 
-## 四、模块地图（重写时的搬运清单）
+## 五、模块地图（重写时的搬运清单）
 
 ### 渠道层（dsh-im: src/channels/imessage/，2,080 行）
 
@@ -142,7 +169,7 @@ scheduler（何时）→ motives（为什么开口）→ mood（warmth 衰减）
 
 ---
 
-## 五、功能全景（基线 642ad21b 之后的 34 个提交）
+## 六、功能全景（基线 642ad21b 之后的 34 个提交）
 
 ### 拟人化输出
 
@@ -190,7 +217,7 @@ scheduler（何时）→ motives（为什么开口）→ mood（warmth 衰减）
 
 ---
 
-## 六、必须保留的关键设计（踩过的坑）
+## 七、必须保留的关键设计（踩过的坑）
 
 ### 6.1 会话绑定事务（孤儿会话 bug）
 
@@ -233,7 +260,7 @@ scheduler（何时）→ motives（为什么开口）→ mood（warmth 衰减）
 
 ---
 
-## 七、存储布局（参考 dsh-im，可沿用设计）
+## 八、存储布局（参考 dsh-im，可沿用设计）
 
 ```
 ~/.dsh/
@@ -254,7 +281,7 @@ scheduler（何时）→ motives（为什么开口）→ mood（warmth 衰减）
 
 ---
 
-## 八、新项目建议结构（Electron + React + TS）
+## 九、立项期建议结构（Electron + React + TS，已被 D1 取代，存档）
 
 ```
 dsh-imessage/
@@ -297,9 +324,26 @@ dsh-imessage/
 
 ---
 
-## 九、安全边界（照抄 dsh-im 的原则）
+## 十、安全边界（照抄 dsh-im 的原则）
 
 - chat.db **只读**查询，绝不写入 Messages 数据库
 - 发送只走 Messages.app 自动化接口
 - 不上传数据库、不存 Apple ID 密码、不把本机授权信息发给前端
 - chat.db 是 macOS 内部库而非公开 API，系统升级需跟进适配
+
+## 十一、风险与预置对策
+
+| 风险 | 对策 |
+| --- | --- |
+| chat.db schema 随 macOS 升级变动 | 查询集中在 chatdb 一个模块；启动做 schema 探测，失败明确报错不静默 |
+| 「插件继承 desktop 权限」假设不成立 | 联调第一时间验证；不成立则引导用户对 DeepSeek Harness.app 补授权。**权限主体是 TCC 责任进程**：desktop 揢件=DeepSeek Harness.app；CLI/web 形态=启动命令的终端 app；dev CLI（终端跑）=终端本身——探测结果只代表当前宿主环境，设置页引导文案需按形态动态说明给哪个 app 授权 |
+| DSH rc 版 apiProxy 接口漂移 | 已收口在 DshPort，只改 host |
+| 与 dsh-im iMessage bot 并行抢消息 | 切换流程：上线前先停 dsh-im 的 iMessage bot；数据根完全独立 |
+| attributedBody 变体解码失败 | fixture 驱动；解码失败降级为占位文本，不丢消息 |
+
+## 十二、参考资料
+
+- DSH 源码：https://github.com/deepseek-ai/deepseek-harness
+  - 插件教程：`docs/user/develop/{basic,framework,practice}`
+- dsh-im 参考实现（事实来源）：https://github.com/xmanrui/dsh-im
+  - 渠道层：`src/channels/imessage/`；绑定事务：`src/channels/shared/workspace-session.mjs`

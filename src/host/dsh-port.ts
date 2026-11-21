@@ -2,7 +2,7 @@
 //
 // 这是内核与 DSH 框架的唯一接缝（M3 定案）：DSH rc 升级的接口漂移
 // 只波及本文件与 dsh-api.ts。全部行为依据实测事实（探针互证 + 源码
-// 事实，见 docs/host-api/*.md）：
+// 事实，见 docs/host-integration/host-api/*.md）：
 // - createSession：mkdir 先行 → workspace.create → agents.create（必带
 //   agentOptions）→ attach → rename（收 Session 对象）；attach/rename
 //   失败回滚 dispose（不留孤儿活 agent）
