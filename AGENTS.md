@@ -20,6 +20,26 @@
   开头（commitlint `subject-case` 规则会拦截，`M2`、`JSONL` 均被拦过）。
 - 提交门：`pnpm check` 全绿（typecheck + lint + build + test）。
 
+## 依赖更新（dependabot）
+
+- 每周自动检查 npm 依赖（github-actions 月度）：minor/patch 聚合组 PR、
+  `@deepseek-ai/*` 单独组、**major 单独开 PR**——不是每个 PR 都该收。
+- 合并前必须评估依赖间兼容性，不能全盘照收：
+  - **宿主注入类依赖**（react 等 bundle externals 平台模块）跟随 DSH
+    宿主版本，不单独升级（例：宿主 client/web 仍 react ^18，react 19
+    PR 已关闭）
+  - DSH 官方包升级注意 apiProxy/类型漂移（DshPort 是唯一接缝 +
+    兼容测试守护）
+  - 工具链 major（typescript/eslint）看下游生态支持范围（例：
+    typescript-eslint 的 peer ts 范围）
+- CI 全绿 ≠ 兼容性没问题（react 19 本地可绿、宿主仍 18——运行时
+  用的是宿主注入的版本）
+- **关闭的 PR 会重开**（weekly 重新检查）；永久忽略写
+  `dependabot.yml` 的 `ignore` 并注明原因，不靠反复手动关闭
+- 合并被分支保护 strict 检查拦住（BEHIND）时：update branch
+  （merge main + push）；**pnpm-lock 冲突不手解**——删 lock 后
+  `pnpm install` 重建
+
 ## 命令
 
 | 命令 | 用途 |
