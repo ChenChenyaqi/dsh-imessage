@@ -74,7 +74,7 @@
     "@deepseek-ai/schemastery": "^3.19.0",
     "@eslint/js": "^10.0.1",
     "@playwright/test": "^1.65.0",
-    "@types/node": "^24.19.2",
+    "@types/node": "^26.6.6",
     "@types/react": "~18.3.31",
     "@types/react-dom": "^18.3.7",
     "@vitest/coverage-v8": "^5.1.0",
