@@ -96,14 +96,15 @@ dsh plugin --profile desktop add @chenchenyaqi/dsh-imessage-preset
 
 | 阶段 | 内容                                                 | 状态 |
 | ---- | ---------------------------------------------------- | ---- |
-| M1   | 骨架 · 类型 · 存储 · i18n · 日志                     | ✅   |
-| M2   | 收发内核（chat.db 轮询 / 解码 / osascript / 拟人化） | ✅   |
-| M3   | 会话路由 · 白名单 · 幂等 · 流水线                    | ✅   |
-| M4   | cordis 宿主 · MVP 收口                               | ✅   |
-| P1   | 收图（HEIC→JPEG）· 引用回复 · 发文件 · 基础命令      | ⏳   |
-| P2   | companion 主动陪伴 · 表情包（设置页 UI 已完成）      | ⏳   |
+| M1   | 底座（类型 · 存储 · i18n · 日志）                    | [x]  |
+| M2   | 收发内核（chat.db 轮询 / 解码 / osascript / 拟人化） | [x]  |
+| M3   | 会话路由 · 白名单 · 幂等 · 流水线                    | [x]  |
+| M4   | cordis 宿主 · MVP 收口                               | [x]  |
+| M5   | 人设预设（dafeiyu 子包 · 设置页下拉）                | [x]  |
+| M6   | 媒体收发（收图 HEIC→JPEG · 发图发文件 · 引用回复）  | [ ]  |
+| M7–M9 | 身份上下文 · 命令打磨 · 主动关怀                     | [ ]  |
 
-详见 [PLAN.md](./docs/PLAN.md)（实施计划）与 [ARCHITECTURE.md](./docs/ARCHITECTURE.md)（架构蓝图）。
+详见 [PLAN.md](./docs/PLAN.md)（里程碑路线图）、[docs/README.md](./docs/README.md)（需求设计索引：每个需求一个目录，固定 `plan.md`）与 [ARCHITECTURE.md](./docs/ARCHITECTURE.md)（dsh-im 解构参考，含已确认决策与风险对策）。
 
 ## 开发
 

@@ -96,14 +96,15 @@ See the log quick-reference table in [AGENTS.md](./AGENTS.md): locate where the 
 
 | Stage | Scope                                                       | Status |
 | ----- | ----------------------------------------------------------- | ------ |
-| M1    | Skeleton · types · stores · i18n · logging                  | ✅     |
-| M2    | Rx/Tx kernel (chat.db polling / decoding / osascript / humanize) | ✅ |
-| M3    | Session routing · allowlist · idempotency · pipeline        | ✅     |
-| M4    | cordis host · MVP wrap-up                                   | ✅     |
-| P1    | Image inbox (HEIC→JPEG) · quoted replies · file sending · basic commands | ⏳ |
-| P2    | Companion proactivity · stickers (settings UI done)         | ⏳     |
+| M1    | Foundation: types · stores · i18n · logging                  | [x]    |
+| M2    | Rx/Tx kernel (chat.db polling / decoding / osascript / humanize) | [x] |
+| M3    | Session routing · allowlist · idempotency · pipeline        | [x]    |
+| M4    | cordis host · MVP wrap-up                                   | [x]    |
+| M5    | Agent preset (dafeiyu package · settings dropdown)          | [x]    |
+| M6    | Media exchange (image inbox HEIC→JPEG · outbound files · quoted replies) | [ ] |
+| M7–M9 | Identity context · command polish · companion outreach      | [ ]    |
 
-See [PLAN.md](./docs/PLAN.md) (implementation plan) and [ARCHITECTURE.md](./docs/ARCHITECTURE.md) (blueprint).
+See [PLAN.md](./docs/PLAN.md) (milestone roadmap), [docs/README.md](./docs/README.md) (per-requirement design index: one directory per requirement, each with a `plan.md`), and [ARCHITECTURE.md](./docs/ARCHITECTURE.md) (dsh-im deconstruction reference, confirmed decisions and risk mitigations).
 
 ## Development
 
