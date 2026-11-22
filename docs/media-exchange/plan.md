@@ -26,8 +26,8 @@
   collector 保序 → pipeline 交付段；发送失败沿用 at-most-once（不重试
   不重复）+ i18n 系统通知；设计见 `outbound-files.md`（含验收记录
   guid 2A02C255 / chat.db rowid 2753 transfer_state=5）
-- [ ] **引用回复（M6.3）**：接收侧线程化引用归一化进 prompt；回复引用携带对方消息里的
-  图片（引用用 Messages 自己的副本，不二次暂存）；设计见 `quoted-replies.md`
+- [ ] **引用回复（M6.3）**：接收侧线程化引用归一化进 prompt；引用携带的图片
+  一并进 ask（分叉待拍板，设计见 `quoted-replies.md`）
 - [ ] **收口**：覆盖率 ≥93% 不降；真机手工验收 checklist 更新；`pnpm check` 全绿
 
 每步收口 = 源文件 + 镜像测试 + `pnpm check` 全绿（沿 M1 惯例）。
