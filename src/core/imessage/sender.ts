@@ -82,6 +82,17 @@ export function buildSendScript(address: string, text: string): string {
 end tell`;
 }
 
+/** 组装附件发送脚本（send POSIX file；实测 macOS 15.7.3 起可用，无需版本门）。 */
+export function buildSendFileScript(address: string, path: string): string {
+  return `tell application "Messages"
+  set serviceList to every service whose service type = iMessage
+  if (count of serviceList) is 0 then error "No iMessage service is available"
+  set targetService to item 1 of serviceList
+  set targetBuddy to buddy ${escapeAppleScriptString(address)} of targetService
+  send POSIX file ${escapeAppleScriptString(path)} to targetBuddy
+end tell`;
+}
+
 // ---------------------------------------------------------------------------
 // 发送器
 // ---------------------------------------------------------------------------
@@ -102,6 +113,8 @@ export interface ImessageSender {
   sendText(address: string, text: string): Promise<void>;
   /** 系统路径：加 [dsh] 前缀一次发出。 */
   sendSystem(address: string, text: string): Promise<void>;
+  /** 附件发送：osascript send POSIX file（暂存文件路径，M6.2）。 */
+  sendFile(address: string, path: string): Promise<void>;
 }
 
 /** 校验地址（借 dsh-im 边界：非空、无换行、≤512）。 */
@@ -115,6 +128,13 @@ function assertAddress(address: string): void {
 function assertText(text: string): void {
   if (typeof text !== 'string' || text.trim() === '') {
     throw new TypeError('iMessage text is required');
+  }
+}
+
+/** 校验附件路径：绝对路径（POSIX file 要求）、无换行、长度上限。 */
+function assertFilePath(path: string): void {
+  if (!path.startsWith('/') || path.length > 2048 || /[\r\n]/.test(path)) {
+    throw new TypeError(`invalid outbound file path: ${JSON.stringify(path)}`);
   }
 }
 
@@ -144,5 +164,14 @@ export function makeSender(deps: SenderDeps = nodeSenderDeps): ImessageSender {
   return {
     sendText: (address, text) => dispatch(address, text),
     sendSystem: (address, text) => dispatch(address, `${DSH_PREFIX} ${text}`),
+    async sendFile(address, path) {
+      assertAddress(address);
+      assertFilePath(path);
+      try {
+        await deps.runOsascript(buildSendFileScript(address, path));
+      } catch (err) {
+        throw classify(err, address);
+      }
+    },
   };
 }

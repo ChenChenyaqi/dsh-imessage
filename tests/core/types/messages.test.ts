@@ -18,9 +18,35 @@ describe('makeNormalizedMessage', () => {
     expect(Object.isFrozen(msg)).toBe(true);
   });
 
-  it('keeps optional quotedText', () => {
-    const msg = makeNormalizedMessage({ ...base, quotedText: '引用原文' });
-    expect(msg.quotedText).toBe('引用原文');
+  it('keeps the optional replyTo quote block (M6.3)', () => {
+    const msg = makeNormalizedMessage({
+      ...base,
+      replyTo: { author: 'us', text: '我早期的回复', unavailable: false },
+    });
+    expect(msg.replyTo).toEqual({ author: 'us', text: '我早期的回复', unavailable: false });
+  });
+
+  it('keeps the optional quotedImage (M6.3)', () => {
+    const msg = makeNormalizedMessage({
+      ...base,
+      quotedImage: {
+        path: '~/Library/Messages/.../q.heic',
+        mediaType: 'image/heic',
+        name: null,
+        bytes: 9,
+      },
+    });
+    expect(msg.quotedImage?.path).toContain('q.heic');
+  });
+
+  it('keeps optional attachments (M6.1 media metadata)', () => {
+    const msg = makeNormalizedMessage({
+      ...base,
+      attachments: [
+        { path: '~/Library/.../IMG.heic', mediaType: 'image/heic', name: 'IMG.heic', bytes: 546 },
+      ],
+    });
+    expect(msg.attachments).toHaveLength(1);
   });
 
   it.each([
@@ -29,7 +55,25 @@ describe('makeNormalizedMessage', () => {
     ['non-boolean fromMe', { ...base, fromMe: 'no' }],
     ['non-string text', { ...base, text: 123 }],
     ['missing conversationKey', { ...base, conversationKey: '' }],
-    ['wrong-typed quotedText', { ...base, quotedText: 7 }],
+    ['wrong author kind', { ...base, replyTo: { author: 'bot', text: 'x' } }],
+    ['replyTo without text', { ...base, replyTo: { author: 'us' } }],
+    [
+      'non-attachment quotedImage',
+      { ...base, quotedImage: { path: '', mediaType: 'image/png', name: null, bytes: 1 } },
+    ],
+    ['non-array attachments', { ...base, attachments: 'nope' }],
+    [
+      'empty attachment path',
+      { ...base, attachments: [{ path: '', mediaType: 'image/png', name: null, bytes: 1 }] },
+    ],
+    [
+      'wrong-typed attachment bytes',
+      { ...base, attachments: [{ path: '/a', mediaType: 'image/png', name: null, bytes: '1' }] },
+    ],
+    [
+      'wrong-typed attachment name',
+      { ...base, attachments: [{ path: '/a', mediaType: 'image/png', name: 3, bytes: 1 }] },
+    ],
   ])('throws on invalid field: %s', (_name, bad) => {
     // @ts-expect-error 故意传入非法数据测试工厂的守卫
     expect(() => makeNormalizedMessage(bad)).toThrow(TypeError);
@@ -45,5 +89,19 @@ describe('isNormalizedMessage', () => {
     expect(isNormalizedMessage(null)).toBe(false);
     expect(isNormalizedMessage([])).toBe(false);
     expect(isNormalizedMessage({ ...base, guid: undefined })).toBe(false);
+  });
+
+  it('validates attachment shapes (M6.1)', () => {
+    const good = {
+      ...base,
+      attachments: [
+        { path: '/a.heic', mediaType: 'image/heic', name: null, bytes: null },
+        { path: '/b.png', mediaType: null, name: 'b.png', bytes: 2 },
+      ],
+    };
+    expect(isNormalizedMessage(good)).toBe(true);
+    expect(isNormalizedMessage({ ...base, attachments: [{ path: '/a', mediaType: 1 }] })).toBe(
+      false,
+    );
   });
 });

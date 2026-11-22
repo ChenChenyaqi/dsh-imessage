@@ -27,11 +27,16 @@
 
 import type { ChatDbRow } from '../imessage/chatdb';
 import { normalizeRows } from '../imessage/normalize';
-import type { ImessageSender, SendError } from '../imessage/sender';
+import type { LoadImagesResult } from '../imessage/media';
+import { type ImessageSender, SendError } from '../imessage/sender';
+import { stageOutboundFile, sweepStaleOutbound, type OutboundDeps } from '../imessage/outbound';
+import type { ArtifactCollector } from './artifacts';
 import { sendHumanized, LEGACY_STYLE, type ReplyStyle } from '../imessage/humanize';
 import type { Logger } from '../log/jsonl';
 import type { AccessPolicy } from '../types/policy';
-import type { DshPort } from '../types/dsh';
+import type { AskPart, DshPort } from '../types/dsh';
+import { IMAGE_PLACEHOLDER } from '../types/dsh';
+import type { MessageAttachment, NormalizedMessage } from '../types/messages';
 import type { ChannelState } from '../types/state';
 import { evaluateGate, markSeen, unmarkSeen } from './gate';
 import type { SessionRouter } from './session-router';
@@ -59,8 +64,17 @@ export interface PipelineDeps {
   readonly sessionSwitchedText: string;
   /** 重试耗尽告知文案（i18n 已渲染）。 */
   readonly replyUnavailableText: string;
+  /** 附件发送失败告知（M6.2）：入参文件名，返回完整通知文本。 */
+  readonly fileFailedNotice: (fileName: string) => string;
   /** 回复风格（分段开关/上限/延时系数）。用时读 → UI 热改立即生效。 */
   readonly replyStyle?: () => ReplyStyle;
+  /** 媒体加载（M6.1 收图；已绑定 IO deps 的高阶面，host 组装层注入）。
+   *  缺省时图片路径降级：纯文本照发、纯图退占位（老环境/测试）。 */
+  readonly media?: { load(attachments: readonly MessageAttachment[]): Promise<LoadImagesResult> };
+  /** 外发交付（M6.2）：缺省 = 无发文件能力，队列残留由下一轮 open 清走。 */
+  readonly collector?: ArtifactCollector;
+  /** 外发暂存 IO（stage/sweep；注入同 media 纪律）。 */
+  readonly outbound?: OutboundDeps;
   readonly loadState: () => ChannelState;
   readonly saveState: (state: ChannelState) => void;
   readonly log?: Pick<Logger, 'info' | 'warn' | 'error'>;
@@ -151,12 +165,75 @@ export async function runPipeline(
     cursor = initialCursor;
   }
 
+  /** 引用块渲染（M6.3 分叉②：单行 Markdown 引用）。prompt 是给 AI 的
+   *  输入而非用户可见回复，文案硬编码（i18n 层只覆盖出站用户文本，
+   *  架构边界不变；占位同 dsh-im 中文同款）。 */
+  const renderQuoteBlock = (replyTo: NonNullable<NormalizedMessage['replyTo']>): string => {
+    if (replyTo.unavailable === true) return '> 引用了一条已不可用的消息';
+    const label = replyTo.author === 'us' ? '你之前发的消息' : '对方之前发的消息';
+    return `> 引用了${label}：${replyTo.text}`;
+  };
+
+  /** 组装 ask prompt（M6.1）：文本 + 图片内容块。
+   *  图片级失败只剔该图（media 层已结构化）；全失败且无文本 → 占位
+   *  兜底（分叉②：空 prompt 会吞消息语义）；media 未装配同款降级。
+   *  M6.3：引用块作为文本前缀（纯引用时引用块即全部正文）；引用图
+   *  排在所有图块最前（分叉④：先因后果），加载链路与正文图同款——
+   *  图加载失败时引用块的 normalize 占位（「一张图片」）仍是完整语义。 */
+  const buildPrompt = async (msg: NormalizedMessage): Promise<string | readonly AskPart[]> => {
+    const quote = msg.replyTo !== undefined ? renderQuoteBlock(msg.replyTo) : null;
+    const bodyText = (): string => {
+      if (quote === null) return msg.text;
+      return msg.text === '' ? quote : `${quote}\n${msg.text}`;
+    };
+    const textFallback = () =>
+      quote !== null ? bodyText() : msg.text === '' ? IMAGE_PLACEHOLDER : msg.text;
+    const attachments: readonly MessageAttachment[] = [
+      ...(msg.quotedImage !== undefined ? [msg.quotedImage] : []),
+      ...(msg.attachments ?? []),
+    ];
+    if (attachments.length === 0) return bodyText();
+    if (!deps.media) return textFallback();
+    let media: LoadImagesResult;
+    try {
+      media = await deps.media.load(attachments);
+    } catch (err) {
+      // 防御：loadImages 契约永不抛，但 fake/未来实现可能破坏契约
+      log?.warn('pipeline.media-failed', {
+        guid: msg.guid,
+        attachments: attachments.length,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return textFallback();
+    }
+    // 仅有附件的消息打点（空批不打点原则不变）；内容永不入日志
+    const reasons: Record<string, number> = {};
+    for (const s of media.skipped) reasons[s.reason] = (reasons[s.reason] ?? 0) + 1;
+    log?.info('pipeline.media-loaded', {
+      guid: msg.guid,
+      loaded: media.loaded.length,
+      skipped: media.skipped.length,
+      ...(Object.keys(reasons).length > 0 ? { reasons } : {}),
+      bytes: media.loaded.reduce((sum, im) => sum + im.bytes.length, 0),
+    });
+    if (media.loaded.length === 0) return textFallback();
+    const parts: AskPart[] = [];
+    const text = bodyText();
+    if (text !== '') parts.push({ type: 'text', text }); // 分叉④：纯图不加 text 块；纯引用的引用块是内容，加
+    for (const im of media.loaded) {
+      parts.push({
+        type: 'image',
+        bytes: im.bytes,
+        mediaType: im.mediaType,
+        ...(im.name !== null ? { name: im.name } : {}),
+      });
+    }
+    return parts;
+  };
+
   /** 处理一条 accepted 消息（claim 已落盘前提下的后半程）。 */
-  const processAccepted = async (
-    key: string,
-    guid: string,
-    text: string,
-  ): Promise<MessageOutcome> => {
+  const processAccepted = async (msg: NormalizedMessage): Promise<MessageOutcome> => {
+    const { conversationKey: key, guid, text } = msg;
     let asked = false; // send 阶段前始终保持可重试
     const askStart = now();
     try {
@@ -171,9 +248,12 @@ export async function runPipeline(
         sessionId: routed.sessionId,
         chars: text.length,
       });
+      // 外发交付队列开轮：清上轮残留（异常中断未取走的旧文件永不混入本轮）
+      deps.collector?.open(routed.sessionId);
+      const prompt = await buildPrompt(msg);
       const chunks: string[] = [];
       let firstDeltaMs: number | undefined;
-      for await (const chunk of port.ask({ sessionId: routed.sessionId, prompt: text, signal })) {
+      for await (const chunk of port.ask({ sessionId: routed.sessionId, prompt, signal })) {
         firstDeltaMs ??= now() - askStart; // 首字延迟：卡顿归因的关键指标
         chunks.push(chunk);
       }
@@ -199,6 +279,68 @@ export async function runPipeline(
         totalMs: now() - sendStart,
         chars: reply.length,
       });
+      // 外发附件交付（M6.2）：文本先行已送；工具声明的文件保序逐个补发。
+      // collector/outbound 缺一（测试/老组装）= 无交付能力：不 take，
+      // 队列留在原地由下一轮 open 清走（不丢不重）。
+      const deliver = deps.collector !== undefined && deps.outbound !== undefined;
+      const artifacts = deliver ? deps.collector!.take(routed.sessionId) : [];
+      if (deliver && artifacts.length > 0) {
+        // 暂存清扫只在确有交付时做一次（纪律：下次发送时顺带，非定时）
+        const swept = await sweepStaleOutbound(deps.outbound!, { now });
+        if (swept.deleted > 0) log?.info('outbound.swept', { deleted: swept.deleted });
+      }
+      for (const artifact of artifacts) {
+        let staged: Awaited<ReturnType<typeof stageOutboundFile>>;
+        try {
+          staged = await stageOutboundFile(artifact.bytes, artifact.fileName, deps.outbound!, {
+            now,
+          });
+        } catch (err) {
+          // at-most-once：暂存失败不重试，继续后续文件（定案同 send）
+          log?.warn('outbound.stage-failed', {
+            guid,
+            key,
+            name: artifact.fileName,
+            error: err instanceof Error ? err.message : String(err),
+          });
+          continue;
+        }
+        log?.info('outbound.staged', {
+          guid,
+          name: artifact.fileName,
+          bytes: artifact.bytes.length,
+        });
+        try {
+          await sender.sendFile(key, staged.path);
+        } catch (err) {
+          // at-most-once：发送失败不重试、不断后续；通知文本是 Step C
+          log?.warn('file-send-failed', {
+            guid,
+            key,
+            name: artifact.fileName,
+            code: err instanceof SendError ? err.kind : 'unknown',
+          });
+          // 分叉 4 定案：告知对方才能补救；系统路径（[dsh] 前缀 instant）。
+          // 通知自身失败不翻案（at-most-once）；权限错误上抛停通道。
+          try {
+            await sender.sendSystem(key, deps.fileFailedNotice(artifact.fileName));
+          } catch (notifyErr) {
+            if (isPermissionError(notifyErr)) throw notifyErr;
+            log?.warn('pipeline.notify-failed', {
+              guid,
+              name: artifact.fileName,
+              error: notifyErr instanceof Error ? notifyErr.message : String(notifyErr),
+            });
+          }
+          continue;
+        }
+        log?.info('file-sent', {
+          guid,
+          key,
+          name: artifact.fileName,
+          bytes: artifact.bytes.length,
+        });
+      }
       return { kind: 'done' };
     } catch (err) {
       if (isPermissionError(err)) return { kind: 'permission-stopped' };
@@ -313,7 +455,7 @@ export async function runPipeline(
           chars: msg.text.length,
         });
 
-        const outcome = await processAccepted(msg.conversationKey, msg.guid, msg.text);
+        const outcome = await processAccepted(msg);
         if (outcome.kind === 'permission-stopped') {
           log?.error('pipeline.permission-stopped', { guid: msg.guid });
           persist(msg.rowId, loadState().seenIds); // 停机前把状态收干净

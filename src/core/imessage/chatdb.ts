@@ -35,6 +35,15 @@ const REQUIRED_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   ],
   chat: ['ROWID', 'guid', 'style'],
   handle: ['ROWID', 'id', 'service'],
+  attachment: [
+    'ROWID',
+    'filename',
+    'mime_type',
+    'is_sticker',
+    'transfer_state',
+    'transfer_name',
+    'total_bytes',
+  ],
 };
 
 /** 增量拉取的原始行（驼峰别名；dateNs 为十进制纳秒字符串）。 */
@@ -54,11 +63,33 @@ export interface ChatDbRow {
   readonly style: number;
   /** 聊天成员数（>1 = 群聊，策略过滤在 normalize 层）。 */
   readonly memberCount: number;
-  /** 主附件（一条消息多附件时本查询展开多行，由 normalize 按 guid 合并）。 */
+  /** 主附件（一条消息多附件时本查询展开多行，由 normalize 按 guid 合并）。
+   * JOIN ON 准入（M6.1 定案）：贴纸/未完成传输
+   * （transfer_state != 5）/无 filename 的附件不匹配——附件字段置空，
+   * 不吞整条消息（放 ON 不放 WHERE）。 */
   readonly attachmentPath: string | null;
   readonly attachmentMime: string | null;
-  /** 引用的原消息文本（thread_originator_guid JOIN）。 */
+  /** 展示名（attachment.transfer_name，可空）。 */
+  readonly attachmentName: string | null;
+  /** 字节数（attachment.total_bytes，可空）。 */
+  readonly attachmentBytes: number | null;
+  /** 引用回复（M6.3）：thread_originator_guid 指向被引用原消息；
+   * 原消息主体字段经 LEFT JOIN q 取出（行不存在 = 原消息已被剪除）。
+   * quotedAttributedBodyHex = hex(q.attributedBody)：text 列空时的兜底
+   * 解码源（dsh-im 91501597 同款）。 */
+  readonly threadOriginatorGuid: string | null;
+  readonly quotedRowId: number | null;
   readonly quotedText: string | null;
+  readonly quotedAttributedBodyHex: string | null;
+  /** 1 = 引用的是我方早期回复（author 'us'）；null = 原消息不存在。 */
+  readonly quotedFromMe: number | null;
+  /** 被引用原消息的附件（M6.3 引用图）：ON 准入同本消息附件
+   * （贴纸/未完成/无 filename 不匹配）。扇出警告（dsh-im 33466aac）：
+   * 引用附件 JOIN 与本消息附件 JOIN 相乘，聚合层必须按 path 去重。 */
+  readonly quotedAttachmentPath: string | null;
+  readonly quotedAttachmentMime: string | null;
+  readonly quotedAttachmentName: string | null;
+  readonly quotedAttachmentBytes: number | null;
   readonly quotedDateNs: string | null;
 }
 
@@ -77,7 +108,17 @@ const FETCH_SQL = `
     COALESCE(mc.member_count, 0) AS memberCount,
     a.filename AS attachmentPath,
     a.mime_type AS attachmentMime,
+    a.transfer_name AS attachmentName,
+    a.total_bytes AS attachmentBytes,
+    m.thread_originator_guid AS threadOriginatorGuid,
+    q.ROWID AS quotedRowId,
     q.text AS quotedText,
+    NULLIF(hex(q.attributedBody), '') AS quotedAttributedBodyHex,
+    q.is_from_me AS quotedFromMe,
+    qa.filename AS quotedAttachmentPath,
+    qa.mime_type AS quotedAttachmentMime,
+    qa.transfer_name AS quotedAttachmentName,
+    qa.total_bytes AS quotedAttachmentBytes,
     CAST(q.date AS TEXT) AS quotedDateNs
   FROM message m
   JOIN chat_message_join cmj ON cmj.message_id = m.ROWID
@@ -89,8 +130,21 @@ const FETCH_SQL = `
   ) mc ON mc.chat_id = c.ROWID
   LEFT JOIN message_attachment_join maj ON maj.message_id = m.ROWID
   LEFT JOIN attachment a ON a.ROWID = maj.attachment_id
+    AND a.is_sticker = 0
+    AND a.transfer_state = 5
+    AND a.filename IS NOT NULL
   LEFT JOIN message q ON q.guid = m.thread_originator_guid
+  LEFT JOIN message_attachment_join qmaj ON qmaj.message_id = q.ROWID
+  LEFT JOIN attachment qa ON qa.ROWID = qmaj.attachment_id
+    AND qa.is_sticker = 0
+    AND qa.transfer_state = 5
+    AND qa.filename IS NOT NULL
   WHERE m.ROWID > ? AND m.is_from_me = 0
+    AND (
+      (m.text IS NOT NULL AND m.text != '')
+      OR m.attributedBody IS NOT NULL
+      OR (a.filename IS NOT NULL AND a.mime_type LIKE 'image/%')
+    )
   ORDER BY m.ROWID ASC
   LIMIT ?
 `;
@@ -135,6 +189,8 @@ export function readMaxRowId(db: DatabaseSync): number | undefined {
 /**
  * 增量拉取：ROWID > afterRowId 的对方消息（is_from_me=0 已在 SQL 过滤），
  * 按 ROWID 升序、最多 limit 行（行≠消息数：多附件会展开，normalize 层合并）。
+ * 空文本+空 BLOB+无完成态图片附件的消息（tapback 等）不返回；纯图消息
+ * 靠 WHERE 的 image 分支纳入（M6.1）。
  */
 export function fetchBatch(db: DatabaseSync, afterRowId: number, limit: number): ChatDbRow[] {
   return db.prepare(FETCH_SQL).all(afterRowId, limit) as unknown as ChatDbRow[];

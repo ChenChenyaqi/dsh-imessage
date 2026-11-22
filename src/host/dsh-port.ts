@@ -14,15 +14,31 @@
 import { randomUUID } from 'node:crypto';
 import { mkdir as fsMkdir } from 'node:fs/promises';
 import { join } from 'node:path';
-import { asSessionId } from '@/core/types/dsh';
-import type { AskInput, AskStream, DshPort, SessionId, SessionStatus } from '@/core/types/dsh';
-import type { HostAgent, HostMessageId, HostSessionId, HostSessionObject } from '@/host/dsh-api';
+import { asSessionId, IMAGE_PLACEHOLDER } from '@/core/types/dsh';
+import type {
+  AskInput,
+  AskPart,
+  AskStream,
+  DshPort,
+  SessionId,
+  SessionStatus,
+} from '@/core/types/dsh';
+import type {
+  HostAgent,
+  HostImageBlock,
+  HostMessageId,
+  HostSessionId,
+  HostSessionObject,
+  HostUserMessage,
+} from '@/host/dsh-api';
 import type {
   HostAgentsService,
   HostAgentDefaultModelService,
+  HostAttachmentsService,
   HostEventPayloads,
   HostLlmFailure,
   HostSessionEvent,
+  HostToolsService,
   HostSessionTitleService,
   HostWorkspaceRegistry,
 } from '@/host/dsh-api';
@@ -62,6 +78,10 @@ export interface DshPortServices {
   readonly sessionTitle: HostSessionTitleService;
   /** 可选：预设注册表（进程内服务，apply 期取一次即可）。 */
   readonly agentPresets?: HostAgentPresetsService;
+  /** 可选：附件服务（老宿主无 = 图片降级不阻塞文本，M6.1）。 */
+  readonly attachments?: HostAttachmentsService;
+  /** 可选：工具服务（老宿主无 = 发文件能力缺，文本不受影响，M6.2）。 */
+  readonly tools?: HostToolsService;
 }
 
 /** 单次 ask 的收口上限：宿主走失 turn/end 时兜底，防单条消息永久堵死通道。 */
@@ -185,6 +205,57 @@ export function makeDshPort(deps: DshPortDeps): DshPort {
     return handle.agent;
   }
 
+  /** ask prompt → followup content 块（M6.1）。
+   *  string 直通；image 块逐图经 attachments.saveImages 签发引用——
+   *  官方 saveImages 全批校验全有全无（任一失败整调 reject），
+   *  单图剔除必须逐图调用。剔除留痕 warn；服务缺失（老宿主）同款
+   *  降级；块全空时占位文本兑底，避免空 content 用户消息。 */
+  async function buildContent(
+    prompt: string | readonly AskPart[],
+  ): Promise<HostUserMessage['content']> {
+    if (typeof prompt === 'string') return [{ type: 'text', text: prompt }];
+    // 官方 content 是 readonly 数组；构造用本地可变数组，返回处收窄
+    const content: ({ type: 'text'; text: string } | HostImageBlock)[] = [];
+    let warnedNoService = false;
+    for (const part of prompt) {
+      if (part.type === 'text') {
+        content.push({ type: 'text', text: part.text });
+        continue;
+      }
+      const svc = services.attachments;
+      if (svc === undefined) {
+        // 同批多图只警告一次（避免刷屏）
+        if (!warnedNoService) {
+          deps.log?.warn('dsh-port.image-skipped', { reason: 'attachments-unavailable' });
+          warnedNoService = true;
+        }
+        continue;
+      }
+      try {
+        const refs = await svc.saveImages([
+          {
+            data: part.bytes,
+            mediaType: part.mediaType,
+            ...(part.name !== undefined ? { name: part.name } : {}),
+          },
+        ]);
+        // 单图调用必返单引用；空返属宿主违约，按剔除处理
+        const ref = refs[0];
+        if (ref !== undefined) {
+          // 接缝 cast：ref 运行时是官方 ImageAttachmentRef，我们只承诺最小面
+          content.push({ type: 'image', attachment: ref });
+        }
+      } catch (err) {
+        deps.log?.warn('dsh-port.image-skipped', {
+          reason: 'save-failed',
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+    if (content.length === 0) content.push({ type: 'text', text: IMAGE_PLACEHOLDER });
+    return content as HostUserMessage['content'];
+  }
+
   /**
    * 事件队列：把宿主的推送式事件转成拉取式迭代。turn/end 是收口信号。
    * 消费方提前退出（break/throw）时经 generator 的 return 钩子卸载监听。
@@ -257,7 +328,7 @@ export function makeDshPort(deps: DshPortDeps): DshPort {
         agent.followup({
           id: randomUUID() as HostMessageId,
           role: 'user',
-          content: [{ type: 'text', text: input.prompt }],
+          content: await buildContent(input.prompt),
           source: { kind: 'user' },
         });
 

@@ -36,9 +36,11 @@ preset 子包（脱敏版 dafeiyu）、会话贯通（composition 创建时定�
 热更只影响新会话）、设置页下拉（remote roster）、逐会话优雅降级。
 具体设计见 `docs/agent-preset/plan.md`。
 
-### M6 · 媒体收发
+### M6 · 媒体收发 → **完成 [x] 2026-11-22**（670 测试全绿，分支覆盖 95.66%）
 收图（HEIC→JPEG 转 sips，以内容块进 ask）、发图/发文件（osascript 附件 +
-tmpdir 暂存纪律）、引用回复携带媒体。验收：真机收发各一条、转码、附件不残留。
+tmpdir 暂存纪律 + imessage_send_file 交付工具）、引用回复携带媒体（引用块
++ 引用图进 ask）。验收（真机）：收发各一条、转码、附件不残留、引用四场景
+（us/them 文字、纯图引用、caption+图）——记录见各设计文档验收段。
 具体设计见 `docs/media-exchange/plan.md`。
 
 ### M7 · 身份与上下文

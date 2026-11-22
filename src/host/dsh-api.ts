@@ -144,6 +144,68 @@ export interface HostTextBlock {
   readonly text: string;
 }
 
+/** 图片内容块（官方 ImageBlock；attachment 为附件服务签发的持久引用，
+ *  非 base64——探针事实，DSH attachment 包 types.ts）。 */
+export interface HostImageBlock {
+  readonly type: 'image';
+  readonly attachment: HostImageAttachmentRef;
+}
+
+/** 附件服务签发的图片引用（官方 ImageAttachmentRef 最小面）。 */
+export interface HostImageAttachmentRef {
+  readonly attachmentId: string;
+  readonly mediaType: string;
+  readonly bytes: number;
+  readonly width: number;
+  readonly height: number;
+  readonly name?: string;
+}
+
+/** saveImages 单图入参（官方 SaveImageAttachment：data 为原始字节）。 */
+export interface HostSaveImageAttachment {
+  readonly data: Uint8Array;
+  readonly mediaType: string;
+  readonly name?: string;
+}
+
+/** 附件服务（cordis 服务名 attachments，宿主内置；老宿主可能无——
+ *  动态获取，缺失时图片降级不阻塞文本）。 */
+export interface HostAttachmentsService {
+  /** 官方语义：全批 validate 后逐个落存，任一失败整个调用 reject。 */
+  saveImages(
+    inputs: readonly HostSaveImageAttachment[],
+  ): Promise<readonly HostImageAttachmentRef[]>;
+}
+
+/** 工具 canonical 输出声明（官方 ToolOutputDefinition 鸭子形状；必填契约）。 */
+export interface HostToolOutputDefinition {
+  readonly schema: Record<string, unknown>;
+  render(args: unknown, value: unknown): readonly unknown[];
+}
+
+/** 已注册工具（官方 ToolDefinition 鸭子形状；本插件只声明用到的面）。
+ *  源码坐标：dsh-tools contracts.ts `ToolDefinition`（output 必填契约、
+ *  execute(args, exec)）；exec.agent 字段复用 HostBareAgent——官方
+ *  `Agent` 接口身份字段是 `id`（dsh-agent types.ts，SessionId 类型），
+ *  **不是** sessionId（那是 CreateAgentOptions 的字段；2026-11-22
+ *  真机事故：错读 exec.agent.sessionId 恒 undefined，路由校验必败）。 */
+export interface HostToolDefinition {
+  readonly name: string;
+  readonly description: string;
+  /** JSON Schema（官方 parameters：Record<string, unknown>）。 */
+  readonly parameters: Record<string, unknown>;
+  readonly output: HostToolOutputDefinition;
+  /** 执行面：args 为模型参数（schema 自校验）；返回值会被宿主按
+   *  output.schema 严格校验（dsh-tools pipeline.ts validateJsonSchemaValue）。 */
+  execute(args: unknown, exec: { readonly agent?: HostBareAgent }): Promise<unknown>;
+}
+
+/** tools 服务最小面（动态探测；老宿主无 = 发文件能力缺，文本不受影响）。 */
+export interface HostToolsService {
+  /** 注册返回卸载函数（官方语义）。 */
+  register(definition: HostToolDefinition): () => void;
+}
+
 /** 用户消息（官方 UserMessage；探针实测：缺 role:'user' 的消息 resume 时
  *  报 SessionPersistenceCorruptionError，构造时必带 role）。 */
 export type HostUserMessage = import('@deepseek-ai/dsh-llm/types').UserMessage;

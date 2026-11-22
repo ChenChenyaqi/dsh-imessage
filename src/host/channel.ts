@@ -9,6 +9,10 @@
 // - 探测通过但 db 打不开 → start-failed（与权限失败分开归因）
 
 import type { DatabaseSync } from 'node:sqlite';
+import { execFile } from 'node:child_process';
+import { homedir, tmpdir } from 'node:os';
+import { readFile, readdir, rm, stat, unlink, writeFile } from 'node:fs/promises';
+import { promisify } from 'node:util';
 import type { Locale } from '@/core/i18n';
 import { makeT } from '@/core/i18n';
 import type { ReplyStyle } from '@/core/imessage/humanize';
@@ -18,12 +22,18 @@ import { makeSender } from '@/core/imessage/sender';
 import { defaultChatDbPath, nodeProbeDeps, probeEnvironment } from '@/core/imessage/env';
 import type { ProbeDeps } from '@/core/imessage/env';
 import { fetchBatch, openChatDb, readMaxRowId } from '@/core/imessage/chatdb';
+import { loadImages } from '@/core/imessage/media';
+import type { LoadImagesResult, MediaDeps } from '@/core/imessage/media';
+import type { MessageAttachment } from '@/core/types/messages';
 import type { LogSink, Logger } from '@/core/log/jsonl';
 import { makeFileSink, makeLogger } from '@/core/log/jsonl';
 import { resolvePaths } from '@/core/paths';
 import type { Paths } from '@/core/paths';
 import { runPipeline } from '@/core/router/pipeline';
+import { makeArtifactCollector } from '@/core/router/artifacts';
 import { makeSessionRouter } from '@/core/router/session-router';
+import type { OutboundDeps } from '@/core/imessage/outbound';
+import { installDeliverTool } from '@/host/deliver-tool';
 import { loadState, saveState } from '@/core/stores/state-store';
 import type { EnvProbe } from '@/core/imessage/env';
 import { makeDshPort } from '@/host/dsh-port';
@@ -61,6 +71,15 @@ export interface ChannelEnv {
   readonly probe?: ProbeDeps;
   /** 发送器（默认 makeSender() 走真 osascript；测试注入 fake）。 */
   readonly sender?: ImessageSender;
+  /** 媒体加载器（默认 node 真 IO 绑定；测试注入 fake，M6.1）。 */
+  readonly media?: { load(attachments: readonly MessageAttachment[]): Promise<LoadImagesResult> };
+  /** 外发暂存 IO（默认 node 真 fs；测试注入 fake，M6.2）。 */
+  readonly outbound?: OutboundDeps;
+  /** 交付工具文件读依赖（默认 node 真 fs；测试注入 fake，M6.2）。 */
+  readonly deliverToolFs?: {
+    readFile(path: string): Promise<Uint8Array>;
+    stat(path: string): Promise<{ size: number }>;
+  };
   /** chat.db 打开（默认 openChatDb；测试注入内存库）。 */
   readonly openDb?: (path: string) => DatabaseSync;
   /** chat.db 路径（默认 defaultChatDbPath）。 */
@@ -69,6 +88,35 @@ export interface ChannelEnv {
   readonly logSink?: LogSink;
   /** 轮询/打字 sleep（默认真 sleep；测试注入 no-op）。 */
   readonly sleep?: (ms: number, signal?: AbortSignal) => Promise<void>;
+}
+
+// ---------------------------------------------------------------------------
+// node 媒体依赖（真 IO；core 无真 IO，组装层绑定）
+// ---------------------------------------------------------------------------
+
+/** readFile/writeFile/unlink/sips/tmpdir/homedir 的真实现绑定。 */
+const execFileAsync = promisify(execFile);
+
+export function nodeMediaDeps(): MediaDeps {
+  return {
+    readFile: (path) => readFile(path),
+    writeFile: (path, data) => writeFile(path, data),
+    unlink: (path) => unlink(path),
+    exec: (cmd, args) => execFileAsync(cmd, args).then(() => undefined),
+    tmpdir,
+    homedir,
+  };
+}
+
+/** 外发暂存/清扫真 fs 绑定（M6.2；同 nodeMediaDeps 纪律）。 */
+export function nodeOutboundDeps(): OutboundDeps {
+  return {
+    tmpdir,
+    writeFile: (path, data, mode) => writeFile(path, data, { mode }),
+    readdir: (dir) => readdir(dir),
+    stat: (path) => stat(path).then((s) => ({ mtimeMs: s.mtimeMs })),
+    rm: (path) => rm(path),
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -247,9 +295,22 @@ export function startImessageChannel(config: ChannelConfig, env: ChannelEnv): Ch
 
   // -- 全组件组装 -------------------------------------------------------
   const sender = env.sender ?? makeSender();
+  // 媒体加载：node 真 IO 绑定（sips/heic 转码细节在 core/imessage/media）
+  const media = env.media ?? {
+    load: (atts: readonly MessageAttachment[]) => loadImages(atts, nodeMediaDeps()),
+  };
   const t = makeT(live.locale);
   const stateFile = paths.stateFile;
   const controller = new AbortController();
+
+  // 外发交付（M6.2）：collector 在工具执行（ask 流内）与 pipeline 交付段
+  //（reply-sent 后）之间接力；暂存/清扫走 nodeOutboundDeps 真 fs
+  const collector = makeArtifactCollector();
+  const outbound = env.outbound ?? nodeOutboundDeps();
+  const deliverToolFs = env.deliverToolFs ?? {
+    readFile: (path: string) => readFile(path),
+    stat: (path: string) => stat(path).then((s) => ({ size: s.size })),
+  };
 
   const port = makeDshPort({
     services: env.services,
@@ -275,12 +336,23 @@ export function startImessageChannel(config: ChannelConfig, env: ChannelEnv): Ch
     policy: { allowlist: config.allowlist ?? [] },
     sessionSwitchedText: t('session.switched'),
     replyUnavailableText: t('reply.unavailable'),
+    fileFailedNotice: (fileName: string) => t('file.sendFailed', { name: fileName }),
     replyStyle: () => live.style,
+    media,
+    collector,
+    outbound,
     loadState: () => loadState(stateFile),
     saveState: (state: Parameters<typeof saveState>[1]) => saveState(stateFile, state),
     log,
   };
   mutableDeps.current = deps;
+
+  // 交付工具注册（探测通过后的组装区 = 只在通道可用时给 AI 这个工具；
+  // stop 时卸载）。无 tools 服务的老宿主 = installDeliverTool 返回 no-op。
+  const uninstallDeliverTool = installDeliverTool(
+    { tools: env.services.tools, collector, conversationKeyOf: router.conversationKeyOf },
+    { ...deliverToolFs, log },
+  );
   const run = runPipeline(deps, {
     signal: controller.signal,
     intervalMs: config.intervalMs,
@@ -333,6 +405,7 @@ export function startImessageChannel(config: ChannelConfig, env: ChannelEnv): Ch
     stopped = true;
     // 卸载/禁用/宿主关闭都走这里：先留痕再中止
     log.info('channel.stop-requested');
+    uninstallDeliverTool();
     controller.abort();
     try {
       await settled;

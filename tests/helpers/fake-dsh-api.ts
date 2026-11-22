@@ -423,7 +423,8 @@ export function makeFakeDshHost(): FakeDshHost {
           const script = scripts.shift() ?? { kind: 'reply', text: '', chunkPauseMs: 0 };
           const first = message.content[0];
           const text = first !== undefined && 'text' in first ? first.text : '';
-          log.push({ kind: 'agent.followup', sessionId, text });
+          // 完整 content 一并落盘（M6.1：断言 image 块与顺序）
+          log.push({ kind: 'agent.followup', sessionId, text, content: message.content });
           record.run = runScript(record, script, message).finally(() => {
             record.run = undefined;
           });

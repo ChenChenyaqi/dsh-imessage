@@ -9,6 +9,9 @@ import type { AccessPolicy } from '@/core/types/policy';
 import { makeChannelState, type ChannelState } from '@/core/types/state';
 import { makeFakeDshPort } from '../../helpers/fake-dsh-port';
 import { makeFakeSender } from '../../helpers/fake-sender';
+import { makeFakeOutbound } from '../../helpers/fake-outbound';
+import { makeArtifactCollector } from '@/core/router/artifacts';
+import { OUTBOUND_PREFIX } from '@/core/imessage/outbound';
 import { makeRow } from '../../helpers/chatdb-rows';
 import type { Logger } from '@/core/log/jsonl';
 
@@ -21,6 +24,8 @@ const SWITCHED_TEXT = '上一个对话已被归档，我开启了新对话继续
 const UNAVAILABLE_TEXT = '这条我暂时回不了，稍后再问一次吧';
 
 interface Harness {
+  /** 外发交付队列（未注入 = undefined；M6.2 用例注入）。 */
+  readonly collector: import('@/core/router/pipeline').PipelineDeps['collector'];
   /** 跑到 idle（fetch 队列耗尽）返回 RunResult。可覆盖 options（测试边角分支用）。 */
   run(overrides?: Partial<PipelineOptions>): ReturnType<typeof runPipeline>;
   /** 预填一批行（按序消费）。 */
@@ -48,7 +53,14 @@ interface Harness {
 
 type ChannelStateDraft = import('@/core/types/state').ChannelState;
 
-function makeHarness(initialMaxRowId = 4): Harness {
+function makeHarness(
+  initialMaxRowId = 4,
+  over: {
+    media?: import('@/core/router/pipeline').PipelineDeps['media'];
+    collector?: import('@/core/router/pipeline').PipelineDeps['collector'];
+    outbound?: import('@/core/router/pipeline').PipelineDeps['outbound'];
+  } = {},
+): Harness {
   let state: ChannelStateDraft = makeChannelState();
   const port = makeFakeDshPort();
   const sender = makeFakeSender();
@@ -105,9 +117,13 @@ function makeHarness(initialMaxRowId = 4): Harness {
     policy: makePolicy(['+8613800000000']),
     sessionSwitchedText: SWITCHED_TEXT,
     replyUnavailableText: UNAVAILABLE_TEXT,
+    fileFailedNotice: (name: string) => `[file-failed] ${name}`,
     loadState: () => state,
     saveState,
     log,
+    ...(over.media === undefined ? {} : { media: over.media }),
+    ...(over.collector === undefined ? {} : { collector: over.collector }),
+    ...(over.outbound === undefined ? {} : { outbound: over.outbound }),
   } as Parameters<typeof runPipeline>[0];
   // fetchRows 的停机信号由 run 每次注入（独立的 abort 信号 = 独立进程生命周期）
   let controllerAbort: () => void = () => {};
@@ -115,6 +131,7 @@ function makeHarness(initialMaxRowId = 4): Harness {
   return {
     port,
     sender,
+    collector: over.collector,
     state: () => state,
     sleeps,
     fetchCursors,
@@ -835,9 +852,585 @@ describe('pipeline · edge coverage', () => {
 });
 
 // ---------------------------------------------------------------------------
+// 媒体内容块（M6.1）
+// ---------------------------------------------------------------------------
+
+describe('runPipeline · media blocks', () => {
+  const IMAGE_BYTES = new Uint8Array([1, 2, 3]);
+
+  /** 可编程 fake media：返回固定结果或抛错。 */
+  function fakeMedia(result: import('@/core/imessage/media').LoadImagesResult | Error) {
+    return {
+      load: async () => {
+        if (result instanceof Error) throw result;
+        return result;
+      },
+    };
+  }
+
+  const loadedImage = {
+    bytes: IMAGE_BYTES,
+    mediaType: 'image/jpeg' as const,
+    name: 'IMG.jpg',
+  };
+
+  it('sends text + image blocks when media loads', async () => {
+    const h = makeHarness(4, { media: fakeMedia({ loaded: [loadedImage], skipped: [] }) });
+    h.feed([
+      makeRow({
+        rowid: 5,
+        guid: 'G-IMG',
+        text: '看这张图',
+        attachmentPath: '~/a.heic',
+        attachmentMime: 'image/heic',
+        attachmentName: 'a.heic',
+        attachmentBytes: 100,
+      }),
+    ]);
+    await h.run();
+    expect(h.port.askCalls[0]!.prompt).toEqual([
+      { type: 'text', text: '看这张图' },
+      { type: 'image', bytes: IMAGE_BYTES, mediaType: 'image/jpeg', name: 'IMG.jpg' },
+    ]);
+  });
+
+  it('omits the text block for image-only messages (分叉④)', async () => {
+    const h = makeHarness(4, { media: fakeMedia({ loaded: [loadedImage], skipped: [] }) });
+    h.feed([
+      makeRow({
+        rowid: 5,
+        guid: 'G-PURE',
+        text: null,
+        attributedBody: null,
+        attachmentPath: '~/b.png',
+        attachmentMime: 'image/png',
+      }),
+    ]);
+    await h.run();
+    expect(h.port.askCalls[0]!.prompt).toEqual([
+      { type: 'image', bytes: IMAGE_BYTES, mediaType: 'image/jpeg', name: 'IMG.jpg' },
+    ]);
+  });
+
+  it('falls back to plain text when every image fails but text exists', async () => {
+    const h = makeHarness(
+      4,
+      // 全部附件被 media 层跳过（read-failed）
+      { media: fakeMedia({ loaded: [], skipped: [{ path: '~/a.heic', reason: 'read-failed' }] }) },
+    );
+    h.feed([
+      makeRow({
+        rowid: 5,
+        guid: 'G-FAIL',
+        text: '图挂了但我说正事',
+        attachmentPath: '~/a.heic',
+        attachmentMime: 'image/heic',
+      }),
+    ]);
+    await h.run();
+    expect(h.port.askCalls[0]!.prompt).toBe('图挂了但我说正事');
+  });
+
+  it('falls back to the image placeholder for failed image-only messages', async () => {
+    const h = makeHarness(4, {
+      media: fakeMedia({ loaded: [], skipped: [{ path: '~/b.png', reason: 'read-failed' }] }),
+    });
+    h.feed([
+      makeRow({
+        rowid: 5,
+        guid: 'G-PURE-FAIL',
+        text: null,
+        attributedBody: null,
+        attachmentPath: '~/b.png',
+        attachmentMime: 'image/png',
+      }),
+    ]);
+    await h.run();
+    expect(h.port.askCalls[0]!.prompt).toBe('[image]');
+  });
+
+  it('degrades to text when media is not wired (legacy env)', async () => {
+    const h = makeHarness(); // 不注入 media
+    h.feed([
+      makeRow({
+        rowid: 5,
+        guid: 'G-NO-MEDIA',
+        text: '老环境纯文本',
+        attachmentPath: '~/a.heic',
+        attachmentMime: 'image/heic',
+      }),
+    ]);
+    await h.run();
+    expect(h.port.askCalls[0]!.prompt).toBe('老环境纯文本');
+    // 未装配 media 的纯图消息也兑底占位，不空发
+    const h2 = makeHarness();
+    h2.feed([
+      makeRow({
+        rowid: 5,
+        guid: 'G-PURE-NO-MEDIA',
+        text: null,
+        attributedBody: null,
+        attachmentPath: '~/c.png',
+        attachmentMime: 'image/png',
+      }),
+    ]);
+    await h2.run();
+    expect(h2.port.askCalls[0]!.prompt).toBe('[image]');
+  });
+
+  it('logs media-loaded with counts, reason distribution and byte sum', async () => {
+    const h = makeHarness(4, {
+      media: fakeMedia({
+        loaded: [loadedImage, { bytes: new Uint8Array([9]), mediaType: 'image/png', name: null }],
+        skipped: [
+          { path: '~/x.mov', reason: 'not-image' },
+          { path: '~/y.mov', reason: 'not-image' },
+          { path: '~/z.tiff', reason: 'unsupported-media-type' },
+        ],
+      }),
+    });
+    h.feed([
+      makeRow({
+        rowid: 5,
+        guid: 'G-LOG',
+        text: '多附件',
+        attachmentPath: '~/a.heic',
+        attachmentMime: 'image/heic',
+      }),
+    ]);
+    await h.run();
+    const line = h.logLines.find((l) => l.event === 'pipeline.media-loaded');
+    expect(line).toBeDefined();
+    expect(line!.fields).toMatchObject({
+      guid: 'G-LOG',
+      loaded: 2,
+      skipped: 3,
+      reasons: { 'not-image': 2, 'unsupported-media-type': 1 },
+      bytes: IMAGE_BYTES.length + 1,
+    });
+  });
+
+  it('does not log media events for plain text messages', async () => {
+    const h = makeHarness();
+    h.feed([makeRow({ rowid: 5, guid: 'G-PLAIN', text: '纯文本' })]);
+    await h.run();
+    expect(h.logLines.some((l) => l.event.startsWith('pipeline.media'))).toBe(false);
+  });
+
+  it('warns media-failed and degrades when load rejects (contract breach)', async () => {
+    const h = makeHarness(4, { media: fakeMedia(new Error('fake media exploded')) });
+    h.feed([
+      makeRow({
+        rowid: 5,
+        guid: 'G-THROW',
+        text: '文本照发',
+        attachmentPath: '~/a.heic',
+        attachmentMime: 'image/heic',
+      }),
+    ]);
+    await h.run();
+    expect(h.port.askCalls[0]!.prompt).toBe('文本照发');
+    const warn = h.logLines.find((l) => l.event === 'pipeline.media-failed');
+    expect(warn).toBeDefined();
+    expect(warn!.fields).toMatchObject({ guid: 'G-THROW', attachments: 1 });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 外发附件交付（M6.2 Step B）：文本先行已送 → collector 保序逐个补发
+// ---------------------------------------------------------------------------
+
+describe('pipeline · outbound delivery (M6.2)', () => {
+  /** 模拟 ask 流内工具声明交付：ask 流结束时（仍早于 pipeline take）入队。 */
+  function queueAskWithArtifacts(
+    h: ReturnType<typeof makeHarness>,
+    artifacts: Array<{ bytes: number[]; name: string }>,
+  ) {
+    h.port.queueAsk({
+      chunks: ['图来咯'],
+      onEnd: () => {
+        const sessionId = h.port.askCalls.at(-1)!.sessionId;
+        for (const a of artifacts) {
+          h.collector!.push(sessionId, { bytes: new Uint8Array(a.bytes), fileName: a.name });
+        }
+      },
+    });
+  }
+
+  it('delivers artifacts in order after the text reply, with staged paths and logs', async () => {
+    const outbound = makeFakeOutbound();
+    const h = makeHarness(4, { collector: makeArtifactCollector(), outbound: outbound.deps });
+    queueAskWithArtifacts(h, [
+      { bytes: [1], name: 'a.png' },
+      { bytes: [2, 2], name: 'b.pdf' },
+    ]);
+    h.feed([R5()]);
+    await h.run();
+
+    // 顺序：文本先行 → 文件保序
+    expect(h.sender.sent.map((c) => c.kind)).toEqual(['text', 'file', 'file']);
+    const fileCalls = h.sender.sent.filter((c) => c.kind === 'file');
+    expect(fileCalls[0]!.path!.endsWith('-a.png')).toBe(true); // 保序：先 a 后 b
+    expect(fileCalls[1]!.path!.endsWith('-b.pdf')).toBe(true);
+    // 暂存路径：tmpdir + 自有前缀 + mode 0600
+    for (const call of fileCalls) {
+      expect(call.path!.startsWith(`/var/folders/t/${OUTBOUND_PREFIX}`)).toBe(true);
+      expect(outbound.files.get(call.path!)!.mode).toBe(0o600);
+    }
+    // 日志链：staged → file-sent（每文件）
+    const events = h.logLines.map((l) => l.event);
+    expect(events).toContain('outbound.staged');
+    expect(events.filter((e) => e === 'file-sent')).toHaveLength(2);
+    const sent = h.logLines.find((l) => l.event === 'file-sent')!;
+    expect(sent.fields).toMatchObject({ name: 'a.png', bytes: 1 });
+  });
+
+  it('sweeps stale staged files once before delivery (only when artifacts exist)', async () => {
+    const outbound = makeFakeOutbound(10 * 60 * 60_000);
+    outbound.put(`/var/folders/t/${OUTBOUND_PREFIX}old.png`, 0); // 已过期
+    const h = makeHarness(4, { collector: makeArtifactCollector(), outbound: outbound.deps });
+    queueAskWithArtifacts(h, [{ bytes: [1], name: 'fresh.png' }]);
+    h.feed([R5()]);
+    await h.run();
+
+    expect(outbound.files.has(`/var/folders/t/${OUTBOUND_PREFIX}old.png`)).toBe(false);
+    expect(h.logLines.find((l) => l.event === 'outbound.swept')!.fields).toEqual({ deleted: 1 });
+  });
+
+  it('does not sweep when nothing is queued (no delivery = no sweep)', async () => {
+    const outbound = makeFakeOutbound(10 * 60 * 60_000);
+    outbound.put(`/var/folders/t/${OUTBOUND_PREFIX}old.png`, 0);
+    const h = makeHarness(4, { outbound: outbound.deps }); // 无 collector：纯文本轮
+    h.feed([R5()]);
+    await h.run();
+
+    expect(outbound.files.has(`/var/folders/t/${OUTBOUND_PREFIX}old.png`)).toBe(true);
+    expect(h.logLines.some((l) => l.event === 'outbound.swept')).toBe(false);
+  });
+
+  it('keeps delivering after one file fails (at-most-once, no retry)', async () => {
+    const outbound = makeFakeOutbound();
+    const h = makeHarness(4, { collector: makeArtifactCollector(), outbound: outbound.deps });
+    h.sender.failFileAt(0, new SendError('send-failed', '+8613800000000'));
+    queueAskWithArtifacts(h, [
+      { bytes: [1], name: 'doomed.png' },
+      { bytes: [2], name: 'survivor.png' },
+    ]);
+    h.feed([R5()]);
+    const result = await h.run();
+
+    expect(result.processed).toBe(1); // 消息仍 done：附件失败不改文本终态
+    // 失败的 sendFile 不进 sent（fake 失败即 throw）；成功的只有第二个
+    const names = h.sender.sent
+      .filter((c) => c.kind === 'file')
+      .map((c) => c.path!.split('/').pop()!);
+    expect(names).toHaveLength(1); // 第一个失败后第二个照发
+    expect(names[0]!.endsWith('-survivor.png')).toBe(true);
+    const fail = h.logLines.find((l) => l.event === 'file-send-failed')!;
+    expect(fail.fields).toMatchObject({ name: 'doomed.png', code: 'send-failed' });
+    expect(h.logLines.filter((l) => l.event === 'file-sent')).toHaveLength(1);
+  });
+
+  it('isolates stage failures per file and skips to the next', async () => {
+    const outbound = makeFakeOutbound();
+    const h = makeHarness(4, { collector: makeArtifactCollector(), outbound: outbound.deps });
+    queueAskWithArtifacts(h, [
+      { bytes: [1], name: 'first.png' },
+      { bytes: [2], name: 'second.png' },
+    ]);
+    h.feed([R5()]);
+    outbound.failWriteAt = 1; // 第一个暂存写入失败（按序注入）
+    await h.run();
+
+    const names = h.sender.sent
+      .filter((c) => c.kind === 'file')
+      .map((c) => c.path!.split('/').pop()!);
+    expect(names).toHaveLength(1); // 第一个 stage 失败跳过，第二个照发
+    expect(names[0]!.endsWith('-second.png')).toBe(true);
+    expect(h.logLines.find((l) => l.event === 'outbound.stage-failed')!.fields).toMatchObject({
+      name: 'first.png',
+      error: 'disk full',
+    });
+  });
+
+  it('stringifies non-Error stage failures in the log fields', async () => {
+    const outbound = makeFakeOutbound();
+    const h = makeHarness(4, { collector: makeArtifactCollector(), outbound: outbound.deps });
+    queueAskWithArtifacts(h, [{ bytes: [1], name: 'raw.png' }]);
+    h.feed([R5()]);
+    outbound.failWriteAt = 1;
+    outbound.failWriteWith = 'raw disk error'; // 非 Error 抛出物
+    await h.run();
+
+    expect(h.logLines.find((l) => l.event === 'outbound.stage-failed')!.fields).toMatchObject({
+      error: 'raw disk error',
+    });
+  });
+
+  it('codes non-SendError send failures as unknown', async () => {
+    const outbound = makeFakeOutbound();
+    const h = makeHarness(4, { collector: makeArtifactCollector(), outbound: outbound.deps });
+    h.sender.failFileAt(0, new Error('plain failure')); // 非 SendError
+    queueAskWithArtifacts(h, [{ bytes: [1], name: 'x.png' }]);
+    h.feed([R5()]);
+    await h.run();
+
+    expect(h.logLines.find((l) => l.event === 'file-send-failed')!.fields).toMatchObject({
+      name: 'x.png',
+      code: 'unknown',
+    });
+  });
+
+  it('notifies the contact with the file name after a send failure (system path)', async () => {
+    const outbound = makeFakeOutbound();
+    const h = makeHarness(4, { collector: makeArtifactCollector(), outbound: outbound.deps });
+    h.sender.failFileAt(0, new SendError('send-failed', '+8613800000000'));
+    queueAskWithArtifacts(h, [{ bytes: [1], name: 'doc.pdf' }]);
+    h.feed([R5()]);
+    await h.run();
+
+    const notice = h.sender.sent.find((c) => c.kind === 'system');
+    expect(notice!.text).toBe('[file-failed] doc.pdf');
+  });
+
+  it('swallows non-permission notice failures (at-most-once, message still done)', async () => {
+    const outbound = makeFakeOutbound();
+    const h = makeHarness(4, { collector: makeArtifactCollector(), outbound: outbound.deps });
+    h.sender.failFileAt(0, new SendError('send-failed', '+8613800000000'));
+    h.sender.failNextSystem(new Error('notify down'));
+    queueAskWithArtifacts(h, [{ bytes: [1], name: 'y.png' }]);
+    h.feed([R5()]);
+    const result = await h.run();
+
+    expect(result.processed).toBe(1);
+    expect(h.logLines.find((l) => l.event === 'pipeline.notify-failed')!.fields).toMatchObject({
+      name: 'y.png',
+      error: 'notify down',
+    });
+  });
+
+  it('propagates permission errors from the notice so the channel stops', async () => {
+    const outbound = makeFakeOutbound();
+    const h = makeHarness(4, { collector: makeArtifactCollector(), outbound: outbound.deps });
+    h.sender.failFileAt(0, new SendError('send-failed', '+8613800000000'));
+    h.sender.failNextSystem(permissionErr());
+    queueAskWithArtifacts(h, [{ bytes: [1], name: 'z.png' }]);
+    h.feed([R5()]);
+    const result = await h.run();
+
+    expect(result.reason).toBe('permission-stopped');
+  });
+
+  it('opens each turn: stale artifacts from an interrupted turn never leak', async () => {
+    const outbound = makeFakeOutbound();
+    const collector = makeArtifactCollector();
+    const h = makeHarness(4, { collector, outbound: outbound.deps });
+    // 第一轮：工具声明了交付，但 ask 流中途抛错 → 消息进 retry，残留未取走
+    h.port.queueAsk({ chunks: ['partial'], failWith: new Error('ask blew up') });
+    h.feed([R5({ guid: 'm5-throw' })]);
+    await h.run();
+    const staleSessionId = h.port.askCalls[0]!.sessionId;
+    collector.push(staleSessionId, { bytes: new Uint8Array([9]), fileName: 'stale.png' });
+
+    // 第二轮：同一会话正常回复，无新声明 → 只有文本，无残留文件
+    h.feed([R5({ rowid: 6, guid: 'm6' })]);
+    await h.run();
+
+    expect(h.sender.sent.filter((c) => c.kind === 'file')).toHaveLength(0);
+    expect(collector.take(staleSessionId)).toEqual([]); // 残留已被 open 清走
+  });
+
+  it('stays inert without collector/outbound deps (old assembly regression)', async () => {
+    // 默认 harness 无 collector/outbound：即使工具层 somehow push 了（不该发生），
+    // 交付段也不启动——现有全部用例即回归证明，这里补一条显式零行为断言
+    const h = makeHarness(4);
+    h.feed([R5()]);
+    await h.run();
+    expect(h.sender.sent.map((c) => c.kind)).toEqual(['text']);
+    expect(h.logLines.some((l) => l.event.startsWith('outbound.') || l.event === 'file-sent')).toBe(
+      false,
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 非 Error 抛出物兑底（防御分支：三方库/字符串 throw 真实存在，日志不得崩）
+// ---------------------------------------------------------------------------
+
+describe('pipeline · non-Error throwables stringify safely', () => {
+  it('send stage: string throwable in send-failed fields', async () => {
+    const h = makeHarness();
+    h.sender.failTextAt(0, 'raw send error' as unknown as Error);
+    h.feed([R5()]);
+    await h.run();
+    expect(h.logLines.find((l) => l.event === 'pipeline.send-failed')!.fields).toMatchObject({
+      error: 'raw send error',
+    });
+  });
+
+  it('pre-ask stage: string throwable in message-failed fields', async () => {
+    const h = makeHarness();
+    h.port.failNextCreate('raw create error' as unknown as Error);
+    h.feed([R5()]);
+    await h.run();
+    expect(h.logLines.find((l) => l.event === 'pipeline.message-failed')!.fields).toMatchObject({
+      error: 'raw create error',
+    });
+  });
+
+  it('fetch stage: string throwable in fetch-failed fields', async () => {
+    const h = makeHarness();
+    h.feedFetchError('raw fetch error' as unknown as Error);
+    await h.run();
+    expect(h.logLines.find((l) => l.event === 'pipeline.fetch-failed')!.fields).toMatchObject({
+      error: 'raw fetch error',
+    });
+  });
+
+  it('notify stage: string throwable in notify-failed fields', async () => {
+    const h = makeHarness();
+    for (let i = 0; i < 3; i++) h.feed([R5()]);
+    for (let i = 0; i < 3; i++) h.port.queueAsk({ chunks: [], failWith: new Error('dsh down') });
+    h.sender.failNextSystem('raw notify error' as unknown as Error);
+    await h.run(); // 三连败耗尽 → 告知发送抛非 Error
+    expect(h.logLines.find((l) => l.event === 'pipeline.notify-failed')!.fields).toMatchObject({
+      error: 'raw notify error',
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
 // helpers
 // ---------------------------------------------------------------------------
 
 function permissionErr(): Error {
   return new SendError('automation-permission', '+8613800000000', new Error('-1743'));
 }
+
+// ---------------------------------------------------------------------------
+// M6.3 引用回复：引用块进 prompt + 引用图进图片块（分叉 1α/2α/4α）
+// ---------------------------------------------------------------------------
+
+describe('runPipeline · quoted replies', () => {
+  /** 按 path 映射结果的 fake media：保序返回，断言块序的关键。 */
+  function mapMedia(
+    byPath: Record<
+      string,
+      | { loaded: import('@/core/imessage/media').LoadedImage }
+      | { skipped: import('@/core/imessage/media').SkippedImage }
+    >,
+  ) {
+    return {
+      load: async (atts: readonly { path: string }[]) => {
+        const loaded: import('@/core/imessage/media').LoadedImage[] = [];
+        const skipped: import('@/core/imessage/media').SkippedImage[] = [];
+        for (const a of atts) {
+          const r = byPath[a.path];
+          if (r === undefined) continue;
+          if ('loaded' in r) loaded.push(r.loaded);
+          else if ('skipped' in r) skipped.push(r.skipped);
+        }
+        return { loaded, skipped };
+      },
+    };
+  }
+
+  function quoteRow(over: Partial<ChatDbRow> = {}): ChatDbRow {
+    return makeRow({
+      rowid: 5,
+      guid: 'G-QUOTE',
+      text: '这条原话什么意思',
+      threadOriginatorGuid: 'GUID-Q',
+      quotedRowId: 9,
+      quotedFromMe: 0,
+      quotedText: '被引用的原话',
+      ...over,
+    });
+  }
+
+  it('prefixes the prompt with the quote block (them author)', async () => {
+    const h = makeHarness();
+    h.feed([quoteRow()]);
+    await h.run();
+    expect(h.port.askCalls[0]!.prompt).toBe(
+      '> 引用了对方之前发的消息：被引用的原话\n这条原话什么意思',
+    );
+  });
+
+  it('labels our own earlier reply as the author', async () => {
+    const h = makeHarness();
+    h.feed([quoteRow({ quotedFromMe: 1 })]);
+    await h.run();
+    expect(h.port.askCalls[0]!.prompt).toBe(
+      '> 引用了你之前发的消息：被引用的原话\n这条原话什么意思',
+    );
+  });
+
+  it('degrades to the unavailable line when the quoted row was pruned', async () => {
+    const h = makeHarness();
+    h.feed([quoteRow({ quotedRowId: null, quotedText: null })]);
+    await h.run();
+    expect(h.port.askCalls[0]!.prompt).toBe('> 引用了一条已不可用的消息\n这条原话什么意思');
+  });
+
+  it('uses the quote block alone as the body for pure quote replies', async () => {
+    const h = makeHarness();
+    h.feed([quoteRow({ text: null, attributedBody: null })]);
+    await h.run();
+    expect(h.port.askCalls[0]!.prompt).toBe('> 引用了对方之前发的消息：被引用的原话');
+  });
+
+  it('feeds the quoted image first, then own images (fork 4α)', async () => {
+    const qImg = { bytes: new Uint8Array([9]), mediaType: 'image/jpeg' as const, name: 'q.jpg' };
+    const aImg = { bytes: new Uint8Array([7]), mediaType: 'image/png' as const, name: 'a.png' };
+    const h = makeHarness(4, {
+      media: mapMedia({
+        '~/q.heic': { loaded: qImg },
+        '~/a.png': { loaded: aImg },
+      }),
+    });
+    h.feed([
+      quoteRow({
+        quotedText: null,
+        quotedAttachmentPath: '~/q.heic',
+        quotedAttachmentMime: 'image/heic',
+        attachmentPath: '~/a.png',
+        attachmentMime: 'image/png',
+      }),
+    ]);
+    await h.run();
+    // 块序：text（引用块+正文）→ 引用图 → 正文图（先因后果）
+    expect(h.port.askCalls[0]!.prompt).toEqual([
+      { type: 'text', text: '> 引用了对方之前发的消息：（一张图片）\n这条原话什么意思' },
+      { type: 'image', bytes: new Uint8Array([9]), mediaType: 'image/jpeg', name: 'q.jpg' },
+      { type: 'image', bytes: new Uint8Array([7]), mediaType: 'image/png', name: 'a.png' },
+    ]);
+  });
+
+  it('keeps the quote block when the quoted image fails to load', async () => {
+    const h = makeHarness(4, {
+      media: mapMedia({ '~/q.heic': { skipped: { path: '~/q.heic', reason: 'read-failed' } } }),
+    });
+    h.feed([
+      quoteRow({
+        quotedText: null,
+        quotedAttachmentPath: '~/q.heic',
+        quotedAttachmentMime: 'image/heic',
+      }),
+    ]);
+    await h.run();
+    // 引用块 normalize 占位（一张图片）本身就是完整语义；图加载失败退回纯文本
+    expect(h.port.askCalls[0]!.prompt).toBe(
+      '> 引用了对方之前发的消息：（一张图片）\n这条原话什么意思',
+    );
+  });
+
+  it('degrades to the quote text when media is not wired', async () => {
+    const h = makeHarness(); // 不注入 media
+    h.feed([quoteRow({ quotedAttachmentPath: '~/q.heic', quotedAttachmentMime: 'image/heic' })]);
+    await h.run();
+    expect(h.port.askCalls[0]!.prompt).toBe(
+      '> 引用了对方之前发的消息：被引用的原话\n这条原话什么意思',
+    );
+  });
+});

@@ -43,9 +43,27 @@ export interface CreateSessionInput {
 
 export interface AskInput {
   readonly sessionId: SessionId;
-  readonly prompt: string;
+  /** 提问内容：纯文本，或 text/image 内容块（M6.1 收图）。
+   *  联合形态（分叉①定案）：系统路径/纯文本调用零改动；图片块由
+   *  host 映射为 DSH ImageAttachmentRef（bytes 是 core 自有形态，
+   *  DshPort 仍是唯一接缝）。空文本纯图消息不带 text 块（分叉④）。 */
+  readonly prompt: string | readonly AskPart[];
   readonly signal?: AbortSignal;
 }
+
+/** 纯图消息全失败的占位文本（协议标记，英文同 normalize 占位符惯例；
+ *  避免空 prompt/空 content 被宿主拒收或吞掉语义）。 */
+export const IMAGE_PLACEHOLDER = '[image]';
+
+/** ask 内容块（core 自有；host 负责映射为宿主块类型）。 */
+export type AskPart =
+  | { readonly type: 'text'; readonly text: string }
+  | {
+      readonly type: 'image';
+      readonly bytes: Uint8Array;
+      readonly mediaType: import('../imessage/media').DshImageMediaType;
+      readonly name?: string;
+    };
 
 /** 流式回复：按到达顺序产出的文本片段。 */
 export type AskStream = AsyncIterable<string>;

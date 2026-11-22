@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  buildSendFileScript,
   buildSendScript,
   escapeAppleScriptString,
   makeSender,
@@ -54,6 +55,16 @@ describe('buildSendScript', () => {
     const script = buildSendScript('+8613800000000', 'he said "ok"\nline2');
     expect(script).toContain('send "he said \\"ok\\"\\nline2" to targetBuddy');
   });
+
+  it('builds the file variant with POSIX file (M6.2)', () => {
+    const script = buildSendFileScript('+8613800000000', '/var/folders/x/abc.png');
+    expect(script).toContain('send POSIX file "/var/folders/x/abc.png" to targetBuddy');
+  });
+
+  it('escapes the staged path inside the file variant', () => {
+    const script = buildSendFileScript('+8613800000000', '/tmp/a "quoted".png');
+    expect(script).toContain('send POSIX file "/tmp/a \\"quoted\\".png" to targetBuddy');
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -102,6 +113,40 @@ describe('makeSender · dispatch', () => {
     const sender = makeSender(makeDeps(captured));
     await expect(sender.sendText('+8613800000000\nx', 'hi')).rejects.toThrow(TypeError);
     await expect(sender.sendText('x'.repeat(513), 'hi')).rejects.toThrow(TypeError);
+  });
+
+  it('sends a staged file through the POSIX file variant', async () => {
+    const captured: Captured = { sources: [] };
+    const sender = makeSender(makeDeps(captured));
+    await sender.sendFile('+8613800000000', '/var/folders/t/dsh-imessage-out-1.png');
+    expect(captured.sources[0]).toContain(
+      'send POSIX file "/var/folders/t/dsh-imessage-out-1.png" to targetBuddy',
+    );
+  });
+
+  it('rejects relative or newline-carrying file paths before osascript', async () => {
+    const captured: Captured = { sources: [] };
+    const sender = makeSender(makeDeps(captured));
+    await expect(sender.sendFile('+8613800000000', 'relative/a.png')).rejects.toThrow(TypeError);
+    await expect(sender.sendFile('+8613800000000', '/var/folders/a\nb.png')).rejects.toThrow(
+      TypeError,
+    );
+    expect(captured.sources).toHaveLength(0);
+  });
+
+  it('classifies file-send failures through the same taxonomy', async () => {
+    const captured: Captured = {
+      sources: [],
+      failWith: () => {
+        const e = new Error('command failed') as Error & { stderr?: string };
+        e.stderr = 'execution error: Not authorized to send Apple events. (-1743)';
+        return e;
+      },
+    };
+    const sender = makeSender(makeDeps(captured));
+    await expect(sender.sendFile('+8613800000000', '/var/folders/t/a.png')).rejects.toMatchObject({
+      kind: 'automation-permission',
+    });
   });
 });
 

@@ -292,3 +292,26 @@ describe('session router · ledger', () => {
     expect(asSessionId(rebound.sessions[KEY]!.sessionId)).toBe(first.sessionId);
   });
 });
+
+describe('session router · conversationKeyOf (M6.2 deliver-tool guard)', () => {
+  it('reverse-resolves a bound session id to its conversation key', async () => {
+    const h = makeHarness();
+    const { sessionId } = await h.router.route(KEY);
+    expect(h.router.conversationKeyOf(sessionId)).toBe(KEY);
+  });
+
+  it('returns undefined for unknown sessions (web/desktop guard)', async () => {
+    const h = makeHarness();
+    await h.router.route(KEY); // 有绑定后反查未知的仍 undefined
+    expect(h.router.conversationKeyOf('session-not-ours')).toBeUndefined();
+  });
+
+  it('tracks rebinding (reverse lookup follows the latest binding)', async () => {
+    const h = makeHarness();
+    const first = await h.router.route(KEY);
+    h.port.statuses.set(first.sessionId, 'missing'); // 换绑触发
+    const second = await h.router.route(KEY);
+    expect(h.router.conversationKeyOf(second.sessionId)).toBe(KEY);
+    expect(h.router.conversationKeyOf(first.sessionId)).toBeUndefined();
+  });
+});
