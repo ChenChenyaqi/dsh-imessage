@@ -336,6 +336,7 @@ export function startImessageChannel(config: ChannelConfig, env: ChannelEnv): Ch
     policy: { allowlist: config.allowlist ?? [] },
     sessionSwitchedText: t('session.switched'),
     replyUnavailableText: t('reply.unavailable'),
+    fileFailedNotice: (fileName: string) => t('file.sendFailed', { name: fileName }),
     replyStyle: () => live.style,
     media,
     collector,

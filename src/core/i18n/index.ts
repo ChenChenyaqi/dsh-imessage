@@ -23,6 +23,7 @@ const messages: Record<Locale, Readonly<Record<string, string>>> = {
     'common.unknownCommand': '不认识的命令：{command}',
     'session.switched': '上一个对话已被归档，我开启了新对话继续聊',
     'reply.unavailable': '这条我暂时回不了，稍后再问一次吧',
+    'file.sendFailed': '有个文件（{name}）没能发出去，稍后可以让我再试一次',
   },
   en: {
     'common.error': 'Something went wrong, please try later',
@@ -30,6 +31,7 @@ const messages: Record<Locale, Readonly<Record<string, string>>> = {
     'common.unknownCommand': 'Unknown command: {command}',
     'session.switched': 'The previous conversation was archived; I started a new one',
     'reply.unavailable': "I can't answer this one right now; please ask again later",
+    'file.sendFailed': 'Could not send {name}; ask me to try again in a moment',
   },
 };
 

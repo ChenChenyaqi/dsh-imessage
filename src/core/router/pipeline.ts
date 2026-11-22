@@ -64,6 +64,8 @@ export interface PipelineDeps {
   readonly sessionSwitchedText: string;
   /** 重试耗尽告知文案（i18n 已渲染）。 */
   readonly replyUnavailableText: string;
+  /** 附件发送失败告知（M6.2）：入参文件名，返回完整通知文本。 */
+  readonly fileFailedNotice: (fileName: string) => string;
   /** 回复风格（分段开关/上限/延时系数）。用时读 → UI 热改立即生效。 */
   readonly replyStyle?: () => ReplyStyle;
   /** 媒体加载（M6.1 收图；已绑定 IO deps 的高阶面，host 组装层注入）。
@@ -295,6 +297,18 @@ export async function runPipeline(
             name: artifact.fileName,
             code: err instanceof SendError ? err.kind : 'unknown',
           });
+          // 分叉 4 定案：告知对方才能补救；系统路径（[dsh] 前缀 instant）。
+          // 通知自身失败不翻案（at-most-once）；权限错误上抛停通道。
+          try {
+            await sender.sendSystem(key, deps.fileFailedNotice(artifact.fileName));
+          } catch (notifyErr) {
+            if (isPermissionError(notifyErr)) throw notifyErr;
+            log?.warn('pipeline.notify-failed', {
+              guid,
+              name: artifact.fileName,
+              error: notifyErr instanceof Error ? notifyErr.message : String(notifyErr),
+            });
+          }
           continue;
         }
         log?.info('file-sent', {

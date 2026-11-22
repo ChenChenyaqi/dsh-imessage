@@ -48,4 +48,12 @@ describe('dictionary integrity', () => {
   it('exposes a non-empty dictionary', () => {
     expect(messageKeys().zh.length).toBeGreaterThan(0);
   });
+
+  it('interpolates the file name into the M6.2 failure notice', () => {
+    // 两语言都要插值成功（漏插值会把 {name} 原样发给对方）
+    expect(makeT('zh')('file.sendFailed', { name: '报表.pdf' })).not.toContain('{name}');
+    expect(makeT('en')('file.sendFailed', { name: 'a.png' })).toBe(
+      'Could not send a.png; ask me to try again in a moment',
+    );
+  });
 });
