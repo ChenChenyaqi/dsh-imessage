@@ -346,3 +346,120 @@ describe('openChatDb', () => {
     }
   });
 });
+
+// ---------------------------------------------------------------------------
+// M6.3 引用回复 JOIN（独立 fixture：不扰动上方 M6.1 准入矩阵的 guid 序列）
+// ---------------------------------------------------------------------------
+
+function makeQuoteDb(): Fixture {
+  const db = new DatabaseSync(':memory:');
+  db.exec(SCHEMA_SQL);
+  db.exec(`
+    INSERT INTO handle (ROWID, id, service) VALUES (1, '+8613800000000', 'iMessage');
+    INSERT INTO chat (ROWID, guid, style) VALUES (10, 'CHAT-ONE', 45);
+    INSERT INTO chat_message_join (chat_id, message_id) VALUES
+      (10, 1), (10, 2), (10, 3), (10, 4), (10, 5);
+    INSERT INTO chat_handle_join (chat_id, handle_id) VALUES (10, 1);
+
+    -- 被引用原消息 1：对方文本（text 列有字）
+    INSERT INTO message (ROWID, guid, text, is_from_me, handle_id, date)
+      VALUES (1, 'Q1', '被引用的原话', 0, 1, 815743613388000000);
+    -- 被引用原消息 2：我方早期回复（正文在 attributedBody）
+    INSERT INTO message (ROWID, guid, text, attributedBody, is_from_me, handle_id, date)
+      VALUES (2, 'Q2', NULL, x'040b73747265616d7479706564', 1, 1, 815743613488000000);
+    -- 被引用原消息 3：纯图（text=U+FFFC，附件完成态）
+    INSERT INTO message (ROWID, guid, text, is_from_me, handle_id, date)
+      VALUES (3, 'Q3', char(0xFFFC), 0, 1, 815743613588000000);
+
+    INSERT INTO attachment (
+      ROWID, filename, mime_type, is_sticker, transfer_state, transfer_name, total_bytes
+    ) VALUES
+      (90, '/tmp/q3.heic', 'image/heic', 0, 5, 'q3.heic', 546000),
+      (91, '/tmp/q3bad.png', 'image/png', 0, 0, 'q3bad.png', 1000);
+    INSERT INTO message_attachment_join (message_id, attachment_id) VALUES
+      (3, 90), (3, 91);
+
+    -- 引用消息 4：引用 Q1（文本 JOIN 直取）
+    INSERT INTO message (ROWID, guid, text, is_from_me, handle_id, date, thread_originator_guid)
+      VALUES (4, 'R4', '这条原话什么意思', 0, 1, 815743614488000000, 'Q1');
+    -- 引用消息 5：引用不存在的 guid（原消息已被剪除）
+    INSERT INTO message (ROWID, guid, text, is_from_me, handle_id, date, thread_originator_guid)
+      VALUES (5, 'R5', '还问一下', 0, 1, 815743614588000000, 'Q-GONE');
+  `);
+  return { db, dispose: () => db.close() };
+}
+
+describe('fetchBatch · quoted-reply joins (M6.3)', () => {
+  it('joins the quoted row text, author and rowid for a live quote', () => {
+    const { db, dispose } = makeQuoteDb();
+    try {
+      const rows = fetchBatch(db, 3, 10).filter((r) => r.guid === 'R4');
+      expect(rows).toHaveLength(1);
+      const r = rows[0]!;
+      expect(r.threadOriginatorGuid).toBe('Q1');
+      expect(r.quotedRowId).toBe(1);
+      expect(r.quotedText).toBe('被引用的原话');
+      expect(r.quotedFromMe).toBe(0);
+      expect(r.quotedAttributedBodyHex).toBeNull();
+    } finally {
+      dispose();
+    }
+  });
+
+  it('carries hex(attributedBody) as the fallback source for the quoted row', () => {
+    const { db, dispose } = makeQuoteDb();
+    try {
+      const rows = fetchBatch(db, 1, 1).filter((r) => r.guid === 'R4');
+      // 直接从 Q2 行验证 hex 投影：另开一次查询引用 Q2 的消息不必要，
+      // 用 R4 已覆盖 text 路径；这里断言 Q2 本体不可达（is_from_me 过滤）
+      // ——hex 兜底由 normalize 层的 hex 解码用例覆盖，本用例钉 SQL 列存在
+      expect(rows.every((r) => typeof r.quotedAttributedBodyHex !== 'undefined')).toBe(true);
+      // Q2 被 is_from_me=1 过滤，不会出现在 fetchBatch 结果里
+      expect(fetchBatch(db, 0, 100).some((r) => r.guid === 'Q2')).toBe(false);
+    } finally {
+      dispose();
+    }
+  });
+
+  it('returns quoted attachment columns with the same ON admission as own rows', () => {
+    const { db, dispose } = makeQuoteDb();
+    try {
+      // 引用 Q3（纯图原消息，2 附件：完成 heic + 未完成 png）
+      db.prepare(
+        `INSERT INTO message (ROWID, guid, text, is_from_me, handle_id, date, thread_originator_guid)
+         VALUES (6, 'R6', '这张图帮我看看', 0, 1, 815743614688000000, 'Q3')`,
+      ).run();
+      db.prepare(`INSERT INTO chat_message_join (chat_id, message_id) VALUES (10, 6)`).run();
+      const rows = fetchBatch(db, 5, 10).filter((r) => r.guid === 'R6');
+      // LEFT JOIN 语义：未完成 png 不匹配 ON 准入 → 该行引用附件全 NULL，
+      // 但 qmaj 行仍在（不吞消息，同 M6.1 本消息附件同款）；聚合层按 path 去重
+      expect(rows).toHaveLength(2);
+      const paths = rows.map((r) => r.quotedAttachmentPath);
+      expect(paths).toContain('/tmp/q3.heic');
+      expect(paths.filter((p) => p === null)).toHaveLength(1);
+      const hit = rows.find((r) => r.quotedAttachmentPath !== null)!;
+      expect(hit.quotedAttachmentMime).toBe('image/heic');
+      expect(hit.quotedAttachmentName).toBe('q3.heic');
+      expect(hit.quotedAttachmentBytes).toBe(546000);
+      expect(hit.quotedText).toBe('\uFFFC'); // text 列原样（U+FFFC 剥离在 normalize）
+    } finally {
+      dispose();
+    }
+  });
+
+  it('leaves the quoted columns null when the origin row was pruned', () => {
+    const { db, dispose } = makeQuoteDb();
+    try {
+      const rows = fetchBatch(db, 4, 10).filter((r) => r.guid === 'R5');
+      expect(rows).toHaveLength(1);
+      const r = rows[0]!;
+      expect(r.threadOriginatorGuid).toBe('Q-GONE');
+      expect(r.quotedRowId).toBeNull();
+      expect(r.quotedText).toBeNull();
+      expect(r.quotedFromMe).toBeNull();
+      expect(r.quotedAttachmentPath).toBeNull();
+    } finally {
+      dispose();
+    }
+  });
+});

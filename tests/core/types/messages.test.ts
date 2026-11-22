@@ -18,9 +18,25 @@ describe('makeNormalizedMessage', () => {
     expect(Object.isFrozen(msg)).toBe(true);
   });
 
-  it('keeps optional quotedText', () => {
-    const msg = makeNormalizedMessage({ ...base, quotedText: '引用原文' });
-    expect(msg.quotedText).toBe('引用原文');
+  it('keeps the optional replyTo quote block (M6.3)', () => {
+    const msg = makeNormalizedMessage({
+      ...base,
+      replyTo: { author: 'us', text: '我早期的回复', unavailable: false },
+    });
+    expect(msg.replyTo).toEqual({ author: 'us', text: '我早期的回复', unavailable: false });
+  });
+
+  it('keeps the optional quotedImage (M6.3)', () => {
+    const msg = makeNormalizedMessage({
+      ...base,
+      quotedImage: {
+        path: '~/Library/Messages/.../q.heic',
+        mediaType: 'image/heic',
+        name: null,
+        bytes: 9,
+      },
+    });
+    expect(msg.quotedImage?.path).toContain('q.heic');
   });
 
   it('keeps optional attachments (M6.1 media metadata)', () => {
@@ -39,7 +55,12 @@ describe('makeNormalizedMessage', () => {
     ['non-boolean fromMe', { ...base, fromMe: 'no' }],
     ['non-string text', { ...base, text: 123 }],
     ['missing conversationKey', { ...base, conversationKey: '' }],
-    ['wrong-typed quotedText', { ...base, quotedText: 7 }],
+    ['wrong author kind', { ...base, replyTo: { author: 'bot', text: 'x' } }],
+    ['replyTo without text', { ...base, replyTo: { author: 'us' } }],
+    [
+      'non-attachment quotedImage',
+      { ...base, quotedImage: { path: '', mediaType: 'image/png', name: null, bytes: 1 } },
+    ],
     ['non-array attachments', { ...base, attachments: 'nope' }],
     [
       'empty attachment path',

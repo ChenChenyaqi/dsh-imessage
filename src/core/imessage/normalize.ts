@@ -71,27 +71,40 @@ export function macAbsoluteToEpochMs(dateNs: string): number {
   }
 }
 
+/** M6.3：引用块纯图占位（原消息带图，text 双源皆空）。 */
+export const QUOTED_IMAGE_PLACEHOLDER = '（一张图片）';
+/** M6.3：引用块无可用内容的兜底（原消息在但双源皆空且无图）。 */
+export const QUOTED_UNAVAILABLE_PLACEHOLDER = '（图片或贴纸消息）';
+
 /** 解析正文：text 列优先；空则解码 BLOB；最后分派占位。
  * M6.1：有图片附件时，空文本（双源空/剥 U+FFFC 后空）降为 '' 而非
- * 占位/skip——纯图消息的正文就是图，内容块化在 pipeline 层完成。 */
-function resolveText(row: ChatDbRow, hasImageAttachment: boolean): string | null {
+ * 占位/skip——纯图消息的正文就是图，内容块化在 pipeline 层完成。
+ * M6.3：有引用块时同规降 ''——纯引用（无新文字）消息的正文就是引用
+ * 本身，不再落 ATTACHMENT_PLACEHOLDER（误导为附件消息）。 */
+function resolveText(
+  row: ChatDbRow,
+  hasImageAttachment: boolean,
+  hasReplyTo: boolean,
+): string | null {
+  const bare = hasImageAttachment || hasReplyTo;
   if (row.text !== null && row.text !== '') {
     // text 列同样内嵌 U+FFFC 附件占位（真机实测：纯图消息 text='\uFFFC'，
     // 图+文混排时占位符与 caption 混排）——与 attributedBody 解码路径
     // 同款剥离；剥后纯空白视为无文本。判定用 trim，返回内容保原样。
     const stripped = row.text.replaceAll(OBJECT_REPLACEMENT_CHAR, '');
     if (stripped.trim() !== '') return stripped;
-    return hasImageAttachment ? '' : ATTACHMENT_PLACEHOLDER;
+    return bare ? '' : ATTACHMENT_PLACEHOLDER;
   }
 
   if (row.attributedBody && row.attributedBody.length > 0) {
     const decoded = decodeAttributedBodyText(row.attributedBody);
     if (decoded === null) return UNDECODABLE_PLACEHOLDER; // 解码失败
-    if (decoded === '') return hasImageAttachment ? '' : ATTACHMENT_PLACEHOLDER; // 纯附件
+    if (decoded === '') return bare ? '' : ATTACHMENT_PLACEHOLDER; // 纯附件
     return decoded;
   }
-  // 双源皆空：纯图消息进得来（SQL image 分支），其余交给 skip empty
-  return hasImageAttachment ? '' : null;
+  // 双源皆空：纯图/纯引用消息进得来（SQL image 分支 / attributedBody 非空），
+  // 其余交给 skip empty
+  return bare ? '' : null;
 }
 
 /** 从 JOIN 行提取附件元数据（准入态：未完成/贴纸/无 filename 的行此字段全空）。 */
@@ -105,21 +118,81 @@ function attachmentOf(row: ChatDbRow): MessageAttachment | null {
   };
 }
 
+/** 从 JOIN 行提取被引用原消息的附件元数据（M6.3，准入态同 attachmentOf）。 */
+function quotedAttachmentOf(row: ChatDbRow): MessageAttachment | null {
+  if (row.quotedAttachmentPath === null) return null;
+  return {
+    path: row.quotedAttachmentPath,
+    mediaType: row.quotedAttachmentMime,
+    name: row.quotedAttachmentName,
+    bytes: row.quotedAttachmentBytes,
+  };
+}
+
 /** 是否携带图片附件（mime 前缀判定；null mime 不算——media 层同款准入）。 */
 function hasImageAttachment(attachments: readonly MessageAttachment[]): boolean {
   return attachments.some((a) => a.mediaType?.startsWith('image/') === true);
+}
+
+/** hex 字符串 → bytes（SQLite hex() 返回大写 hex，M6.3 引用兜底解码用）。 */
+function hexToBytes(hex: string): Uint8Array {
+  const out = new Uint8Array(hex.length / 2);
+  for (let i = 0; i < out.length; i++) {
+    out[i] = Number.parseInt(hex.slice(i * 2, i * 2 + 2), 16);
+  }
+  return out;
+}
+
+/** 引用块归一（M6.3）：无引用返回 undefined；原消息被剪返回
+ * unavailable；text 列优先、attributedBody hex 兜底（dsh-im 91501597
+ * 同款）；双源皆空时按有无引用图降占位。 */
+function replyToOf(
+  row: ChatDbRow,
+  quotedImage: MessageAttachment | null,
+): NormalizedMessage['replyTo'] {
+  if (row.threadOriginatorGuid === null || row.threadOriginatorGuid === '') return undefined;
+  const author: 'us' | 'them' = row.quotedFromMe === 1 ? 'us' : 'them';
+  if (row.quotedRowId === null) {
+    // 原消息已被剪除（保留期外/原机没有）：如实降级，不编造内容
+    return { author, text: QUOTED_UNAVAILABLE_PLACEHOLDER, unavailable: true };
+  }
+  const fromText =
+    row.quotedText !== null && row.quotedText !== ''
+      ? row.quotedText.replaceAll(OBJECT_REPLACEMENT_CHAR, '')
+      : null;
+  const text =
+    fromText !== null && fromText.trim() !== ''
+      ? fromText
+      : (() => {
+          // 兜底：原消息正文在 attributedBody（text 列空的常态，M2 同款事实）
+          if (row.quotedAttributedBodyHex !== null && row.quotedAttributedBodyHex !== '') {
+            const decoded = decodeAttributedBodyText(hexToBytes(row.quotedAttributedBodyHex));
+            if (decoded !== null) {
+              const stripped = decoded.replaceAll(OBJECT_REPLACEMENT_CHAR, '');
+              if (stripped.trim() !== '') return stripped;
+            }
+          }
+          // 双源皆空：有图说图，无图说不可描述的内容形态
+          return quotedImage !== null ? QUOTED_IMAGE_PLACEHOLDER : QUOTED_UNAVAILABLE_PLACEHOLDER;
+        })();
+  return { author, text };
 }
 
 function skip(guid: string, rowId: number, reason: SkipReason): NormalizeResult {
   return { status: 'skipped', guid, rowId, reason };
 }
 
-function normalizeOne(row: ChatDbRow, attachments: readonly MessageAttachment[]): NormalizeResult {
+function normalizeOne(
+  row: ChatDbRow,
+  attachments: readonly MessageAttachment[],
+  quotedImage: MessageAttachment | null,
+): NormalizeResult {
   if (row.isFromMe !== 0) return skip(row.guid, row.rowid, 'from-me');
   if (row.memberCount > 1) return skip(row.guid, row.rowid, 'group-chat');
   if (row.handleText === null) return skip(row.guid, row.rowid, 'no-handle');
 
-  const text = resolveText(row, hasImageAttachment(attachments));
+  const replyTo = replyToOf(row, quotedImage);
+  const text = resolveText(row, hasImageAttachment(attachments), replyTo !== undefined);
   if (text === null) return skip(row.guid, row.rowid, 'empty');
   if (text.startsWith(DSH_PREFIX)) return skip(row.guid, row.rowid, 'bot-prefix');
 
@@ -133,38 +206,54 @@ function normalizeOne(row: ChatDbRow, attachments: readonly MessageAttachment[])
     fromMe: false,
     text,
     conversationKey,
-    quotedText: row.quotedText ?? undefined,
+    ...(replyTo !== undefined ? { replyTo } : {}),
+    ...(quotedImage !== null ? { quotedImage } : {}),
     // 无附件不设字段（旧 fixture / 序列化兼容）；media 策略过滤在 media 层
     ...(attachments.length > 0 ? { attachments } : {}),
   });
   return { status: 'accepted', message };
 }
 
-/**
- * 批量归一：先按 guid 合并多附件展开行（同 guid 取首行主体，各行的
- * 附件元数据按 path 去重聚合为 attachments，M6.1），再逐条归一。
- * 输出按 rowid 升序——不依赖上游 fetchBatch 的排序约定，输出契约自洽。
+/** 批量归一：先按 guid 合并多附件展开行（同 guid 取首行主体，各行的
+ * 附件元数据按 path 去重聚合为 attachments，M6.1）；M6.3 起引用附件
+ * JOIN 与本消息附件 JOIN 相乘（dsh-im 33466aac 扇出警告），引用附件
+ * 独立按 path 去重、只取首张图片（quotedImage）。输出按 rowid 升序。
  */
 export function normalizeRows(rows: readonly ChatDbRow[]): NormalizeResult[] {
-  const byGuid = new Map<string, { head: ChatDbRow; attachments: MessageAttachment[] }>();
-  const seenPaths = new Map<string, Set<string>>();
+  const byGuid = new Map<
+    string,
+    { head: ChatDbRow; attachments: MessageAttachment[]; quoted: MessageAttachment[] }
+  >();
+  const seenPaths = new Map<string, { own: Set<string>; quoted: Set<string> }>();
   for (const row of rows) {
     let entry = byGuid.get(row.guid);
     if (!entry) {
-      entry = { head: row, attachments: [] };
+      entry = { head: row, attachments: [], quoted: [] };
       byGuid.set(row.guid, entry);
-      seenPaths.set(row.guid, new Set());
+      seenPaths.set(row.guid, { own: new Set(), quoted: new Set() });
     }
     const att = attachmentOf(row);
     if (att !== null) {
       const seen = seenPaths.get(row.guid)!;
-      if (!seen.has(att.path)) {
-        seen.add(att.path);
+      if (!seen.own.has(att.path)) {
+        seen.own.add(att.path);
         entry.attachments.push(att);
+      }
+    }
+    const quotedAtt = quotedAttachmentOf(row);
+    if (quotedAtt !== null) {
+      const seen = seenPaths.get(row.guid)!;
+      if (!seen.quoted.has(quotedAtt.path)) {
+        seen.quoted.add(quotedAtt.path);
+        entry.quoted.push(quotedAtt);
       }
     }
   }
   return [...byGuid.values()]
     .sort((a, b) => a.head.rowid - b.head.rowid)
-    .map((entry) => normalizeOne(entry.head, Object.freeze(entry.attachments)));
+    .map((entry) => {
+      const quotedImage =
+        entry.quoted.find((a) => a.mediaType?.startsWith('image/') === true) ?? null;
+      return normalizeOne(entry.head, Object.freeze(entry.attachments), quotedImage);
+    });
 }

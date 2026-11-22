@@ -51,7 +51,15 @@ function makeRow(over: Partial<ChatDbRow> = {}): ChatDbRow {
     attachmentMime: null,
     attachmentName: null,
     attachmentBytes: null,
+    threadOriginatorGuid: null,
+    quotedRowId: null,
     quotedText: null,
+    quotedAttributedBodyHex: null,
+    quotedFromMe: null,
+    quotedAttachmentPath: null,
+    quotedAttachmentMime: null,
+    quotedAttachmentName: null,
+    quotedAttachmentBytes: null,
     quotedDateNs: null,
     ...over,
   };
@@ -64,6 +72,8 @@ function accepted(result: NormalizeResult | undefined) {
     status: 'accepted';
     message: {
       text: string;
+      replyTo?: import('@/core/types/messages').NormalizedMessage['replyTo'];
+      quotedImage?: import('@/core/types/messages').MessageAttachment;
       attachments?: readonly import('@/core/types/messages').MessageAttachment[];
       [k: string]: unknown;
     };
@@ -121,8 +131,151 @@ describe('normalizeRows · text sources', () => {
   });
 
   it('keeps quoted text through normalization', () => {
-    const [r] = normalizeRows([makeRow({ quotedText: '被引用的原话' })]);
-    expect(accepted(r).message.quotedText).toBe('被引用的原话');
+    const [r] = normalizeRows([
+      makeRow({
+        threadOriginatorGuid: 'GUID-Q',
+        quotedRowId: 9,
+        quotedFromMe: 0,
+        quotedText: '被引用的原话',
+      }),
+    ]);
+    expect(accepted(r).message.replyTo).toEqual({ author: 'them', text: '被引用的原话' });
+    expect(accepted(r).message.quotedImage).toBeUndefined();
+  });
+
+  it('marks the reply author as us when the quoted row is our own earlier reply', () => {
+    const [r] = normalizeRows([
+      makeRow({
+        threadOriginatorGuid: 'GUID-Q',
+        quotedRowId: 9,
+        quotedFromMe: 1,
+        quotedText: '我早期的回复',
+      }),
+    ]);
+    expect(accepted(r).message.replyTo).toEqual({ author: 'us', text: '我早期的回复' });
+  });
+
+  it('falls back to the quoted attributedBody when the text column is empty', () => {
+    const blob = makeBlob('原话在 BLOB 里');
+    const hex = [...blob].map((b) => b.toString(16).padStart(2, '0').toUpperCase()).join('');
+    const [r] = normalizeRows([
+      makeRow({
+        threadOriginatorGuid: 'GUID-Q',
+        quotedRowId: 9,
+        quotedText: null,
+        quotedAttributedBodyHex: hex,
+      }),
+    ]);
+    expect(accepted(r).message.replyTo?.text).toBe('原话在 BLOB 里');
+  });
+
+  it('keeps the degraded placeholder when the quoted row was pruned', () => {
+    const [r] = normalizeRows([makeRow({ threadOriginatorGuid: 'GUID-GONE', quotedRowId: null })]);
+    expect(accepted(r).message.replyTo).toEqual({
+      author: 'them',
+      text: '（图片或贴纸消息）',
+      unavailable: true,
+    });
+  });
+
+  it('describes an image-only quote from the quoted attachment', () => {
+    const [r] = normalizeRows([
+      makeRow({
+        threadOriginatorGuid: 'GUID-Q',
+        quotedRowId: 9,
+        quotedText: null,
+        quotedAttributedBodyHex: null,
+        quotedAttachmentPath: '~/Library/Messages/Attachments/ab/cd/img.heic',
+        quotedAttachmentMime: 'image/heic',
+        quotedAttachmentName: 'IMG.heic',
+        quotedAttachmentBytes: 1000,
+      }),
+    ]);
+    expect(accepted(r).message.replyTo?.text).toBe('（一张图片）');
+    expect(accepted(r).message.quotedImage).toEqual({
+      path: '~/Library/Messages/Attachments/ab/cd/img.heic',
+      mediaType: 'image/heic',
+      name: 'IMG.heic',
+      bytes: 1000,
+    });
+  });
+
+  it('strips the object-replacement char from the quoted text', () => {
+    const [r] = normalizeRows([
+      makeRow({
+        threadOriginatorGuid: 'GUID-Q',
+        quotedRowId: 9,
+        quotedText: '\uFFFC',
+        quotedAttachmentPath: null,
+      }),
+    ]);
+    expect(accepted(r).message.replyTo?.text).toBe('（图片或贴纸消息）');
+  });
+
+  it('keeps a pure quote reply (no new words) out of the attachment placeholder', () => {
+    const [r] = normalizeRows([
+      makeRow({
+        text: null,
+        attributedBody: makeBlob('\uFFFC'),
+        threadOriginatorGuid: 'GUID-Q',
+        quotedRowId: 9,
+        quotedFromMe: 0,
+        quotedText: '被引用的原话',
+      }),
+    ]);
+    const m = accepted(r).message;
+    expect(m.text).toBe('');
+    expect(m.replyTo?.text).toBe('被引用的原话');
+  });
+
+  it('dedupes the fan-out of own and quoted attachment joins, keeping the first quoted image', () => {
+    // 本消息 2 附件 × 引用 2 附件 = 4 行扇出；去重后 own 2、quoted 取首张图
+    const rows = [
+      makeRow({
+        guid: 'GUID-F',
+        attachmentPath: '~/a1.png',
+        attachmentMime: 'image/png',
+        quotedAttachmentPath: '~/q1.heic',
+        quotedAttachmentMime: 'image/heic',
+        threadOriginatorGuid: 'GUID-Q',
+        quotedRowId: 9,
+        quotedText: '原话',
+      }),
+      makeRow({
+        guid: 'GUID-F',
+        attachmentPath: '~/a2.png',
+        attachmentMime: 'image/png',
+        quotedAttachmentPath: '~/q1.heic',
+        quotedAttachmentMime: 'image/heic',
+        threadOriginatorGuid: 'GUID-Q',
+        quotedRowId: 9,
+        quotedText: '原话',
+      }),
+      makeRow({
+        guid: 'GUID-F',
+        attachmentPath: '~/a1.png',
+        attachmentMime: 'image/png',
+        quotedAttachmentPath: '~/q2.gif',
+        quotedAttachmentMime: 'image/gif',
+        threadOriginatorGuid: 'GUID-Q',
+        quotedRowId: 9,
+        quotedText: '原话',
+      }),
+      makeRow({
+        guid: 'GUID-F',
+        attachmentPath: '~/a2.png',
+        attachmentMime: 'image/png',
+        quotedAttachmentPath: '~/q2.gif',
+        quotedAttachmentMime: 'image/gif',
+        threadOriginatorGuid: 'GUID-Q',
+        quotedRowId: 9,
+        quotedText: '原话',
+      }),
+    ];
+    const [r] = normalizeRows(rows);
+    const m = accepted(r).message;
+    expect(m.attachments?.map((a) => a.path)).toEqual(['~/a1.png', '~/a2.png']);
+    expect(m.quotedImage?.path).toBe('~/q1.heic');
   });
 });
 

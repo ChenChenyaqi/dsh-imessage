@@ -21,8 +21,18 @@ export interface NormalizedMessage {
   readonly text: string;
   /** 对方号码/邮箱的归一化键，白名单与 sessions 路由都用它。 */
   readonly conversationKey: string;
-  /** 引用消息的原文（P1 引用回复用，占位可选）。 */
-  readonly quotedText?: string;
+  /** 引用回复块（M6.3）：对方用「回复特定消息」发来的引用，归一后的
+   * 结构化投影。author 区分引用了谁的话——'us' = 我方早期回复、
+   * 'them' = 对方自己的历史消息（追问对象不同，语义差别大）；
+   * unavailable = 原消息已被剪除，只剩 guid。无引用不设字段。 */
+  readonly replyTo?: Readonly<{
+    readonly author: 'us' | 'them';
+    readonly text: string;
+    readonly unavailable?: boolean;
+  }>;
+  /** 被引用原消息携带的图片（M6.3）：原消息附件里第一张图
+   * （多图引用取首图，dsh-im 33466aac find 同款）。 */
+  readonly quotedImage?: MessageAttachment;
   /** 图片/附件元数据（M6.1 收图）。path 保持 chat.db 原始 `~/` 形态，
    *  展开是 media 加载层的职责；无附件消息不设该字段（旧 fixture 零改动）。
    *  媒体策略（image 准入/转码）不在这层——normalize 只管元数据透传。 */
@@ -58,9 +68,26 @@ export function isNormalizedMessage(value: unknown): value is NormalizedMessage 
     typeof v.text === 'string' &&
     typeof v.conversationKey === 'string' &&
     v.conversationKey !== '' &&
-    (v.quotedText === undefined || typeof v.quotedText === 'string') &&
+    (v.replyTo === undefined || isReplyTo(v.replyTo)) &&
+    (v.quotedImage === undefined || isMessageAttachment(v.quotedImage)) &&
     (v.attachments === undefined || isMessageAttachmentList(v.attachments))
   );
+}
+
+/** 引用块形状守卫（isNormalizedMessage 子项）。 */
+function isReplyTo(value: unknown): value is NormalizedMessage['replyTo'] {
+  if (typeof value !== 'object' || value === null) return false;
+  const v = value as Record<string, unknown>;
+  return (
+    (v.author === 'us' || v.author === 'them') &&
+    typeof v.text === 'string' &&
+    (v.unavailable === undefined || typeof v.unavailable === 'boolean')
+  );
+}
+
+/** 单附件形状守卫（quotedImage 用）。 */
+function isMessageAttachment(value: unknown): value is MessageAttachment {
+  return isMessageAttachmentList([value]);
 }
 
 /** 附件数组形状守卫（isNormalizedMessage 子项）。 */
