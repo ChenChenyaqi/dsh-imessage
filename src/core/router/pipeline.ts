@@ -165,21 +165,43 @@ export async function runPipeline(
     cursor = initialCursor;
   }
 
+  /** 引用块渲染（M6.3 分叉②：单行 Markdown 引用）。prompt 是给 AI 的
+   *  输入而非用户可见回复，文案硬编码（i18n 层只覆盖出站用户文本，
+   *  架构边界不变；占位同 dsh-im 中文同款）。 */
+  const renderQuoteBlock = (replyTo: NonNullable<NormalizedMessage['replyTo']>): string => {
+    if (replyTo.unavailable === true) return '> 引用了一条已不可用的消息';
+    const label = replyTo.author === 'us' ? '你之前发的消息' : '对方之前发的消息';
+    return `> 引用了${label}：${replyTo.text}`;
+  };
+
   /** 组装 ask prompt（M6.1）：文本 + 图片内容块。
    *  图片级失败只剔该图（media 层已结构化）；全失败且无文本 → 占位
-   *  兜底（分叉②：空 prompt 会吞消息语义）；media 未装配同款降级。 */
+   *  兜底（分叉②：空 prompt 会吞消息语义）；media 未装配同款降级。
+   *  M6.3：引用块作为文本前缀（纯引用时引用块即全部正文）；引用图
+   *  排在所有图块最前（分叉④：先因后果），加载链路与正文图同款——
+   *  图加载失败时引用块的 normalize 占位（「一张图片」）仍是完整语义。 */
   const buildPrompt = async (msg: NormalizedMessage): Promise<string | readonly AskPart[]> => {
-    const textFallback = () => (msg.text === '' ? IMAGE_PLACEHOLDER : msg.text);
-    if (!msg.attachments || msg.attachments.length === 0) return textFallback();
+    const quote = msg.replyTo !== undefined ? renderQuoteBlock(msg.replyTo) : null;
+    const bodyText = (): string => {
+      if (quote === null) return msg.text;
+      return msg.text === '' ? quote : `${quote}\n${msg.text}`;
+    };
+    const textFallback = () =>
+      quote !== null ? bodyText() : msg.text === '' ? IMAGE_PLACEHOLDER : msg.text;
+    const attachments: readonly MessageAttachment[] = [
+      ...(msg.quotedImage !== undefined ? [msg.quotedImage] : []),
+      ...(msg.attachments ?? []),
+    ];
+    if (attachments.length === 0) return bodyText();
     if (!deps.media) return textFallback();
     let media: LoadImagesResult;
     try {
-      media = await deps.media.load(msg.attachments);
+      media = await deps.media.load(attachments);
     } catch (err) {
       // 防御：loadImages 契约永不抛，但 fake/未来实现可能破坏契约
       log?.warn('pipeline.media-failed', {
         guid: msg.guid,
-        attachments: msg.attachments.length,
+        attachments: attachments.length,
         error: err instanceof Error ? err.message : String(err),
       });
       return textFallback();
@@ -196,7 +218,8 @@ export async function runPipeline(
     });
     if (media.loaded.length === 0) return textFallback();
     const parts: AskPart[] = [];
-    if (msg.text !== '') parts.push({ type: 'text', text: msg.text }); // 分叉④：纯图不加 text 块
+    const text = bodyText();
+    if (text !== '') parts.push({ type: 'text', text }); // 分叉④：纯图不加 text 块；纯引用的引用块是内容，加
     for (const im of media.loaded) {
       parts.push({
         type: 'image',

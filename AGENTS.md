@@ -103,6 +103,7 @@
 | 图片没送进 AI | `pipeline.media-loaded` 的 `loaded`/`skipped`（skipped>0 看 `reasons`）；进了但被剔 → `dsh-port.image-skipped` 的 `reason` |
 | 回复发不出去 | 有 `reply-sent` 吗？没有但见 `send-failed` = AppleScript / 权限 |
 | 文件没发出去 | 有 `artifact.queued`（AI 声明了交付）吗？没有 → 看 `artifact.tool-rejected` 的 `reason`（工具被拒）；有 → 看 `file-sent` 还是 `file-send-failed` / `outbound.stage-failed` 的 `code`；通知文本由系统路径补发 |
+| AI 答非所问（对方明显在引用某条消息） | prompt 里该有引用块（`> 引用了…`）：没引用块 → 看 normalize 是否给了 replyTo（chatdb JOIN 是否命中）；有引用块但 AI 仍答偏 → 模型问题 |
 | 插件没启动 | 有 `channel.started` 吗？没有看 `channel.probe-failed` 的 `disk`/`automation` |
 | 启动配置没生效 | `channel.started` 的 `allowlistCount` / `intervalMs` / `cursor` |
 | 退出时丢消息 | `channel.stop-requested` 紧跟某条 `send-failed … aborted`（定案：不重发） |

@@ -1306,3 +1306,131 @@ describe('pipeline · non-Error throwables stringify safely', () => {
 function permissionErr(): Error {
   return new SendError('automation-permission', '+8613800000000', new Error('-1743'));
 }
+
+// ---------------------------------------------------------------------------
+// M6.3 引用回复：引用块进 prompt + 引用图进图片块（分叉 1α/2α/4α）
+// ---------------------------------------------------------------------------
+
+describe('runPipeline · quoted replies', () => {
+  /** 按 path 映射结果的 fake media：保序返回，断言块序的关键。 */
+  function mapMedia(
+    byPath: Record<
+      string,
+      | { loaded: import('@/core/imessage/media').LoadedImage }
+      | { skipped: import('@/core/imessage/media').SkippedImage }
+    >,
+  ) {
+    return {
+      load: async (atts: readonly { path: string }[]) => {
+        const loaded: import('@/core/imessage/media').LoadedImage[] = [];
+        const skipped: import('@/core/imessage/media').SkippedImage[] = [];
+        for (const a of atts) {
+          const r = byPath[a.path];
+          if (r === undefined) continue;
+          if ('loaded' in r) loaded.push(r.loaded);
+          else if ('skipped' in r) skipped.push(r.skipped);
+        }
+        return { loaded, skipped };
+      },
+    };
+  }
+
+  function quoteRow(over: Partial<ChatDbRow> = {}): ChatDbRow {
+    return makeRow({
+      rowid: 5,
+      guid: 'G-QUOTE',
+      text: '这条原话什么意思',
+      threadOriginatorGuid: 'GUID-Q',
+      quotedRowId: 9,
+      quotedFromMe: 0,
+      quotedText: '被引用的原话',
+      ...over,
+    });
+  }
+
+  it('prefixes the prompt with the quote block (them author)', async () => {
+    const h = makeHarness();
+    h.feed([quoteRow()]);
+    await h.run();
+    expect(h.port.askCalls[0]!.prompt).toBe(
+      '> 引用了对方之前发的消息：被引用的原话\n这条原话什么意思',
+    );
+  });
+
+  it('labels our own earlier reply as the author', async () => {
+    const h = makeHarness();
+    h.feed([quoteRow({ quotedFromMe: 1 })]);
+    await h.run();
+    expect(h.port.askCalls[0]!.prompt).toBe(
+      '> 引用了你之前发的消息：被引用的原话\n这条原话什么意思',
+    );
+  });
+
+  it('degrades to the unavailable line when the quoted row was pruned', async () => {
+    const h = makeHarness();
+    h.feed([quoteRow({ quotedRowId: null, quotedText: null })]);
+    await h.run();
+    expect(h.port.askCalls[0]!.prompt).toBe('> 引用了一条已不可用的消息\n这条原话什么意思');
+  });
+
+  it('uses the quote block alone as the body for pure quote replies', async () => {
+    const h = makeHarness();
+    h.feed([quoteRow({ text: null, attributedBody: null })]);
+    await h.run();
+    expect(h.port.askCalls[0]!.prompt).toBe('> 引用了对方之前发的消息：被引用的原话');
+  });
+
+  it('feeds the quoted image first, then own images (fork 4α)', async () => {
+    const qImg = { bytes: new Uint8Array([9]), mediaType: 'image/jpeg' as const, name: 'q.jpg' };
+    const aImg = { bytes: new Uint8Array([7]), mediaType: 'image/png' as const, name: 'a.png' };
+    const h = makeHarness(4, {
+      media: mapMedia({
+        '~/q.heic': { loaded: qImg },
+        '~/a.png': { loaded: aImg },
+      }),
+    });
+    h.feed([
+      quoteRow({
+        quotedText: null,
+        quotedAttachmentPath: '~/q.heic',
+        quotedAttachmentMime: 'image/heic',
+        attachmentPath: '~/a.png',
+        attachmentMime: 'image/png',
+      }),
+    ]);
+    await h.run();
+    // 块序：text（引用块+正文）→ 引用图 → 正文图（先因后果）
+    expect(h.port.askCalls[0]!.prompt).toEqual([
+      { type: 'text', text: '> 引用了对方之前发的消息：（一张图片）\n这条原话什么意思' },
+      { type: 'image', bytes: new Uint8Array([9]), mediaType: 'image/jpeg', name: 'q.jpg' },
+      { type: 'image', bytes: new Uint8Array([7]), mediaType: 'image/png', name: 'a.png' },
+    ]);
+  });
+
+  it('keeps the quote block when the quoted image fails to load', async () => {
+    const h = makeHarness(4, {
+      media: mapMedia({ '~/q.heic': { skipped: { path: '~/q.heic', reason: 'read-failed' } } }),
+    });
+    h.feed([
+      quoteRow({
+        quotedText: null,
+        quotedAttachmentPath: '~/q.heic',
+        quotedAttachmentMime: 'image/heic',
+      }),
+    ]);
+    await h.run();
+    // 引用块 normalize 占位（一张图片）本身就是完整语义；图加载失败退回纯文本
+    expect(h.port.askCalls[0]!.prompt).toBe(
+      '> 引用了对方之前发的消息：（一张图片）\n这条原话什么意思',
+    );
+  });
+
+  it('degrades to the quote text when media is not wired', async () => {
+    const h = makeHarness(); // 不注入 media
+    h.feed([quoteRow({ quotedAttachmentPath: '~/q.heic', quotedAttachmentMime: 'image/heic' })]);
+    await h.run();
+    expect(h.port.askCalls[0]!.prompt).toBe(
+      '> 引用了对方之前发的消息：被引用的原话\n这条原话什么意思',
+    );
+  });
+});
