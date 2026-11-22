@@ -48,7 +48,10 @@ interface Harness {
 
 type ChannelStateDraft = import('@/core/types/state').ChannelState;
 
-function makeHarness(initialMaxRowId = 4): Harness {
+function makeHarness(
+  initialMaxRowId = 4,
+  over: { media?: import('@/core/router/pipeline').PipelineDeps['media'] } = {},
+): Harness {
   let state: ChannelStateDraft = makeChannelState();
   const port = makeFakeDshPort();
   const sender = makeFakeSender();
@@ -108,6 +111,7 @@ function makeHarness(initialMaxRowId = 4): Harness {
     loadState: () => state,
     saveState,
     log,
+    ...(over.media === undefined ? {} : { media: over.media }),
   } as Parameters<typeof runPipeline>[0];
   // fetchRows 的停机信号由 run 每次注入（独立的 abort 信号 = 独立进程生命周期）
   let controllerAbort: () => void = () => {};
@@ -831,6 +835,191 @@ describe('pipeline · edge coverage', () => {
 
     expect(result).toEqual({ reason: 'aborted', processed: 0 });
     expect(h.logLines.filter((l) => l.event === 'pipeline.fetch-failed')).toHaveLength(2);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 媒体内容块（M6.1）
+// ---------------------------------------------------------------------------
+
+describe('runPipeline · media blocks', () => {
+  const IMAGE_BYTES = new Uint8Array([1, 2, 3]);
+
+  /** 可编程 fake media：返回固定结果或抛错。 */
+  function fakeMedia(result: import('@/core/imessage/media').LoadImagesResult | Error) {
+    return {
+      load: async () => {
+        if (result instanceof Error) throw result;
+        return result;
+      },
+    };
+  }
+
+  const loadedImage = {
+    bytes: IMAGE_BYTES,
+    mediaType: 'image/jpeg' as const,
+    name: 'IMG.jpg',
+  };
+
+  it('sends text + image blocks when media loads', async () => {
+    const h = makeHarness(4, { media: fakeMedia({ loaded: [loadedImage], skipped: [] }) });
+    h.feed([
+      makeRow({
+        rowid: 5,
+        guid: 'G-IMG',
+        text: '看这张图',
+        attachmentPath: '~/a.heic',
+        attachmentMime: 'image/heic',
+        attachmentName: 'a.heic',
+        attachmentBytes: 100,
+      }),
+    ]);
+    await h.run();
+    expect(h.port.askCalls[0]!.prompt).toEqual([
+      { type: 'text', text: '看这张图' },
+      { type: 'image', bytes: IMAGE_BYTES, mediaType: 'image/jpeg', name: 'IMG.jpg' },
+    ]);
+  });
+
+  it('omits the text block for image-only messages (分叉④)', async () => {
+    const h = makeHarness(4, { media: fakeMedia({ loaded: [loadedImage], skipped: [] }) });
+    h.feed([
+      makeRow({
+        rowid: 5,
+        guid: 'G-PURE',
+        text: null,
+        attributedBody: null,
+        attachmentPath: '~/b.png',
+        attachmentMime: 'image/png',
+      }),
+    ]);
+    await h.run();
+    expect(h.port.askCalls[0]!.prompt).toEqual([
+      { type: 'image', bytes: IMAGE_BYTES, mediaType: 'image/jpeg', name: 'IMG.jpg' },
+    ]);
+  });
+
+  it('falls back to plain text when every image fails but text exists', async () => {
+    const h = makeHarness(
+      4,
+      // 全部附件被 media 层跳过（read-failed）
+      { media: fakeMedia({ loaded: [], skipped: [{ path: '~/a.heic', reason: 'read-failed' }] }) },
+    );
+    h.feed([
+      makeRow({
+        rowid: 5,
+        guid: 'G-FAIL',
+        text: '图挂了但我说正事',
+        attachmentPath: '~/a.heic',
+        attachmentMime: 'image/heic',
+      }),
+    ]);
+    await h.run();
+    expect(h.port.askCalls[0]!.prompt).toBe('图挂了但我说正事');
+  });
+
+  it('falls back to the image placeholder for failed image-only messages', async () => {
+    const h = makeHarness(4, {
+      media: fakeMedia({ loaded: [], skipped: [{ path: '~/b.png', reason: 'read-failed' }] }),
+    });
+    h.feed([
+      makeRow({
+        rowid: 5,
+        guid: 'G-PURE-FAIL',
+        text: null,
+        attributedBody: null,
+        attachmentPath: '~/b.png',
+        attachmentMime: 'image/png',
+      }),
+    ]);
+    await h.run();
+    expect(h.port.askCalls[0]!.prompt).toBe('[image]');
+  });
+
+  it('degrades to text when media is not wired (legacy env)', async () => {
+    const h = makeHarness(); // 不注入 media
+    h.feed([
+      makeRow({
+        rowid: 5,
+        guid: 'G-NO-MEDIA',
+        text: '老环境纯文本',
+        attachmentPath: '~/a.heic',
+        attachmentMime: 'image/heic',
+      }),
+    ]);
+    await h.run();
+    expect(h.port.askCalls[0]!.prompt).toBe('老环境纯文本');
+    // 未装配 media 的纯图消息也兑底占位，不空发
+    const h2 = makeHarness();
+    h2.feed([
+      makeRow({
+        rowid: 5,
+        guid: 'G-PURE-NO-MEDIA',
+        text: null,
+        attributedBody: null,
+        attachmentPath: '~/c.png',
+        attachmentMime: 'image/png',
+      }),
+    ]);
+    await h2.run();
+    expect(h2.port.askCalls[0]!.prompt).toBe('[image]');
+  });
+
+  it('logs media-loaded with counts, reason distribution and byte sum', async () => {
+    const h = makeHarness(4, {
+      media: fakeMedia({
+        loaded: [loadedImage, { bytes: new Uint8Array([9]), mediaType: 'image/png', name: null }],
+        skipped: [
+          { path: '~/x.mov', reason: 'not-image' },
+          { path: '~/y.mov', reason: 'not-image' },
+          { path: '~/z.tiff', reason: 'unsupported-media-type' },
+        ],
+      }),
+    });
+    h.feed([
+      makeRow({
+        rowid: 5,
+        guid: 'G-LOG',
+        text: '多附件',
+        attachmentPath: '~/a.heic',
+        attachmentMime: 'image/heic',
+      }),
+    ]);
+    await h.run();
+    const line = h.logLines.find((l) => l.event === 'pipeline.media-loaded');
+    expect(line).toBeDefined();
+    expect(line!.fields).toMatchObject({
+      guid: 'G-LOG',
+      loaded: 2,
+      skipped: 3,
+      reasons: { 'not-image': 2, 'unsupported-media-type': 1 },
+      bytes: IMAGE_BYTES.length + 1,
+    });
+  });
+
+  it('does not log media events for plain text messages', async () => {
+    const h = makeHarness();
+    h.feed([makeRow({ rowid: 5, guid: 'G-PLAIN', text: '纯文本' })]);
+    await h.run();
+    expect(h.logLines.some((l) => l.event.startsWith('pipeline.media'))).toBe(false);
+  });
+
+  it('warns media-failed and degrades when load rejects (contract breach)', async () => {
+    const h = makeHarness(4, { media: fakeMedia(new Error('fake media exploded')) });
+    h.feed([
+      makeRow({
+        rowid: 5,
+        guid: 'G-THROW',
+        text: '文本照发',
+        attachmentPath: '~/a.heic',
+        attachmentMime: 'image/heic',
+      }),
+    ]);
+    await h.run();
+    expect(h.port.askCalls[0]!.prompt).toBe('文本照发');
+    const warn = h.logLines.find((l) => l.event === 'pipeline.media-failed');
+    expect(warn).toBeDefined();
+    expect(warn!.fields).toMatchObject({ guid: 'G-THROW', attachments: 1 });
   });
 });
 

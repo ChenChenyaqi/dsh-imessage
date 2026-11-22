@@ -9,6 +9,10 @@
 // - 探测通过但 db 打不开 → start-failed（与权限失败分开归因）
 
 import type { DatabaseSync } from 'node:sqlite';
+import { execFile } from 'node:child_process';
+import { homedir, tmpdir } from 'node:os';
+import { readFile, unlink, writeFile } from 'node:fs/promises';
+import { promisify } from 'node:util';
 import type { Locale } from '@/core/i18n';
 import { makeT } from '@/core/i18n';
 import type { ReplyStyle } from '@/core/imessage/humanize';
@@ -18,6 +22,9 @@ import { makeSender } from '@/core/imessage/sender';
 import { defaultChatDbPath, nodeProbeDeps, probeEnvironment } from '@/core/imessage/env';
 import type { ProbeDeps } from '@/core/imessage/env';
 import { fetchBatch, openChatDb, readMaxRowId } from '@/core/imessage/chatdb';
+import { loadImages } from '@/core/imessage/media';
+import type { LoadImagesResult, MediaDeps } from '@/core/imessage/media';
+import type { MessageAttachment } from '@/core/types/messages';
 import type { LogSink, Logger } from '@/core/log/jsonl';
 import { makeFileSink, makeLogger } from '@/core/log/jsonl';
 import { resolvePaths } from '@/core/paths';
@@ -61,6 +68,8 @@ export interface ChannelEnv {
   readonly probe?: ProbeDeps;
   /** 发送器（默认 makeSender() 走真 osascript；测试注入 fake）。 */
   readonly sender?: ImessageSender;
+  /** 媒体加载器（默认 node 真 IO 绑定；测试注入 fake，M6.1）。 */
+  readonly media?: { load(attachments: readonly MessageAttachment[]): Promise<LoadImagesResult> };
   /** chat.db 打开（默认 openChatDb；测试注入内存库）。 */
   readonly openDb?: (path: string) => DatabaseSync;
   /** chat.db 路径（默认 defaultChatDbPath）。 */
@@ -69,6 +78,24 @@ export interface ChannelEnv {
   readonly logSink?: LogSink;
   /** 轮询/打字 sleep（默认真 sleep；测试注入 no-op）。 */
   readonly sleep?: (ms: number, signal?: AbortSignal) => Promise<void>;
+}
+
+// ---------------------------------------------------------------------------
+// node 媒体依赖（真 IO；core 无真 IO，组装层绑定）
+// ---------------------------------------------------------------------------
+
+/** readFile/writeFile/unlink/sips/tmpdir/homedir 的真实现绑定。 */
+const execFileAsync = promisify(execFile);
+
+export function nodeMediaDeps(): MediaDeps {
+  return {
+    readFile: (path) => readFile(path),
+    writeFile: (path, data) => writeFile(path, data),
+    unlink: (path) => unlink(path),
+    exec: (cmd, args) => execFileAsync(cmd, args).then(() => undefined),
+    tmpdir,
+    homedir,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -247,6 +274,10 @@ export function startImessageChannel(config: ChannelConfig, env: ChannelEnv): Ch
 
   // -- 全组件组装 -------------------------------------------------------
   const sender = env.sender ?? makeSender();
+  // 媒体加载：node 真 IO 绑定（sips/heic 转码细节在 core/imessage/media）
+  const media = env.media ?? {
+    load: (atts: readonly MessageAttachment[]) => loadImages(atts, nodeMediaDeps()),
+  };
   const t = makeT(live.locale);
   const stateFile = paths.stateFile;
   const controller = new AbortController();
@@ -276,6 +307,7 @@ export function startImessageChannel(config: ChannelConfig, env: ChannelEnv): Ch
     sessionSwitchedText: t('session.switched'),
     replyUnavailableText: t('reply.unavailable'),
     replyStyle: () => live.style,
+    media,
     loadState: () => loadState(stateFile),
     saveState: (state: Parameters<typeof saveState>[1]) => saveState(stateFile, state),
     log,

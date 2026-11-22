@@ -52,8 +52,10 @@ pipeline 的 ask 前一步，deps 注入（同 `preset()` 用时读模式）。
 ## 日志
 
 - 新事件 `pipeline.media-loaded`（**仅有附件的消息打点**，空批不打点原则不变）：
-  `loaded` / `failed` 数、`skipReasons` 分布、总 bytes——正文与图片内容
-  永不入日志（纪律不变）
+  字段 `loaded` / `skipped` 数、`reasons` 分布（仅 skipped>0 时）、
+  `bytes` 总和——正文与图片内容永不入日志（纪律不变）
+- 旁支：`pipeline.media-failed`（media.load 抛错，防御契约破坏）、
+  `dsh-port.image-skipped`（reason=`save-failed`/`attachments-unavailable`）
 
 ## 分步交付
 

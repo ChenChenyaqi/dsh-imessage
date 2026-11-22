@@ -33,7 +33,7 @@ type RouteHandler = (request: {
   json(): Promise<unknown>;
 }) => Promise<Response>;
 
-function makeCtx(options: { connectionFetch?: unknown } = {}) {
+function makeCtx(options: { connectionFetch?: unknown; attachments?: unknown } = {}) {
   const listeners = new Map<string, Array<(payload?: unknown) => void>>();
   /** 触发一个已注册事件（模拟 loader 提交 volatile 更新）。 */
   const emit = (event: string, payload?: unknown) => {
@@ -62,6 +62,12 @@ function makeCtx(options: { connectionFetch?: unknown } = {}) {
     workspaceRegistry: host.services.workspaceRegistry,
     agentDefaultModel: host.services.agentDefaultModel,
     sessionTitle: host.services.sessionTitle,
+    // cordis 动态服务获取面（agentPresets/attachments 同源）：有则返回，
+    // 无该服务返回 undefined（老宿主降级路径）
+    get(name: string) {
+      if (name === 'attachments' && 'attachments' in options) return options.attachments;
+      return undefined;
+    },
     effect(fn: () => () => unknown) {
       disposers.push(fn());
     },
@@ -160,6 +166,21 @@ describe('apply · volatile config', () => {
     const result = await callStatus();
     expect(result.value).toMatchObject({ allowlistCount: 0 }); // 缺省 → []
     for (const dispose of disposers) void dispose();
+  });
+
+  it('wires the attachments service through when the host provides one (M6.1)', () => {
+    // 老宿主无该服务 → undefined 降级；有则透传（动态获取，同 agentPresets）
+    const withService = makeCtx({ attachments: { saveImages: async () => [] } });
+    expect(() =>
+      apply(withService.ctx as never, { locale: 'zh', allowlist: [] }, { probe: failingProbe }),
+    ).not.toThrow();
+    for (const dispose of withService.disposers) void dispose();
+    // 无服务路径（ctx.get 返回 undefined）同样不抛
+    const withoutService = makeCtx();
+    expect(() =>
+      apply(withoutService.ctx as never, { locale: 'zh', allowlist: [] }, { probe: failingProbe }),
+    ).not.toThrow();
+    for (const dispose of withoutService.disposers) void dispose();
   });
 
   it('skips the volatile listener when the host has no ctx.on', () => {

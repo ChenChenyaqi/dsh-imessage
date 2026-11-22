@@ -27,11 +27,14 @@
 
 import type { ChatDbRow } from '../imessage/chatdb';
 import { normalizeRows } from '../imessage/normalize';
+import type { LoadImagesResult } from '../imessage/media';
 import type { ImessageSender, SendError } from '../imessage/sender';
 import { sendHumanized, LEGACY_STYLE, type ReplyStyle } from '../imessage/humanize';
 import type { Logger } from '../log/jsonl';
 import type { AccessPolicy } from '../types/policy';
-import type { DshPort } from '../types/dsh';
+import type { AskPart, DshPort } from '../types/dsh';
+import { IMAGE_PLACEHOLDER } from '../types/dsh';
+import type { MessageAttachment, NormalizedMessage } from '../types/messages';
 import type { ChannelState } from '../types/state';
 import { evaluateGate, markSeen, unmarkSeen } from './gate';
 import type { SessionRouter } from './session-router';
@@ -61,6 +64,9 @@ export interface PipelineDeps {
   readonly replyUnavailableText: string;
   /** 回复风格（分段开关/上限/延时系数）。用时读 → UI 热改立即生效。 */
   readonly replyStyle?: () => ReplyStyle;
+  /** 媒体加载（M6.1 收图；已绑定 IO deps 的高阶面，host 组装层注入）。
+   *  缺省时图片路径降级：纯文本照发、纯图退占位（老环境/测试）。 */
+  readonly media?: { load(attachments: readonly MessageAttachment[]): Promise<LoadImagesResult> };
   readonly loadState: () => ChannelState;
   readonly saveState: (state: ChannelState) => void;
   readonly log?: Pick<Logger, 'info' | 'warn' | 'error'>;
@@ -151,12 +157,52 @@ export async function runPipeline(
     cursor = initialCursor;
   }
 
+  /** 组装 ask prompt（M6.1）：文本 + 图片内容块。
+   *  图片级失败只剔该图（media 层已结构化）；全失败且无文本 → 占位
+   *  兜底（分叉②：空 prompt 会吞消息语义）；media 未装配同款降级。 */
+  const buildPrompt = async (msg: NormalizedMessage): Promise<string | readonly AskPart[]> => {
+    const textFallback = () => (msg.text === '' ? IMAGE_PLACEHOLDER : msg.text);
+    if (!msg.attachments || msg.attachments.length === 0) return textFallback();
+    if (!deps.media) return textFallback();
+    let media: LoadImagesResult;
+    try {
+      media = await deps.media.load(msg.attachments);
+    } catch (err) {
+      // 防御：loadImages 契约永不抛，但 fake/未来实现可能破坏契约
+      log?.warn('pipeline.media-failed', {
+        guid: msg.guid,
+        attachments: msg.attachments.length,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return textFallback();
+    }
+    // 仅有附件的消息打点（空批不打点原则不变）；内容永不入日志
+    const reasons: Record<string, number> = {};
+    for (const s of media.skipped) reasons[s.reason] = (reasons[s.reason] ?? 0) + 1;
+    log?.info('pipeline.media-loaded', {
+      guid: msg.guid,
+      loaded: media.loaded.length,
+      skipped: media.skipped.length,
+      ...(Object.keys(reasons).length > 0 ? { reasons } : {}),
+      bytes: media.loaded.reduce((sum, im) => sum + im.bytes.length, 0),
+    });
+    if (media.loaded.length === 0) return textFallback();
+    const parts: AskPart[] = [];
+    if (msg.text !== '') parts.push({ type: 'text', text: msg.text }); // 分叉④：纯图不加 text 块
+    for (const im of media.loaded) {
+      parts.push({
+        type: 'image',
+        bytes: im.bytes,
+        mediaType: im.mediaType,
+        ...(im.name !== null ? { name: im.name } : {}),
+      });
+    }
+    return parts;
+  };
+
   /** 处理一条 accepted 消息（claim 已落盘前提下的后半程）。 */
-  const processAccepted = async (
-    key: string,
-    guid: string,
-    text: string,
-  ): Promise<MessageOutcome> => {
+  const processAccepted = async (msg: NormalizedMessage): Promise<MessageOutcome> => {
+    const { conversationKey: key, guid, text } = msg;
     let asked = false; // send 阶段前始终保持可重试
     const askStart = now();
     try {
@@ -171,9 +217,10 @@ export async function runPipeline(
         sessionId: routed.sessionId,
         chars: text.length,
       });
+      const prompt = await buildPrompt(msg);
       const chunks: string[] = [];
       let firstDeltaMs: number | undefined;
-      for await (const chunk of port.ask({ sessionId: routed.sessionId, prompt: text, signal })) {
+      for await (const chunk of port.ask({ sessionId: routed.sessionId, prompt, signal })) {
         firstDeltaMs ??= now() - askStart; // 首字延迟：卡顿归因的关键指标
         chunks.push(chunk);
       }
@@ -313,7 +360,7 @@ export async function runPipeline(
           chars: msg.text.length,
         });
 
-        const outcome = await processAccepted(msg.conversationKey, msg.guid, msg.text);
+        const outcome = await processAccepted(msg);
         if (outcome.kind === 'permission-stopped') {
           log?.error('pipeline.permission-stopped', { guid: msg.guid });
           persist(msg.rowId, loadState().seenIds); // 停机前把状态收干净

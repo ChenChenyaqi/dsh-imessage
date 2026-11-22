@@ -19,6 +19,7 @@ import type { ChannelEnv } from '@/host/channel';
 import { registerStatusRpc } from '@/host/rpc';
 import type { FetchRegistry } from '@/host/rpc';
 import type { DshPortServices } from '@/host/dsh-port';
+import type { HostAttachmentsService } from '@/host/dsh-api';
 
 export const name = PLUGIN_ID;
 
@@ -99,6 +100,17 @@ function agentPresetsService(ctx: Context):
     : undefined;
 }
 
+/** attachments 附件服务最小面（宿主内置；无该服务的老宿主返回 undefined
+ *  = 图片降级不阻塞文本，动态注入同 agentPresets 纪律）。 */
+function attachmentsService(ctx: Context): HostAttachmentsService | undefined {
+  const service = (ctx as unknown as { get?(name: string): unknown }).get?.('attachments');
+  if (service === undefined || typeof service !== 'object') return undefined;
+  const candidate = service as { saveImages?: unknown };
+  return typeof candidate.saveImages === 'function'
+    ? (candidate as HostAttachmentsService)
+    : undefined;
+}
+
 export function apply(ctx: Context, config: Config, overrides: Partial<ChannelEnv> = {}): void {
   // 宿主服务经 inject 提供；类型合并声明在上方 declare module
   const services: DshPortServices = {
@@ -109,6 +121,8 @@ export function apply(ctx: Context, config: Config, overrides: Partial<ChannelEn
     // 探针纪律（同 connection）：动态取，无该服务的宿主上 undefined =
     // 预设降级为宿主默认，通道照常
     ...(agentPresetsService(ctx) === undefined ? {} : { agentPresets: agentPresetsService(ctx)! }),
+    // 附件服务同款动态获取（M6.1）：老宿主无 = 图片降级，文本照发
+    ...(attachmentsService(ctx) === undefined ? {} : { attachments: attachmentsService(ctx)! }),
   };
   const env: ChannelEnv = {
     services,

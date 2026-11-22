@@ -35,6 +35,7 @@ const KNOWN_SKIP = [
   { file: 'host/dsh-port.ts', line: 81, why: 'default mkdir hits real fs (tests inject no-op)' },
   { file: 'host/channel.ts', line: 113, why: 'default openChatDb hits real chat.db (tests inject memory db)' },
   { file: 'host/channel.ts', line: 123, why: 'default makeSender hits real osascript (tests inject fake)' },
+  { file: 'host/channel.ts', line: 279, why: 'default nodeMediaDeps: real fs/sips IO (tests inject fake media loader)' },
   { file: 'host/rpc.ts', line: 126, why: 'defensive fallback: missing host header' },
   { file: 'host/dsh-port.ts', line: 234, why: 'defensive fallback: abort signal without reason' },
   { file: 'host/dsh-port.ts', line: 235, why: 'defensive fallback: malformed turn/end error event' },

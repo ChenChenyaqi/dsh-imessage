@@ -473,3 +473,184 @@ describe('dsh-port · ask', () => {
     await expect(consumption).rejects.toThrow('ask aborted by host');
   });
 });
+
+// ---------------------------------------------------------------------------
+// ask 内容块（M6.1 收图：image → attachments.saveImages → ref 块）
+// ---------------------------------------------------------------------------
+
+type FakeDshHost = ReturnType<typeof makeFakeDshHost>;
+
+/** 从 fake host 的活日志里取 followup content 列表。 */
+function followupsOf(host: FakeDshHost): Array<readonly unknown[]> {
+  return host.log
+    .filter((e) => e.kind === 'agent.followup')
+    .map((e) => (e as unknown as { content: readonly unknown[] }).content);
+}
+
+function makePortWithAttachments(options: { readonly withoutService?: boolean } = {}) {
+  const base = makePort();
+  const saveCalls: import('@/host/dsh-api').HostSaveImageAttachment[][] = [];
+  const warnings: Array<{ event: string; fields?: Record<string, unknown> }> = [];
+  let saveFailure: Error | null = null;
+  if (options.withoutService !== true) {
+    (base.host.services as { attachments?: unknown }).attachments = {
+      saveImages: async (inputs: import('@/host/dsh-api').HostSaveImageAttachment[]) => {
+        saveCalls.push([...inputs]);
+        if (saveFailure) {
+          const err = saveFailure;
+          saveFailure = null;
+          throw err;
+        }
+        // 官方语义：保序返回引用
+        return inputs.map((input, i) => ({
+          attachmentId: `att-${saveCalls.length}-${i}`,
+          mediaType: input.mediaType,
+          bytes: input.data.length,
+          width: 100,
+          height: 100,
+          ...(input.name === undefined ? {} : { name: input.name }),
+        }));
+      },
+    };
+  }
+  const port = makeDshPort({
+    services: base.host.services,
+    events: base.host,
+    dataRoot: '/data/root',
+    mkdir: async () => undefined,
+    log: { warn: (event, fields) => warnings.push({ event, fields: { ...fields } }) },
+  });
+  return {
+    host: base.host,
+    port,
+    saveCalls,
+    warnings,
+    failNextSave: (err: Error) => {
+      saveFailure = err;
+    },
+  };
+}
+
+describe('dsh-port · ask content blocks', () => {
+  const PNG = new Uint8Array([1, 2, 3]);
+  const JPEG = new Uint8Array([4, 5]);
+
+  it('passes a string prompt through as a single text block', async () => {
+    const h = makePortWithAttachments();
+    h.host.scriptReply({ text: 'ok' });
+    const sessionId = await h.port.createSession({ workspaceDir: 'ws/a', name: 'imessage a' });
+    await collectAsk(h.port.ask({ sessionId, prompt: '纯文本' }));
+    expect(followupsOf(h.host)).toEqual([[{ type: 'text', text: '纯文本' }]]);
+    expect(h.saveCalls).toEqual([]); // 文本路径不碰附件服务
+  });
+
+  it('issues one saveImages per image part and preserves block order', async () => {
+    const h = makePortWithAttachments();
+    h.host.scriptReply({ text: 'ok' });
+    const sessionId = await h.port.createSession({ workspaceDir: 'ws/a', name: 'imessage a' });
+    await collectAsk(
+      h.port.ask({
+        sessionId,
+        prompt: [
+          { type: 'text', text: '看这两张图' },
+          { type: 'image', bytes: PNG, mediaType: 'image/png', name: 'a.png' },
+          { type: 'image', bytes: JPEG, mediaType: 'image/jpeg' },
+        ],
+      }),
+    );
+    // 逐图调用（单图失败只剔该图的必要条件），入参为原始字节
+    expect(h.saveCalls).toEqual([
+      [{ data: PNG, mediaType: 'image/png', name: 'a.png' }],
+      [{ data: JPEG, mediaType: 'image/jpeg' }],
+    ]);
+    // ref 块保序混入 content
+    expect(followupsOf(h.host)).toEqual([
+      [
+        { type: 'text', text: '看这两张图' },
+        {
+          type: 'image',
+          attachment: {
+            attachmentId: 'att-1-0',
+            mediaType: 'image/png',
+            bytes: 3,
+            width: 100,
+            height: 100,
+            name: 'a.png',
+          },
+        },
+        {
+          type: 'image',
+          attachment: {
+            attachmentId: 'att-2-0',
+            mediaType: 'image/jpeg',
+            bytes: 2,
+            width: 100,
+            height: 100,
+          },
+        },
+      ],
+    ]);
+  });
+
+  it('drops only the failing image and warns (rest survives)', async () => {
+    const h = makePortWithAttachments();
+    h.host.scriptReply({ text: 'ok' });
+    const sessionId = await h.port.createSession({ workspaceDir: 'ws/a', name: 'imessage a' });
+    h.failNextSave(new Error('image too large'));
+    await collectAsk(
+      h.port.ask({
+        sessionId,
+        prompt: [
+          { type: 'image', bytes: PNG, mediaType: 'image/png' },
+          { type: 'text', text: '文字还在' },
+          { type: 'image', bytes: JPEG, mediaType: 'image/jpeg' },
+        ],
+      }),
+    );
+    expect(h.warnings).toEqual([
+      {
+        event: 'dsh-port.image-skipped',
+        fields: { reason: 'save-failed', error: 'image too large' },
+      },
+    ]);
+    expect(followupsOf(h.host)).toEqual([
+      [
+        { type: 'text', text: '文字还在' },
+        { type: 'image', attachment: expect.objectContaining({ attachmentId: 'att-2-0' }) },
+      ],
+    ]);
+  });
+
+  it('degrades all images with one warning when the service is missing', async () => {
+    const h = makePortWithAttachments({ withoutService: true });
+    h.host.scriptReply({ text: 'ok' });
+    const sessionId = await h.port.createSession({ workspaceDir: 'ws/a', name: 'imessage a' });
+    await collectAsk(
+      h.port.ask({
+        sessionId,
+        prompt: [
+          { type: 'text', text: '老宿主' },
+          { type: 'image', bytes: PNG, mediaType: 'image/png' },
+          { type: 'image', bytes: JPEG, mediaType: 'image/jpeg' },
+        ],
+      }),
+    );
+    // 同批多图只警告一次
+    expect(h.warnings).toEqual([
+      { event: 'dsh-port.image-skipped', fields: { reason: 'attachments-unavailable' } },
+    ]);
+    expect(followupsOf(h.host)).toEqual([[{ type: 'text', text: '老宿主' }]]);
+    expect(h.saveCalls).toEqual([]);
+  });
+
+  it('falls back to the placeholder text block when all parts are dropped', async () => {
+    const h = makePortWithAttachments({ withoutService: true });
+    h.host.scriptReply({ text: 'ok' });
+    const sessionId = await h.port.createSession({ workspaceDir: 'ws/a', name: 'imessage a' });
+    await collectAsk(
+      h.port.ask({ sessionId, prompt: [{ type: 'image', bytes: PNG, mediaType: 'image/png' }] }),
+    );
+    // 空内容的用户消息会破坏宿主语义，兑底占位
+    expect(followupsOf(h.host)).toEqual([[{ type: 'text', text: '[image]' }]]);
+  });
+});

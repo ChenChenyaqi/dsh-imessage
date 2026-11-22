@@ -16,8 +16,9 @@
 
 - [x] **探针（2026-11-20）**：chat.db 附件准入事实 / DSH 图片内容块契约 /
   osascript 发送与暂存纪律，结论见 `probes.md`
-- [ ] **收图**：附件元数据 → media 加载（HEIC→JPEG，sips 注入）→
-  ask 内容块化；详细设计见 `inbound-images.md`（分叉已拍板，按推荐）
+- [x] **收图**：附件元数据 → media 加载（HEIC→JPEG，sips 注入）→
+  ask 内容块化；详细设计见 `inbound-images.md`（分叉已按推荐拍板；
+  Step A/B/C 全部落地，真机验收待收口项统一做）
 - [ ] **发图/发文件**：sender 增 `send POSIX file` 路径；暂存纪律 =
   `os.tmpdir()` + 自有前缀 `dsh-imessage-out-` + 1h 保留 + 发送时清扫
   （事实见 `probes.md` ③）；发送失败沿用 at-most-once（不重试不重复）
