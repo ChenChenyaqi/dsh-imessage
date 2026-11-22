@@ -129,11 +129,13 @@ ask 流 ──▶ 文本回复（humanize 分段，现路径零改动）
   index toolsService 动态获取；测试：deliver-tool 17 用例、
   pipeline 交付段 9 用例、artifacts 4 用例、session-router 反查 3 用例、
   apply tools 注入 1 用例（含脏服务降级）
-- **Step C · 收尾**：失败通知 i18n（file-send-failed 后发含文件名的
-  词条文本）+ `AGENTS.md` 事件清单（artifact.queued / outbound.staged /
-  outbound.swept / outbound.stage-failed / file-sent / file-send-failed）
-  + 真机 e2e（对方会话收到文件、暂存 1h 清扫验证、Web 会话误调
-  工具无害）
+- **Step C · 收尾（✅ 代码完成 2026-11-22；真机手验待做）**：失败通知
+  i18n `file.sendFailed`（{name} 插值，两语言成对）经 sendSystem 补发
+  （权限错误上抛停通道、其余吞 + `pipeline.notify-failed`，均
+  at-most-once）；`AGENTS.md` 事件清单补 M6.2 链路与排查表「文件没
+  发出去」行。真机手验项（需真宿主 + 真手机）：① 会话里让 AI 发文件
+  验证完整链路；② 暂存 1h 后下次发送时清扫；③ Web 会话误调工具
+  报错无害
 
 ## 待拍板分叉
 
@@ -149,3 +151,26 @@ ask 流 ──▶ 文本回复（humanize 分段，现路径零改动）
 ~~另：macOS 26 门（send POSIX file 语法依赖）在 Step A 真机实测定。~~
 已实测关闭：15.7.3 语法可用；真正的门不是版本而是暂存路径（home =
 transfer_state 6 静默丢失，tmpdir = 5），outbound.ts 的暂存已覆盖。
+
+## 真机事故记录（2026-11-22，Step C 首验）
+
+**现象**：会话 imessage-7d1c3f95 让 AI 发 chan_kuaizi.gif，手机未收到；
+日志零交付事件；DSH 会话日志显示 AI 正确调了 imessage_send_file 但被
+拒（"no active iMessage delivery context"），随即退回宿主 present。
+
+**根因**：`exec.agent` 的身份字段声明错——官方 `Agent` 接口是
+`{ readonly id: SessionId }`（dsh-agent types.ts），我声明成
+`{ sessionId? }`（grep 到 CreateAgentOptions.sessionId 就下了结论，
+没打开 Agent 接口本身）。运行时 `exec.agent.sessionId` 恒 undefined
+→ 路由校验必败。TS 结构类型对可选字段缺省沉默；测试 fake 照声明
+造，自我印证测不出。
+
+**修复**：复用项目内已有正确事实 `HostBareAgent.id`（M5 探针产物，
+就在同文件）+ 源码坐标注释；拆分拒绝文案（无 agent 语境 vs 非
+iMessage 会话）+ 拒绝路径留痕（`artifact.tool-rejected`）。
+
+**防再犯四条**（已沉淀 docs/host-integration/host-api/plan.md）：
+1. 最小面字段必须带 DSH 源码坐标，写前 awk 官方接口全文对照
+2. Agent 身份单一定义：exec.agent 复用 HostBareAgent，禁双声明
+3. 宿主契约面首次真机跑通前不算完成、不进提交
+4. fake 照官方源码造（标注坐标），不照我们的声明造

@@ -102,6 +102,7 @@
 | AI 慢 | `pipeline.ask-done` 的 `firstDeltaMs` / `totalMs` |
 | 图片没送进 AI | `pipeline.media-loaded` 的 `loaded`/`skipped`（skipped>0 看 `reasons`）；进了但被剔 → `dsh-port.image-skipped` 的 `reason` |
 | 回复发不出去 | 有 `reply-sent` 吗？没有但见 `send-failed` = AppleScript / 权限 |
+| 文件没发出去 | 有 `artifact.queued`（AI 声明了交付）吗？没有 → 看 `artifact.tool-rejected` 的 `reason`（工具被拒）；有 → 看 `file-sent` 还是 `file-send-failed` / `outbound.stage-failed` 的 `code`；通知文本由系统路径补发 |
 | 插件没启动 | 有 `channel.started` 吗？没有看 `channel.probe-failed` 的 `disk`/`automation` |
 | 启动配置没生效 | `channel.started` 的 `allowlistCount` / `intervalMs` / `cursor` |
 | 退出时丢消息 | `channel.stop-requested` 紧跟某条 `send-failed … aborted`（定案：不重发） |
@@ -119,6 +120,12 @@
   `ask-done` → `reply-sent` → `message-done`；旁支 `message-skipped`、
   `media-failed`、`image-skipped`、`send-failed`、`message-failed`、
   `retry-exhausted`、`permission-stopped`
+- 外发附件（M6.2）：`artifact.queued`（交付工具声明，ask 流内）→
+  `outbound.staged` → `file-sent`；旁支 `outbound.swept`（仅 deleted>0）、
+  `outbound.stage-failed`、`file-send-failed`（失败后续发系统通知文本，
+  通知自身失败见 `pipeline.notify-failed`；均 at-most-once 不重试）。
+  工具被拒不入队：`artifact.tool-rejected`（`reason`——无 agent 语境 /
+  非 iMessage 会话 / 参数与限额拒绝，AI 会收到同文案的报错）
 - 会话：`router.session-created`、`router.orphan-session`
 - 空批不打点（否则 2 秒一条心跳刷爆日志）；新增事件请遵守此原则
 

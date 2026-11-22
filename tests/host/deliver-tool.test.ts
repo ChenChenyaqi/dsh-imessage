@@ -4,6 +4,7 @@
 
 import { describe, expect, it } from 'vitest';
 
+import type { HostBareAgent, HostSessionId } from '@/host/dsh-api';
 import type { ArtifactCollector } from '@/core/router/artifacts';
 import { makeArtifactCollector } from '@/core/router/artifacts';
 import type { Logger } from '@/core/log/jsonl';
@@ -66,15 +67,20 @@ function makeServices(collector: ArtifactCollector, tools?: HostToolsService) {
 
 function makeLog() {
   const lines: Array<{ event: string; fields: Record<string, unknown> }> = [];
-  const log: Pick<Logger, 'info'> = {
+  const log: Pick<Logger, 'info' | 'warn'> = {
     info: (event, fields) => lines.push({ event, fields: fields as Record<string, unknown> }),
+    warn: (event, fields) => lines.push({ event, fields: fields as Record<string, unknown> }),
   };
   return { log, lines };
 }
 
-const EXEC_IM = { agent: { sessionId: 'session-im-1' } } as const;
-const EXEC_WEB = { agent: { sessionId: 'session-web-9' } } as const;
-const EXEC_NO_AGENT = {} as const;
+// 官方 Agent 身份字段是 id（dsh-agent types.ts：`Agent { readonly id: SessionId }`；
+// fake 照官方源码造，不照我们的声明——声明错了 fake 才测得出）
+const agentExec = (id: string) =>
+  ({ agent: { id: id as HostSessionId } }) as { readonly agent?: HostBareAgent };
+const EXEC_IM = agentExec('session-im-1');
+const EXEC_WEB = agentExec('session-web-9');
+const EXEC_NO_AGENT = {} as { readonly agent?: HostBareAgent };
 
 // ---------------------------------------------------------------------------
 // 注册与降级
@@ -142,24 +148,34 @@ describe('deliver tool execute · routing guard', () => {
     ]);
   });
 
-  it('rejects calls without an agent session (non-agent context)', async () => {
-    const def = buildDeliverToolDefinition(
-      makeServices(makeArtifactCollector()),
-      makeFakeFs().deps,
-    );
+  it('rejects calls without an agent session (not inside an agent loop)', async () => {
+    const { log, lines } = makeLog();
+    const def = buildDeliverToolDefinition(makeServices(makeArtifactCollector()), {
+      ...makeFakeFs().deps,
+      log,
+    });
     await expect(def.execute({ path: '/ws/report.pdf' }, EXEC_NO_AGENT)).rejects.toThrow(
-      /no active iMessage delivery context/,
+      /no agent session context/,
     );
+    // 拒绝路径留痕（2026-11-22 真机事故：零留痕只能翻会话日志定位）
+    expect(lines).toEqual([
+      {
+        event: 'artifact.tool-rejected',
+        fields: { reason: expect.stringContaining('no agent session context') },
+      },
+    ]);
   });
 
   it('rejects web/desktop sessions not in the iMessage route table', async () => {
-    const def = buildDeliverToolDefinition(
-      makeServices(makeArtifactCollector()),
-      makeFakeFs().deps,
-    );
+    const { log, lines } = makeLog();
+    const def = buildDeliverToolDefinition(makeServices(makeArtifactCollector()), {
+      ...makeFakeFs().deps,
+      log,
+    });
     await expect(def.execute({ path: '/ws/report.pdf' }, EXEC_WEB)).rejects.toThrow(
-      /no active iMessage delivery context/,
+      /not bridged from iMessage/,
     );
+    expect(lines[0]).toMatchObject({ event: 'artifact.tool-rejected' });
   });
 });
 

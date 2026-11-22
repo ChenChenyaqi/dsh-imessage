@@ -117,6 +117,7 @@ function makeHarness(
     policy: makePolicy(['+8613800000000']),
     sessionSwitchedText: SWITCHED_TEXT,
     replyUnavailableText: UNAVAILABLE_TEXT,
+    fileFailedNotice: (name: string) => `[file-failed] ${name}`,
     loadState: () => state,
     saveState,
     log,
@@ -1178,6 +1179,46 @@ describe('pipeline · outbound delivery (M6.2)', () => {
       name: 'x.png',
       code: 'unknown',
     });
+  });
+
+  it('notifies the contact with the file name after a send failure (system path)', async () => {
+    const outbound = makeFakeOutbound();
+    const h = makeHarness(4, { collector: makeArtifactCollector(), outbound: outbound.deps });
+    h.sender.failFileAt(0, new SendError('send-failed', '+8613800000000'));
+    queueAskWithArtifacts(h, [{ bytes: [1], name: 'doc.pdf' }]);
+    h.feed([R5()]);
+    await h.run();
+
+    const notice = h.sender.sent.find((c) => c.kind === 'system');
+    expect(notice!.text).toBe('[file-failed] doc.pdf');
+  });
+
+  it('swallows non-permission notice failures (at-most-once, message still done)', async () => {
+    const outbound = makeFakeOutbound();
+    const h = makeHarness(4, { collector: makeArtifactCollector(), outbound: outbound.deps });
+    h.sender.failFileAt(0, new SendError('send-failed', '+8613800000000'));
+    h.sender.failNextSystem(new Error('notify down'));
+    queueAskWithArtifacts(h, [{ bytes: [1], name: 'y.png' }]);
+    h.feed([R5()]);
+    const result = await h.run();
+
+    expect(result.processed).toBe(1);
+    expect(h.logLines.find((l) => l.event === 'pipeline.notify-failed')!.fields).toMatchObject({
+      name: 'y.png',
+      error: 'notify down',
+    });
+  });
+
+  it('propagates permission errors from the notice so the channel stops', async () => {
+    const outbound = makeFakeOutbound();
+    const h = makeHarness(4, { collector: makeArtifactCollector(), outbound: outbound.deps });
+    h.sender.failFileAt(0, new SendError('send-failed', '+8613800000000'));
+    h.sender.failNextSystem(permissionErr());
+    queueAskWithArtifacts(h, [{ bytes: [1], name: 'z.png' }]);
+    h.feed([R5()]);
+    const result = await h.run();
+
+    expect(result.reason).toBe('permission-stopped');
   });
 
   it('opens each turn: stale artifacts from an interrupted turn never leak', async () => {

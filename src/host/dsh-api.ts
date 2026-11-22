@@ -183,18 +183,21 @@ export interface HostToolOutputDefinition {
   render(args: unknown, value: unknown): readonly unknown[];
 }
 
-/** 已注册工具（官方 ToolDefinition 鸭子形状；本插件只声明用到的面）。 */
+/** 已注册工具（官方 ToolDefinition 鸭子形状；本插件只声明用到的面）。
+ *  源码坐标：dsh-tools contracts.ts `ToolDefinition`（output 必填契约、
+ *  execute(args, exec)）；exec.agent 字段复用 HostBareAgent——官方
+ *  `Agent` 接口身份字段是 `id`（dsh-agent types.ts，SessionId 类型），
+ *  **不是** sessionId（那是 CreateAgentOptions 的字段；2026-11-22
+ *  真机事故：错读 exec.agent.sessionId 恒 undefined，路由校验必败）。 */
 export interface HostToolDefinition {
   readonly name: string;
   readonly description: string;
   /** JSON Schema（官方 parameters：Record<string, unknown>）。 */
   readonly parameters: Record<string, unknown>;
   readonly output: HostToolOutputDefinition;
-  /** 执行面：args 为模型参数（schema 自校验）；exec 只声明用到的 agent。 */
-  execute(
-    args: unknown,
-    exec: { readonly agent?: { readonly sessionId?: string } },
-  ): Promise<unknown>;
+  /** 执行面：args 为模型参数（schema 自校验）；返回值会被宿主按
+   *  output.schema 严格校验（dsh-tools pipeline.ts validateJsonSchemaValue）。 */
+  execute(args: unknown, exec: { readonly agent?: HostBareAgent }): Promise<unknown>;
 }
 
 /** tools 服务最小面（动态探测；老宿主无 = 发文件能力缺，文本不受影响）。 */

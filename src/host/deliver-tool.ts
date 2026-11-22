@@ -46,7 +46,9 @@ const DELIVER_TOOL_OUTPUT_SCHEMA = {
 export interface DeliverToolDeps {
   readonly readFile: (path: string) => Promise<Uint8Array>;
   readonly stat: (path: string) => Promise<{ size: number }>;
-  readonly log?: Pick<Logger, 'info'>;
+  /** 2026-11-22 真机教训：execute 失败零留痕只能翻会话日志定位——
+   *  拒绝路径也要打点（artifact.tool-rejected）。 */
+  readonly log?: Pick<Logger, 'info' | 'warn'>;
 }
 
 export interface DeliverToolServices {
@@ -57,8 +59,10 @@ export interface DeliverToolServices {
   readonly conversationKeyOf: (sessionId: string) => string | undefined;
 }
 
-function fail(message: string): never {
-  throw new Error(`${DELIVER_TOOL_NAME}: ${message}`);
+function reject(deps: DeliverToolDeps, reason: string): never {
+  // 排障盲区修复：拒绝路径留痕（否则只能翻 DSH 会话日志才知道工具被拒）
+  deps.log?.warn('artifact.tool-rejected', { reason });
+  throw new Error(`${DELIVER_TOOL_NAME}: ${reason}`);
 }
 
 export function buildDeliverToolDefinition(
@@ -83,24 +87,32 @@ export function buildDeliverToolDefinition(
       },
     },
     async execute(args, exec) {
-      const sessionId = exec.agent?.sessionId;
-      if (sessionId === undefined || services.conversationKeyOf(sessionId) === undefined) {
-        fail('no active iMessage delivery context for this session');
+      // 官方 Agent 身份字段是 id（见 dsh-api.ts HostToolDefinition 源码坐标注释）
+      const agentId = exec.agent?.id;
+      if (agentId === undefined) {
+        reject(deps, 'no agent session context (tool invoked outside an agent loop)');
+      }
+      if (services.conversationKeyOf(agentId) === undefined) {
+        reject(deps, `session ${agentId} is not bridged from iMessage (web/desktop session)`);
       }
       const path = (args as { path?: unknown } | null | undefined)?.path;
       if (typeof path !== 'string' || !path.startsWith('/')) {
-        fail('args.path must be an absolute file path');
+        reject(deps, 'args.path must be an absolute file path');
       }
       const { size } = await deps.stat(path);
-      if (size === 0) fail('file is empty');
+      if (size === 0) reject(deps, 'file is empty');
       if (size > OUTBOUND_MAX_BYTES) {
-        fail(`file exceeds the ${OUTBOUND_MAX_BYTES} byte limit (${size} bytes)`);
+        reject(deps, `file exceeds the ${OUTBOUND_MAX_BYTES} byte limit (${size} bytes)`);
       }
       const bytes = await deps.readFile(path);
       const fileName = safeOutboundName(path);
       // push 与 take 同 key：本轮 ask 流内执行，pipeline take 前必然已入队
-      services.collector.push(sessionId, { bytes, fileName });
-      deps.log?.info('artifact.queued', { sessionId, name: fileName, bytes: bytes.length });
+      services.collector.push(agentId, { bytes, fileName });
+      deps.log?.info('artifact.queued', {
+        sessionId: agentId,
+        name: fileName,
+        bytes: bytes.length,
+      });
       return { status: 'queued', fileName, bytes: bytes.length };
     },
   };
