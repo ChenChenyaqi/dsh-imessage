@@ -129,13 +129,28 @@ ask 流 ──▶ 文本回复（humanize 分段，现路径零改动）
   index toolsService 动态获取；测试：deliver-tool 17 用例、
   pipeline 交付段 9 用例、artifacts 4 用例、session-router 反查 3 用例、
   apply tools 注入 1 用例（含脏服务降级）
-- **Step C · 收尾（✅ 代码完成 2026-11-22；真机手验待做）**：失败通知
+- **Step C · 收尾（✅ 完成 2026-11-22，含真机验收）**：失败通知
   i18n `file.sendFailed`（{name} 插值，两语言成对）经 sendSystem 补发
   （权限错误上抛停通道、其余吞 + `pipeline.notify-failed`，均
   at-most-once）；`AGENTS.md` 事件清单补 M6.2 链路与排查表「文件没
-  发出去」行。真机手验项（需真宿主 + 真手机）：① 会话里让 AI 发文件
-  验证完整链路；② 暂存 1h 后下次发送时清扫；③ Web 会话误调工具
-  报错无害
+  发出去」行
+
+### 真机验收记录（2026-11-22，macOS 15.7.3 → +8619829734218）
+
+- **首次验证翻车**：AI 正确调用工具但被拒（exec.agent.sessionId
+  声明错，见「真机事故记录」），修复后复验通过
+- **完整链路**（guid 2A02C255，22:00:21–27）：`artifact.queued`
+  {name: chan_kuaizi.gif, bytes: 1588949} → `outbound.swept`
+  {deleted:1}（扫掉 Step A 手验残留，清扫纪律实证）→
+  `outbound.staged` → `file-sent`；时序 = 文本先行（reply-sent
+  后 9ms）、文件后发，message-done 收口
+- **契约面闭环**：DSH 会话 tool/result 渲染 `queued:
+  chan_kuaizi.gif`——execute 返回值通过宿主 output.schema 严格
+  校验 + render TextBlock 形状正确
+- **投递终局**（chat.db rowid 2753）：transfer_state=**5**，
+  transfer_name `dsh-imessage-out-709-1795354167850-chan_kuaizi.gif`
+  （自有前缀与 dsh-im 互不干扰），daemon 已拷贝入 Attachments 目录，
+  手机收到 489KB GIF
 
 ## 待拍板分叉
 
