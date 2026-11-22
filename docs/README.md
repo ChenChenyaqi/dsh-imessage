@@ -8,7 +8,7 @@
 - [PLAN.md](./PLAN.md) — 实施计划：宏观里程碑路线图
 - [ARCHITECTURE.md](./ARCHITECTURE.md) — dsh-im iMessage 渠道解构参考；含本项目已确认决策（D1–D9）与风险对策（实际模块架构见根 README「架构」段与各需求目录 plan.md）
 
-## 已完成（M1–M5，按代码反写）
+## 已完成（M1–M6，按代码反写）
 
 - [foundation/](./foundation/plan.md) — M1 底座：数据根 / 类型 / i18n / 日志 / state store
 - [imessage-kernel/](./imessage-kernel/plan.md) — M2 iMessage 收发内核：chatdb / 解码 / normalize / 双路径发送
@@ -17,7 +17,8 @@
   - host-api/ — DSH 宿主 API 事实库（plugin/rpc/ask，带源码行号，防接口漂移）
   - settings-ui/ — 设置页设计（M4 超额；preset 下拉部分属 M5）
 - [agent-preset/](./agent-preset/plan.md) — M5 人设预设：preset 子包 / 会话贯通 / 降级链
+- [media-exchange/](./media-exchange/plan.md) — M6 媒体收发：收图（HEIC→JPEG）/ 发图发文件 / 引用回复
 
 ## 进行中
 
-- [media-exchange/](./media-exchange/plan.md) — M6 媒体收发：收图（HEIC→JPEG）/ 发图发文件 / 引用回复
+- [identity-context/](./identity-context/plan.md) — M7 身份与上下文：白名单号码 → 称呼注入会话上下文（systemPrompt.context 管道）；贴纸集评估不纳入
