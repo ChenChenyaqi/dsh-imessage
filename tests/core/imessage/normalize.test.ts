@@ -299,6 +299,59 @@ describe('normalizeRows · multi-row merge', () => {
     expect(accepted(r).message.text).toBe(ATTACHMENT_PLACEHOLDER);
   });
 
+  it('strips the U+FFFC object placeholder from the text column (image-only)', () => {
+    // 真机实测（2026-11-22，guid 0F602B92…）：纯图消息 text 列就是单个
+    // U+FFFC（hex EFBFBC）而非 NULL——不剥会发出空白文本块
+    const rows = [
+      makeRow({
+        text: '￼',
+        attachmentPath: '/img.png',
+        attachmentMime: 'image/png',
+      }),
+    ];
+    const [r] = normalizeRows(rows);
+    expect(accepted(r).message.text).toBe('');
+  });
+
+  it('strips U+FFFC placeholders embedded in a caption but keeps the text', () => {
+    // 图+文混排：占位符与正文交织，剥后保留人话（判定用 trim，内容不裁空白）
+    const rows = [
+      makeRow({
+        text: '看这￼张图',
+        attachmentPath: '/img.png',
+        attachmentMime: 'image/png',
+      }),
+    ];
+    const [r] = normalizeRows(rows);
+    expect(accepted(r).message.text).toBe('看这张图');
+  });
+
+  it('treats whitespace-only text after stripping as image-only', () => {
+    // 剥后只剩空白：与空文本同归，避免发空白 text 块
+    const rows = [
+      makeRow({
+        text: ' ￼ ',
+        attachmentPath: '/img.png',
+        attachmentMime: 'image/png',
+      }),
+    ];
+    const [r] = normalizeRows(rows);
+    expect(accepted(r).message.text).toBe('');
+  });
+
+  it('falls back to the attachment placeholder when stripped text is empty without images', () => {
+    // text='￼' + mov：无图可代言，与 BLOB 路径同款占位降级
+    const rows = [
+      makeRow({
+        text: '￼',
+        attachmentPath: '/clip.mov',
+        attachmentMime: 'video/quicktime',
+      }),
+    ];
+    const [r] = normalizeRows(rows);
+    expect(accepted(r).message.text).toBe(ATTACHMENT_PLACEHOLDER);
+  });
+
   it('still skips empty messages without attachments (defensive)', () => {
     const rows = [makeRow({ text: null, attributedBody: null })];
     const [r] = normalizeRows(rows);

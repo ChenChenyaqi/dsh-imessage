@@ -4,7 +4,7 @@
 // - date 转换：Mac 绝对纳秒 → epoch 毫秒（BigInt 无损通道）
 // - 双源文本合并：text 列优先，空则 typedstream 解码 attributedBody
 // - 占位降级（协议标记，故意英文不走 i18n，AI 理解后自行本地化转述）：
-//     纯附件且无图（解码成功但剥 U+FFFC 后空）→ [attachment: image, not yet supported]
+//     纯附件且无图（剥 U+FFFC 后空，双源同规）→ [attachment: image, not yet supported]
 //     解码失败（null）                        → [undecodable message]
 //     带图附件且正文空（纯图/图文无字）       → ''（纯图消息，图走内容块，M6.1）
 // - 防循环过滤：fromMe 防御滤 / [dsh] 前缀 / 群聊 / 无 handle / 非法 handle
@@ -16,7 +16,7 @@
 // skipped，保证「单条坏消息不阻塞管道」。
 
 import type { ChatDbRow } from './chatdb';
-import { decodeAttributedBodyText } from './typedstream';
+import { OBJECT_REPLACEMENT_CHAR, decodeAttributedBodyText } from './typedstream';
 import {
   makeNormalizedMessage,
   type MessageAttachment,
@@ -75,7 +75,14 @@ export function macAbsoluteToEpochMs(dateNs: string): number {
  * M6.1：有图片附件时，空文本（双源空/剥 U+FFFC 后空）降为 '' 而非
  * 占位/skip——纯图消息的正文就是图，内容块化在 pipeline 层完成。 */
 function resolveText(row: ChatDbRow, hasImageAttachment: boolean): string | null {
-  if (row.text !== null && row.text !== '') return row.text;
+  if (row.text !== null && row.text !== '') {
+    // text 列同样内嵌 U+FFFC 附件占位（真机实测：纯图消息 text='\uFFFC'，
+    // 图+文混排时占位符与 caption 混排）——与 attributedBody 解码路径
+    // 同款剥离；剥后纯空白视为无文本。判定用 trim，返回内容保原样。
+    const stripped = row.text.replaceAll(OBJECT_REPLACEMENT_CHAR, '');
+    if (stripped.trim() !== '') return stripped;
+    return hasImageAttachment ? '' : ATTACHMENT_PLACEHOLDER;
+  }
 
   if (row.attributedBody && row.attributedBody.length > 0) {
     const decoded = decodeAttributedBodyText(row.attributedBody);
