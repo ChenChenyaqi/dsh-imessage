@@ -19,6 +19,7 @@ This project does one channel, iMessage, and polishes only that: the most featur
 The idea borrows from [dsh-im](https://github.com/xmanrui/dsh-im): it supports a dozen channels including iMessage, but with few features and little sense of a living person. This project adds:
 
 - Replies go out semantically chunked with typing delays, like a person texting
+- More than text: inbound photos (HEIC transcoded automatically) reach the conversation, quoted replies carry the quoted text and image, and files the AI declares as deliverables go out as attachments
 - The Dafeiyu persona ships as the preset `@chenchenyaqi/dsh-imessage-preset`: chat first, chores second. Stubborn-ish, snack-loving, professionally lazy, her mood is not constant; when real work shows up, she gets serious
 - One DSH session and workspace per phone number: she remembers every conversation, and none of them interfere
 - Read-only polling of `~/Library/Messages/chat.db` and osascript-driven sends through Messages.app; chat history stays on your Mac. The allowlist starts empty: only numbers on the list can chat with her
@@ -41,10 +42,12 @@ The journey of one message:
 
 ```
 Inbound:  chat.db polled read-only (persistent cursor)
-          → typedstream body decode → normalize (skip my own sends and bot replies)
+          → typedstream body decode → normalize (skip my own sends and bot replies;
+            images transcoded HEIC→JPEG, quoted originals folded in)
           → allowlist gate (deny by default) → session routing (one DSH session per number)
 Outbound: DSH reply → semantic chunking + typing delays
-          → osascript drives Messages.app → cursor and state flushed to disk
+          → osascript drives Messages.app (declared files staged, sent as attachments)
+          → cursor and state flushed to disk
 ```
 
 - core never touches real IO: database, osascript, and the filesystem all go through injected interfaces, so the whole kernel runs its unit tests on CI/Linux (branch coverage ≥ 93%)
@@ -101,7 +104,7 @@ See the log quick-reference table in [AGENTS.md](./AGENTS.md): locate where the 
 | M3    | Session routing · allowlist · idempotency · pipeline        | [x]    |
 | M4    | cordis host · MVP wrap-up                                   | [x]    |
 | M5    | Agent preset (dafeiyu package · settings dropdown)          | [x]    |
-| M6    | Media exchange (image inbox HEIC→JPEG · outbound files · quoted replies) | [ ] |
+| M6    | Media exchange (image inbox HEIC→JPEG · outbound files · quoted replies) | [x] |
 | M7–M9 | Identity context · command polish · companion outreach      | [ ]    |
 
 See [PLAN.md](./docs/PLAN.md) (milestone roadmap), [docs/README.md](./docs/README.md) (per-requirement design index: one directory per requirement, each with a `plan.md`), and [ARCHITECTURE.md](./docs/ARCHITECTURE.md) (dsh-im deconstruction reference, confirmed decisions and risk mitigations).
