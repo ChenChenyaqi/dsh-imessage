@@ -45,6 +45,9 @@ export interface RouterDeps {
 
 export interface SessionRouter {
   route(conversationKey: string): Promise<RouteResult>;
+  /** 反查：DSH 会话 id → 绑定的 iMessage 会话 key（未绑定 = undefined）。
+   * 交付工具执行时的路由校验用（M6.2）。 */
+  conversationKeyOf(sessionId: string): string | undefined;
 }
 
 /** per-key 串行锁：同 key 排队、异 key 并行、空锁即清理防泄漏。 */
@@ -115,5 +118,13 @@ export function makeSessionRouter(deps: RouterDeps): SessionRouter {
           status === 'archived' ? 'rebind-archived' : 'rebind-missing',
         );
       }),
+    conversationKeyOf(sessionId) {
+      // 纯反查（无锁）：bindings 是追加式落盘事实，不加锁最多读到旧一瞬
+      const sessions = loadState().sessions;
+      for (const [key, binding] of Object.entries(sessions)) {
+        if (binding.sessionId === sessionId) return key;
+      }
+      return undefined;
+    },
   };
 }

@@ -38,6 +38,7 @@ import type {
   HostEventPayloads,
   HostLlmFailure,
   HostSessionEvent,
+  HostToolsService,
   HostSessionTitleService,
   HostWorkspaceRegistry,
 } from '@/host/dsh-api';
@@ -79,6 +80,8 @@ export interface DshPortServices {
   readonly agentPresets?: HostAgentPresetsService;
   /** 可选：附件服务（老宿主无 = 图片降级不阻塞文本，M6.1）。 */
   readonly attachments?: HostAttachmentsService;
+  /** 可选：工具服务（老宿主无 = 发文件能力缺，文本不受影响，M6.2）。 */
+  readonly tools?: HostToolsService;
 }
 
 /** 单次 ask 的收口上限：宿主走失 turn/end 时兜底，防单条消息永久堵死通道。 */

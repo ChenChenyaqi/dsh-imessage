@@ -118,11 +118,22 @@ ask 流 ──▶ 文本回复（humanize 分段，现路径零改动）
   transfer_state=6 静默丢失（rowid 2742 对照），tmpdir 暂存后发 =
   transfer_state=5 投递成功且 daemon 拷贝入白有 Attachments 目录
   （rowid 2743）——暂存纪律本机复现确证
-- **Step B · 交付工具与管线**：`ArtifactCollector` + `deliver-tool.ts`
-  + pipeline 交付段（fake tools 服务：注册形状/路由校验/降级/
-  保序/失败旁支测试）
-- **Step C · 收尾**：失败通知 i18n + `AGENTS.md` 事件清单 + 真机 e2e
-  （对方会话收到文件、暂存 1h 清扫验证、Web 会话误调工具无害）
+- **Step B · 交付工具与管线（✅ 2026-11-22 完成，645 测试/分支 95.67%）**：
+  `router/artifacts.ts`（open/push/take，跨轮泄漏防线）+
+  `host/deliver-tool.ts`（imessage_send_file：queued-not-sent 措辞、
+  路由校验、50MB 上限、执行时读 bytes）+ pipeline 交付段
+  （reply-sent 后保序逐个 stage→sweep→sendFile；stage/send 失败
+  at-most-once 旁支继续后续文件，不改消息终态）+ `dsh-api.ts`
+  HostToolsService/HostToolDefinition 最小面（鸭子形状照官方
+  ToolDefinition）+ channel 组装（工具注册随通道生命周期，stop 卸载）+
+  index toolsService 动态获取；测试：deliver-tool 17 用例、
+  pipeline 交付段 9 用例、artifacts 4 用例、session-router 反查 3 用例、
+  apply tools 注入 1 用例（含脏服务降级）
+- **Step C · 收尾**：失败通知 i18n（file-send-failed 后发含文件名的
+  词条文本）+ `AGENTS.md` 事件清单（artifact.queued / outbound.staged /
+  outbound.swept / outbound.stage-failed / file-sent / file-send-failed）
+  + 真机 e2e（对方会话收到文件、暂存 1h 清扫验证、Web 会话误调
+  工具无害）
 
 ## 待拍板分叉
 

@@ -28,7 +28,9 @@
 import type { ChatDbRow } from '../imessage/chatdb';
 import { normalizeRows } from '../imessage/normalize';
 import type { LoadImagesResult } from '../imessage/media';
-import type { ImessageSender, SendError } from '../imessage/sender';
+import { type ImessageSender, SendError } from '../imessage/sender';
+import { stageOutboundFile, sweepStaleOutbound, type OutboundDeps } from '../imessage/outbound';
+import type { ArtifactCollector } from './artifacts';
 import { sendHumanized, LEGACY_STYLE, type ReplyStyle } from '../imessage/humanize';
 import type { Logger } from '../log/jsonl';
 import type { AccessPolicy } from '../types/policy';
@@ -67,6 +69,10 @@ export interface PipelineDeps {
   /** 媒体加载（M6.1 收图；已绑定 IO deps 的高阶面，host 组装层注入）。
    *  缺省时图片路径降级：纯文本照发、纯图退占位（老环境/测试）。 */
   readonly media?: { load(attachments: readonly MessageAttachment[]): Promise<LoadImagesResult> };
+  /** 外发交付（M6.2）：缺省 = 无发文件能力，队列残留由下一轮 open 清走。 */
+  readonly collector?: ArtifactCollector;
+  /** 外发暂存 IO（stage/sweep；注入同 media 纪律）。 */
+  readonly outbound?: OutboundDeps;
   readonly loadState: () => ChannelState;
   readonly saveState: (state: ChannelState) => void;
   readonly log?: Pick<Logger, 'info' | 'warn' | 'error'>;
@@ -217,6 +223,8 @@ export async function runPipeline(
         sessionId: routed.sessionId,
         chars: text.length,
       });
+      // 外发交付队列开轮：清上轮残留（异常中断未取走的旧文件永不混入本轮）
+      deps.collector?.open(routed.sessionId);
       const prompt = await buildPrompt(msg);
       const chunks: string[] = [];
       let firstDeltaMs: number | undefined;
@@ -246,6 +254,56 @@ export async function runPipeline(
         totalMs: now() - sendStart,
         chars: reply.length,
       });
+      // 外发附件交付（M6.2）：文本先行已送；工具声明的文件保序逐个补发。
+      // collector/outbound 缺一（测试/老组装）= 无交付能力：不 take，
+      // 队列留在原地由下一轮 open 清走（不丢不重）。
+      const deliver = deps.collector !== undefined && deps.outbound !== undefined;
+      const artifacts = deliver ? deps.collector!.take(routed.sessionId) : [];
+      if (deliver && artifacts.length > 0) {
+        // 暂存清扫只在确有交付时做一次（纪律：下次发送时顺带，非定时）
+        const swept = await sweepStaleOutbound(deps.outbound!, { now });
+        if (swept.deleted > 0) log?.info('outbound.swept', { deleted: swept.deleted });
+      }
+      for (const artifact of artifacts) {
+        let staged: Awaited<ReturnType<typeof stageOutboundFile>>;
+        try {
+          staged = await stageOutboundFile(artifact.bytes, artifact.fileName, deps.outbound!, {
+            now,
+          });
+        } catch (err) {
+          // at-most-once：暂存失败不重试，继续后续文件（定案同 send）
+          log?.warn('outbound.stage-failed', {
+            guid,
+            key,
+            name: artifact.fileName,
+            error: err instanceof Error ? err.message : String(err),
+          });
+          continue;
+        }
+        log?.info('outbound.staged', {
+          guid,
+          name: artifact.fileName,
+          bytes: artifact.bytes.length,
+        });
+        try {
+          await sender.sendFile(key, staged.path);
+        } catch (err) {
+          // at-most-once：发送失败不重试、不断后续；通知文本是 Step C
+          log?.warn('file-send-failed', {
+            guid,
+            key,
+            name: artifact.fileName,
+            code: err instanceof SendError ? err.kind : 'unknown',
+          });
+          continue;
+        }
+        log?.info('file-sent', {
+          guid,
+          key,
+          name: artifact.fileName,
+          bytes: artifact.bytes.length,
+        });
+      }
       return { kind: 'done' };
     } catch (err) {
       if (isPermissionError(err)) return { kind: 'permission-stopped' };

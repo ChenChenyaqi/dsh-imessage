@@ -33,7 +33,9 @@ type RouteHandler = (request: {
   json(): Promise<unknown>;
 }) => Promise<Response>;
 
-function makeCtx(options: { connectionFetch?: unknown; attachments?: unknown } = {}) {
+function makeCtx(
+  options: { connectionFetch?: unknown; attachments?: unknown; tools?: unknown } = {},
+) {
   const listeners = new Map<string, Array<(payload?: unknown) => void>>();
   /** 触发一个已注册事件（模拟 loader 提交 volatile 更新）。 */
   const emit = (event: string, payload?: unknown) => {
@@ -66,6 +68,7 @@ function makeCtx(options: { connectionFetch?: unknown; attachments?: unknown } =
     // 无该服务返回 undefined（老宿主降级路径）
     get(name: string) {
       if (name === 'attachments' && 'attachments' in options) return options.attachments;
+      if (name === 'tools' && 'tools' in options) return options.tools;
       return undefined;
     },
     effect(fn: () => () => unknown) {
@@ -176,6 +179,26 @@ describe('apply · volatile config', () => {
     ).not.toThrow();
     for (const dispose of withService.disposers) void dispose();
     // 无服务路径（ctx.get 返回 undefined）同样不抛
+    const withoutService = makeCtx();
+    expect(() =>
+      apply(withoutService.ctx as never, { locale: 'zh', allowlist: [] }, { probe: failingProbe }),
+    ).not.toThrow();
+    for (const dispose of withoutService.disposers) void dispose();
+  });
+
+  it('wires the tools service through when the host provides one (M6.2)', () => {
+    // 老宿主无该服务 → undefined 降级（发文件能力缺，文本不受影响）；
+    // 有则透传给 channel（交付工具注册）。非函数形状（脏服务）也降级。
+    const good = makeCtx({ tools: { register: () => () => undefined } });
+    expect(() =>
+      apply(good.ctx as never, { locale: 'zh', allowlist: [] }, { probe: failingProbe }),
+    ).not.toThrow();
+    for (const dispose of good.disposers) void dispose();
+    const dirty = makeCtx({ tools: { register: 'not-a-function' } });
+    expect(() =>
+      apply(dirty.ctx as never, { locale: 'zh', allowlist: [] }, { probe: failingProbe }),
+    ).not.toThrow();
+    for (const dispose of dirty.disposers) void dispose();
     const withoutService = makeCtx();
     expect(() =>
       apply(withoutService.ctx as never, { locale: 'zh', allowlist: [] }, { probe: failingProbe }),

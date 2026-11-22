@@ -19,7 +19,7 @@ import type { ChannelEnv } from '@/host/channel';
 import { registerStatusRpc } from '@/host/rpc';
 import type { FetchRegistry } from '@/host/rpc';
 import type { DshPortServices } from '@/host/dsh-port';
-import type { HostAttachmentsService } from '@/host/dsh-api';
+import type { HostAttachmentsService, HostToolsService } from '@/host/dsh-api';
 
 export const name = PLUGIN_ID;
 
@@ -111,6 +111,15 @@ function attachmentsService(ctx: Context): HostAttachmentsService | undefined {
     : undefined;
 }
 
+/** tools 服务最小面（M6.2 交付工具注册；无该服务的老宿主返回 undefined
+ *  = 发文件能力缺，文本不受影响）。 */
+function toolsService(ctx: Context): HostToolsService | undefined {
+  const service = (ctx as unknown as { get?(name: string): unknown }).get?.('tools');
+  if (service === undefined || typeof service !== 'object') return undefined;
+  const candidate = service as { register?: unknown };
+  return typeof candidate.register === 'function' ? (candidate as HostToolsService) : undefined;
+}
+
 export function apply(ctx: Context, config: Config, overrides: Partial<ChannelEnv> = {}): void {
   // 宿主服务经 inject 提供；类型合并声明在上方 declare module
   const services: DshPortServices = {
@@ -123,6 +132,8 @@ export function apply(ctx: Context, config: Config, overrides: Partial<ChannelEn
     ...(agentPresetsService(ctx) === undefined ? {} : { agentPresets: agentPresetsService(ctx)! }),
     // 附件服务同款动态获取（M6.1）：老宿主无 = 图片降级，文本照发
     ...(attachmentsService(ctx) === undefined ? {} : { attachments: attachmentsService(ctx)! }),
+    // 工具服务同款动态获取（M6.2）：老宿主无 = 发文件能力缺
+    ...(toolsService(ctx) === undefined ? {} : { tools: toolsService(ctx)! }),
   };
   const env: ChannelEnv = {
     services,

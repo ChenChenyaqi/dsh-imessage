@@ -177,6 +177,32 @@ export interface HostAttachmentsService {
   ): Promise<readonly HostImageAttachmentRef[]>;
 }
 
+/** 工具 canonical 输出声明（官方 ToolOutputDefinition 鸭子形状；必填契约）。 */
+export interface HostToolOutputDefinition {
+  readonly schema: Record<string, unknown>;
+  render(args: unknown, value: unknown): readonly unknown[];
+}
+
+/** 已注册工具（官方 ToolDefinition 鸭子形状；本插件只声明用到的面）。 */
+export interface HostToolDefinition {
+  readonly name: string;
+  readonly description: string;
+  /** JSON Schema（官方 parameters：Record<string, unknown>）。 */
+  readonly parameters: Record<string, unknown>;
+  readonly output: HostToolOutputDefinition;
+  /** 执行面：args 为模型参数（schema 自校验）；exec 只声明用到的 agent。 */
+  execute(
+    args: unknown,
+    exec: { readonly agent?: { readonly sessionId?: string } },
+  ): Promise<unknown>;
+}
+
+/** tools 服务最小面（动态探测；老宿主无 = 发文件能力缺，文本不受影响）。 */
+export interface HostToolsService {
+  /** 注册返回卸载函数（官方语义）。 */
+  register(definition: HostToolDefinition): () => void;
+}
+
 /** 用户消息（官方 UserMessage；探针实测：缺 role:'user' 的消息 resume 时
  *  报 SessionPersistenceCorruptionError，构造时必带 role）。 */
 export type HostUserMessage = import('@deepseek-ai/dsh-llm/types').UserMessage;

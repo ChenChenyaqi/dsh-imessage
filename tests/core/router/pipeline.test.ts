@@ -9,6 +9,9 @@ import type { AccessPolicy } from '@/core/types/policy';
 import { makeChannelState, type ChannelState } from '@/core/types/state';
 import { makeFakeDshPort } from '../../helpers/fake-dsh-port';
 import { makeFakeSender } from '../../helpers/fake-sender';
+import { makeFakeOutbound } from '../../helpers/fake-outbound';
+import { makeArtifactCollector } from '@/core/router/artifacts';
+import { OUTBOUND_PREFIX } from '@/core/imessage/outbound';
 import { makeRow } from '../../helpers/chatdb-rows';
 import type { Logger } from '@/core/log/jsonl';
 
@@ -21,6 +24,8 @@ const SWITCHED_TEXT = '上一个对话已被归档，我开启了新对话继续
 const UNAVAILABLE_TEXT = '这条我暂时回不了，稍后再问一次吧';
 
 interface Harness {
+  /** 外发交付队列（未注入 = undefined；M6.2 用例注入）。 */
+  readonly collector: import('@/core/router/pipeline').PipelineDeps['collector'];
   /** 跑到 idle（fetch 队列耗尽）返回 RunResult。可覆盖 options（测试边角分支用）。 */
   run(overrides?: Partial<PipelineOptions>): ReturnType<typeof runPipeline>;
   /** 预填一批行（按序消费）。 */
@@ -50,7 +55,11 @@ type ChannelStateDraft = import('@/core/types/state').ChannelState;
 
 function makeHarness(
   initialMaxRowId = 4,
-  over: { media?: import('@/core/router/pipeline').PipelineDeps['media'] } = {},
+  over: {
+    media?: import('@/core/router/pipeline').PipelineDeps['media'];
+    collector?: import('@/core/router/pipeline').PipelineDeps['collector'];
+    outbound?: import('@/core/router/pipeline').PipelineDeps['outbound'];
+  } = {},
 ): Harness {
   let state: ChannelStateDraft = makeChannelState();
   const port = makeFakeDshPort();
@@ -112,6 +121,8 @@ function makeHarness(
     saveState,
     log,
     ...(over.media === undefined ? {} : { media: over.media }),
+    ...(over.collector === undefined ? {} : { collector: over.collector }),
+    ...(over.outbound === undefined ? {} : { outbound: over.outbound }),
   } as Parameters<typeof runPipeline>[0];
   // fetchRows 的停机信号由 run 每次注入（独立的 abort 信号 = 独立进程生命周期）
   let controllerAbort: () => void = () => {};
@@ -119,6 +130,7 @@ function makeHarness(
   return {
     port,
     sender,
+    collector: over.collector,
     state: () => state,
     sleeps,
     fetchCursors,
@@ -1020,6 +1032,229 @@ describe('runPipeline · media blocks', () => {
     const warn = h.logLines.find((l) => l.event === 'pipeline.media-failed');
     expect(warn).toBeDefined();
     expect(warn!.fields).toMatchObject({ guid: 'G-THROW', attachments: 1 });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 外发附件交付（M6.2 Step B）：文本先行已送 → collector 保序逐个补发
+// ---------------------------------------------------------------------------
+
+describe('pipeline · outbound delivery (M6.2)', () => {
+  /** 模拟 ask 流内工具声明交付：ask 流结束时（仍早于 pipeline take）入队。 */
+  function queueAskWithArtifacts(
+    h: ReturnType<typeof makeHarness>,
+    artifacts: Array<{ bytes: number[]; name: string }>,
+  ) {
+    h.port.queueAsk({
+      chunks: ['图来咯'],
+      onEnd: () => {
+        const sessionId = h.port.askCalls.at(-1)!.sessionId;
+        for (const a of artifacts) {
+          h.collector!.push(sessionId, { bytes: new Uint8Array(a.bytes), fileName: a.name });
+        }
+      },
+    });
+  }
+
+  it('delivers artifacts in order after the text reply, with staged paths and logs', async () => {
+    const outbound = makeFakeOutbound();
+    const h = makeHarness(4, { collector: makeArtifactCollector(), outbound: outbound.deps });
+    queueAskWithArtifacts(h, [
+      { bytes: [1], name: 'a.png' },
+      { bytes: [2, 2], name: 'b.pdf' },
+    ]);
+    h.feed([R5()]);
+    await h.run();
+
+    // 顺序：文本先行 → 文件保序
+    expect(h.sender.sent.map((c) => c.kind)).toEqual(['text', 'file', 'file']);
+    const fileCalls = h.sender.sent.filter((c) => c.kind === 'file');
+    expect(fileCalls[0]!.path!.endsWith('-a.png')).toBe(true); // 保序：先 a 后 b
+    expect(fileCalls[1]!.path!.endsWith('-b.pdf')).toBe(true);
+    // 暂存路径：tmpdir + 自有前缀 + mode 0600
+    for (const call of fileCalls) {
+      expect(call.path!.startsWith(`/var/folders/t/${OUTBOUND_PREFIX}`)).toBe(true);
+      expect(outbound.files.get(call.path!)!.mode).toBe(0o600);
+    }
+    // 日志链：staged → file-sent（每文件）
+    const events = h.logLines.map((l) => l.event);
+    expect(events).toContain('outbound.staged');
+    expect(events.filter((e) => e === 'file-sent')).toHaveLength(2);
+    const sent = h.logLines.find((l) => l.event === 'file-sent')!;
+    expect(sent.fields).toMatchObject({ name: 'a.png', bytes: 1 });
+  });
+
+  it('sweeps stale staged files once before delivery (only when artifacts exist)', async () => {
+    const outbound = makeFakeOutbound(10 * 60 * 60_000);
+    outbound.put(`/var/folders/t/${OUTBOUND_PREFIX}old.png`, 0); // 已过期
+    const h = makeHarness(4, { collector: makeArtifactCollector(), outbound: outbound.deps });
+    queueAskWithArtifacts(h, [{ bytes: [1], name: 'fresh.png' }]);
+    h.feed([R5()]);
+    await h.run();
+
+    expect(outbound.files.has(`/var/folders/t/${OUTBOUND_PREFIX}old.png`)).toBe(false);
+    expect(h.logLines.find((l) => l.event === 'outbound.swept')!.fields).toEqual({ deleted: 1 });
+  });
+
+  it('does not sweep when nothing is queued (no delivery = no sweep)', async () => {
+    const outbound = makeFakeOutbound(10 * 60 * 60_000);
+    outbound.put(`/var/folders/t/${OUTBOUND_PREFIX}old.png`, 0);
+    const h = makeHarness(4, { outbound: outbound.deps }); // 无 collector：纯文本轮
+    h.feed([R5()]);
+    await h.run();
+
+    expect(outbound.files.has(`/var/folders/t/${OUTBOUND_PREFIX}old.png`)).toBe(true);
+    expect(h.logLines.some((l) => l.event === 'outbound.swept')).toBe(false);
+  });
+
+  it('keeps delivering after one file fails (at-most-once, no retry)', async () => {
+    const outbound = makeFakeOutbound();
+    const h = makeHarness(4, { collector: makeArtifactCollector(), outbound: outbound.deps });
+    h.sender.failFileAt(0, new SendError('send-failed', '+8613800000000'));
+    queueAskWithArtifacts(h, [
+      { bytes: [1], name: 'doomed.png' },
+      { bytes: [2], name: 'survivor.png' },
+    ]);
+    h.feed([R5()]);
+    const result = await h.run();
+
+    expect(result.processed).toBe(1); // 消息仍 done：附件失败不改文本终态
+    // 失败的 sendFile 不进 sent（fake 失败即 throw）；成功的只有第二个
+    const names = h.sender.sent
+      .filter((c) => c.kind === 'file')
+      .map((c) => c.path!.split('/').pop()!);
+    expect(names).toHaveLength(1); // 第一个失败后第二个照发
+    expect(names[0]!.endsWith('-survivor.png')).toBe(true);
+    const fail = h.logLines.find((l) => l.event === 'file-send-failed')!;
+    expect(fail.fields).toMatchObject({ name: 'doomed.png', code: 'send-failed' });
+    expect(h.logLines.filter((l) => l.event === 'file-sent')).toHaveLength(1);
+  });
+
+  it('isolates stage failures per file and skips to the next', async () => {
+    const outbound = makeFakeOutbound();
+    const h = makeHarness(4, { collector: makeArtifactCollector(), outbound: outbound.deps });
+    queueAskWithArtifacts(h, [
+      { bytes: [1], name: 'first.png' },
+      { bytes: [2], name: 'second.png' },
+    ]);
+    h.feed([R5()]);
+    outbound.failWriteAt = 1; // 第一个暂存写入失败（按序注入）
+    await h.run();
+
+    const names = h.sender.sent
+      .filter((c) => c.kind === 'file')
+      .map((c) => c.path!.split('/').pop()!);
+    expect(names).toHaveLength(1); // 第一个 stage 失败跳过，第二个照发
+    expect(names[0]!.endsWith('-second.png')).toBe(true);
+    expect(h.logLines.find((l) => l.event === 'outbound.stage-failed')!.fields).toMatchObject({
+      name: 'first.png',
+      error: 'disk full',
+    });
+  });
+
+  it('stringifies non-Error stage failures in the log fields', async () => {
+    const outbound = makeFakeOutbound();
+    const h = makeHarness(4, { collector: makeArtifactCollector(), outbound: outbound.deps });
+    queueAskWithArtifacts(h, [{ bytes: [1], name: 'raw.png' }]);
+    h.feed([R5()]);
+    outbound.failWriteAt = 1;
+    outbound.failWriteWith = 'raw disk error'; // 非 Error 抛出物
+    await h.run();
+
+    expect(h.logLines.find((l) => l.event === 'outbound.stage-failed')!.fields).toMatchObject({
+      error: 'raw disk error',
+    });
+  });
+
+  it('codes non-SendError send failures as unknown', async () => {
+    const outbound = makeFakeOutbound();
+    const h = makeHarness(4, { collector: makeArtifactCollector(), outbound: outbound.deps });
+    h.sender.failFileAt(0, new Error('plain failure')); // 非 SendError
+    queueAskWithArtifacts(h, [{ bytes: [1], name: 'x.png' }]);
+    h.feed([R5()]);
+    await h.run();
+
+    expect(h.logLines.find((l) => l.event === 'file-send-failed')!.fields).toMatchObject({
+      name: 'x.png',
+      code: 'unknown',
+    });
+  });
+
+  it('opens each turn: stale artifacts from an interrupted turn never leak', async () => {
+    const outbound = makeFakeOutbound();
+    const collector = makeArtifactCollector();
+    const h = makeHarness(4, { collector, outbound: outbound.deps });
+    // 第一轮：工具声明了交付，但 ask 流中途抛错 → 消息进 retry，残留未取走
+    h.port.queueAsk({ chunks: ['partial'], failWith: new Error('ask blew up') });
+    h.feed([R5({ guid: 'm5-throw' })]);
+    await h.run();
+    const staleSessionId = h.port.askCalls[0]!.sessionId;
+    collector.push(staleSessionId, { bytes: new Uint8Array([9]), fileName: 'stale.png' });
+
+    // 第二轮：同一会话正常回复，无新声明 → 只有文本，无残留文件
+    h.feed([R5({ rowid: 6, guid: 'm6' })]);
+    await h.run();
+
+    expect(h.sender.sent.filter((c) => c.kind === 'file')).toHaveLength(0);
+    expect(collector.take(staleSessionId)).toEqual([]); // 残留已被 open 清走
+  });
+
+  it('stays inert without collector/outbound deps (old assembly regression)', async () => {
+    // 默认 harness 无 collector/outbound：即使工具层 somehow push 了（不该发生），
+    // 交付段也不启动——现有全部用例即回归证明，这里补一条显式零行为断言
+    const h = makeHarness(4);
+    h.feed([R5()]);
+    await h.run();
+    expect(h.sender.sent.map((c) => c.kind)).toEqual(['text']);
+    expect(h.logLines.some((l) => l.event.startsWith('outbound.') || l.event === 'file-sent')).toBe(
+      false,
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 非 Error 抛出物兑底（防御分支：三方库/字符串 throw 真实存在，日志不得崩）
+// ---------------------------------------------------------------------------
+
+describe('pipeline · non-Error throwables stringify safely', () => {
+  it('send stage: string throwable in send-failed fields', async () => {
+    const h = makeHarness();
+    h.sender.failTextAt(0, 'raw send error' as unknown as Error);
+    h.feed([R5()]);
+    await h.run();
+    expect(h.logLines.find((l) => l.event === 'pipeline.send-failed')!.fields).toMatchObject({
+      error: 'raw send error',
+    });
+  });
+
+  it('pre-ask stage: string throwable in message-failed fields', async () => {
+    const h = makeHarness();
+    h.port.failNextCreate('raw create error' as unknown as Error);
+    h.feed([R5()]);
+    await h.run();
+    expect(h.logLines.find((l) => l.event === 'pipeline.message-failed')!.fields).toMatchObject({
+      error: 'raw create error',
+    });
+  });
+
+  it('fetch stage: string throwable in fetch-failed fields', async () => {
+    const h = makeHarness();
+    h.feedFetchError('raw fetch error' as unknown as Error);
+    await h.run();
+    expect(h.logLines.find((l) => l.event === 'pipeline.fetch-failed')!.fields).toMatchObject({
+      error: 'raw fetch error',
+    });
+  });
+
+  it('notify stage: string throwable in notify-failed fields', async () => {
+    const h = makeHarness();
+    for (let i = 0; i < 3; i++) h.feed([R5()]);
+    for (let i = 0; i < 3; i++) h.port.queueAsk({ chunks: [], failWith: new Error('dsh down') });
+    h.sender.failNextSystem('raw notify error' as unknown as Error);
+    await h.run(); // 三连败耗尽 → 告知发送抛非 Error
+    expect(h.logLines.find((l) => l.event === 'pipeline.notify-failed')!.fields).toMatchObject({
+      error: 'raw notify error',
+    });
   });
 });
 
