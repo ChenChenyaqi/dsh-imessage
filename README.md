@@ -19,6 +19,7 @@
 思路上借鉴了 [dsh-im](https://github.com/xmanrui/dsh-im)：它支持十几种渠道，包括 iMessage，但功能很少，缺少活人感。本项目增加了以下功能：
 
 - 回复按语义分段、带打字延迟，像真人在发消息
+- 不只文字：发来的图片（含 HEIC 自动转码）能进对话，引用回复看得到被引用的内容与图片；AI 声明交付的文件也会原样发出
 - 大肥鱼人格在预设包 `@chenchenyaqi/dsh-imessage-preset` 里：聊天为主、干活为辅的少女搭档，嘴硬、嘴馋、爱摸鱼，心情不是恒定的；真要干活时也会认真干
 - 每个手机号拥有独立的 DSH 会话和工作区，她记得和每个人聊过什么，互不影响
 - 只读轮询 `~/Library/Messages/chat.db` 消息，使用 osascript 控制 Messages.app 发送消息，聊天记录都保存在你的 Mac 里；白名单默认为空，只有名单里的号码才能跟她聊天
@@ -41,10 +42,12 @@ src/
 
 ```
 收：chat.db 只读轮询（游标持久化）
-    → typedstream 解码正文 → 归一化（过滤自己发的、机器人回的）
+    → typedstream 解码正文 → 归一化（过滤自己发的、机器人回的；
+      图片 HEIC→JPEG 转码、引用原文一并归一）
     → 白名单门（默认全拒）→ 会话路由（每个号码一个 DSH 会话）
 发：DSH 回复 → 语义分段 + 打字延迟
-    → osascript 控制 Messages.app 发出 → 游标与状态落盘
+    → osascript 控制 Messages.app 发出（交付文件走暂存 → 附件发送）
+    → 游标与状态落盘
 ```
 
 - core 不碰真 IO：数据库、osascript、文件系统全部走注入的接口，所以内核的全部单测在 CI/Linux 上就能跑（分支覆盖率 ≥ 93%）
@@ -101,7 +104,7 @@ dsh plugin --profile desktop add @chenchenyaqi/dsh-imessage-preset
 | M3   | 会话路由 · 白名单 · 幂等 · 流水线                    | [x]  |
 | M4   | cordis 宿主 · MVP 收口                               | [x]  |
 | M5   | 人设预设（dafeiyu 子包 · 设置页下拉）                | [x]  |
-| M6   | 媒体收发（收图 HEIC→JPEG · 发图发文件 · 引用回复）  | [ ]  |
+| M6   | 媒体收发（收图 HEIC→JPEG · 发图发文件 · 引用回复）  | [x]  |
 | M7–M9 | 身份上下文 · 命令打磨 · 主动关怀                     | [ ]  |
 
 详见 [PLAN.md](./docs/PLAN.md)（里程碑路线图）、[docs/README.md](./docs/README.md)（需求设计索引：每个需求一个目录，固定 `plan.md`）与 [ARCHITECTURE.md](./docs/ARCHITECTURE.md)（dsh-im 解构参考，含已确认决策与风险对策）。
