@@ -108,6 +108,9 @@ function makeHarness(failAt?: number) {
     sendSystem: async () => {
       throw new Error('humanize must not use the system path');
     },
+    sendFile: async () => {
+      throw new Error('humanize must not use the file path');
+    },
   };
   return {
     sends,

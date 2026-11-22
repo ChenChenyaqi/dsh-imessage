@@ -87,6 +87,14 @@ end tell
    **下次发送时**按前缀 + mtime 清扫（无定时器）；清扫失败 cosmetic（仅日志，不阻塞发送）
 4. 引用回复里的图引用 Messages 自己的副本展示（95a571f0），不二次暂存进工作区
 
+**本机复现实证**（2026-11-22，macOS 15.7.3，Step A 真机手验，同一文件
+1.18MB png 发 19829734218）：① `send POSIX file` 语法 15.7.3 即可用，
+无需版本门；② home 路径直发（`~/Downloads/...`）→ attachment
+`transfer_state=6` 静默丢失（message rowid 2742，daemon 未拷贝）；
+③ tmpdir 暂存后发（`$TMPDIR/dsh-imessage-out-45944-...png`，mode 0600）
+→ `transfer_state=5` 投递成功且 daemon 拷贝入白有 Attachments 目录
+（rowid 2743，拷贝语义 = 暂存文件事后可清）。纪律 1/2 本机独立复现成立。
+
 ## 结论映射（→ M6.1–M6.3）
 
 | 探针 | 映射 |

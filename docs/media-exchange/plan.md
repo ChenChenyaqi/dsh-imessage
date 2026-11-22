@@ -21,8 +21,8 @@
   Step A/B/C 全部落地，真机验收待收口项统一做）
 - [ ] **发图/发文件**：sender 增 `send POSIX file` 路径；暂存纪律 =
   `os.tmpdir()` + 自有前缀 `dsh-imessage-out-` + 1h 保留 + 发送时清扫
-  （事实见 `probes.md` ③）；发送失败沿用 at-most-once（不重试不重复）
-  （开工时扩本文件或另立子文档）
+  （事实见 `probes.md` ③）；发送失败沿用 at-most-once（不重试不重复）；
+  设计见 `outbound-files.md`（待拍板 6 分叉）
 - [ ] **引用回复**：接收侧线程化引用归一化进 prompt；回复引用携带对方消息里的
   图片（引用用 Messages 自己的副本，不二次暂存）
 - [ ] **收口**：覆盖率 ≥93% 不降；真机手工验收 checklist 更新；`pnpm check` 全绿

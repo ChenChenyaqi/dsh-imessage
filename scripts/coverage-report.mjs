@@ -30,7 +30,7 @@ const data = JSON.parse(readFileSync(finalPath, 'utf8'));
 const KNOWN_SKIP = [
   { file: 'imessage/env.ts', line: 73, why: 'runAppleScript real osascript IO' },
   { file: 'imessage/sender.ts', line: 61, why: 'unreachable default arm (regex class is exhaustive)' },
-  { file: 'imessage/sender.ts', line: 96, why: 'nodeSenderDeps.runOsascript real IO' },
+  { file: 'imessage/sender.ts', line: 107, why: 'nodeSenderDeps.runOsascript real IO' },
   { file: 'stores/atomic.ts', line: 35, why: 'defensive fallback, unreachable' },
   { file: 'host/dsh-port.ts', line: 81, why: 'default mkdir hits real fs (tests inject no-op)' },
   { file: 'host/channel.ts', line: 113, why: 'default openChatDb hits real chat.db (tests inject memory db)' },

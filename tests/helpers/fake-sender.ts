@@ -5,9 +5,11 @@
 import { type ImessageSender, SendError } from '@/core/imessage/sender';
 
 export interface SentCall {
-  readonly kind: 'text' | 'system';
+  readonly kind: 'text' | 'system' | 'file';
   readonly address: string;
   readonly text: string;
+  /** kind='file' 时的暂存路径。 */
+  readonly path?: string;
 }
 
 export interface FakeSender extends ImessageSender {
@@ -16,12 +18,16 @@ export interface FakeSender extends ImessageSender {
   failTextAt(index: number, err: Error): void;
   /** 注入：下一次 sendSystem 抛出（一次性）。 */
   failNextSystem(err: Error): void;
+  /** 注入：第 n 次（0 基）sendFile 调用抛出（M6.2 Step B 用）。 */
+  failFileAt(index: number, err: Error): void;
 }
 
 export function makeFakeSender(): FakeSender {
   const sent: SentCall[] = [];
   let failText: { index: number; err: Error } | null = null;
   let failSystem: Error | null = null;
+  let failFile: { index: number; err: Error } | null = null;
+  let fileSeq = 0;
 
   const maybeFail = (isText: boolean) => {
     if (isText && failText && failText.index === sent.length) {
@@ -44,6 +50,9 @@ export function makeFakeSender(): FakeSender {
     failNextSystem(err) {
       failSystem = err;
     },
+    failFileAt(index, err) {
+      failFile = { index, err };
+    },
     async sendText(address, text) {
       maybeFail(true);
       sent.push({ kind: 'text', address, text });
@@ -51,6 +60,15 @@ export function makeFakeSender(): FakeSender {
     async sendSystem(address, text) {
       maybeFail(false);
       sent.push({ kind: 'system', address, text });
+    },
+    async sendFile(address, path) {
+      if (failFile && failFile.index === fileSeq) {
+        const { err } = failFile;
+        failFile = null;
+        throw err;
+      }
+      fileSeq += 1;
+      sent.push({ kind: 'file', address, text: '', path });
     },
   };
 }

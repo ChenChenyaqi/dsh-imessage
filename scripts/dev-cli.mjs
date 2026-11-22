@@ -5,6 +5,7 @@
 //   probe   环境与权限探测（FDA + Messages 自动化）
 //   peek   读真库最新若干条（只读，验证 schema 探测 + JOIN + WAL 实时性）
 //   send   真机发送：send [--system] <address> <text>（写路径验证）
+//   send-file  真机附件发送：send-file <address> <path>（M6.2 语法与 macOS 版本门手验）
 //   listen  实时轮询全链路：poll → typedstream → normalize → 打印
 //          listen [--replay N]   默认从当前水位起；--replay N 回放最近 N 行
 
@@ -52,6 +53,22 @@ if (cmd === 'probe') {
       console.log(`已发送 → ${address}`);
     } catch (err) {
       console.log(`发送失败：${err.message}`);
+      process.exitCode = 1;
+    }
+  }
+} else if (cmd === 'send-file') {
+  const [address, path] = process.argv.slice(3);
+  if (!address || !path) {
+    console.log('usage: send-file <address> <absolute-file-path>');
+    process.exitCode = 1;
+  } else {
+    const sender = makeSender();
+    try {
+      await sender.sendFile(address, path);
+      // send 返回 ≠ 已投递：Messages daemon 异步摄取，暂存纪律见 outbound.ts
+      console.log(`send 已受理 → ${address}（${path}）`);
+    } catch (err) {
+      console.log(`发送失败：${err instanceof Error ? err.message : String(err)}`);
       process.exitCode = 1;
     }
   }
