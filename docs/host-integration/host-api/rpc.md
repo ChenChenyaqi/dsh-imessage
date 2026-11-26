@@ -222,7 +222,14 @@ Host 方法签名无 signal 参数（不支持 per-call 取消）。
   `{ type:'server-response', rpcId, result }`（`packages/client/connection/src/rpc.ts:90-97`）。
 - `rpcId` 由调用方铸造、响应原样回带（rpc.ts:9-11）。二进制附件走 envelope 外的传输帧（rpc.ts:31-40）。
 - 也有进程内直连 carrier（`connection.rpc.open`，用于流方法）与 WebSocket mux（Gateway
-  `RemoteStreamMuxClient`，`packages/api/gateway/src/client/index.ts:159-162`）；一元 RPC 走 `rpc.call`。
+  `RemoteStreamMuxClient`，`packages/api/gateway/src/client.ts:159-162`）；一元 RPC 走 `rpc.call`。
+- **浏览器侧必须走 `ctx.connection.rpc.call('/api', endpoint, payload)`，不能裸 `fetch('/api/...')`**
+  （M7 e2e 探针坐实：裸 fetch 连已注册的 exact 路由都 404——Connection 自带 Host/Origin
+  围栏 + 浏览器鉴权与关联握手，`rpc-host.ts:122-135 admit`；dsh-im management-rpc.mjs 同款）。
+  客户端插件要拿 `connection` 必须在 **`package.json` 的 `dsh.client.inject`** 里声明
+  `"@deepseek-ai/dsh-client-connection"`（宿主侧服务解析声明，官方 ui-deliverables
+  同款；只在 `src/client/index.ts` 的 cordis `inject` 数组里写 `'connection'` 不生效——
+  宿主 boot manifest 以 package.json 为准）。
 
 **错误对象形态**
 - 客户端拿到的是 `RemoteResult<T> = { ok:true, value } | { ok:false, error: RemoteFailure }`

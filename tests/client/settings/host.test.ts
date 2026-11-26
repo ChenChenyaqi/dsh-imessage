@@ -247,6 +247,7 @@ describe('settings card · mounted', () => {
         { op: 'set', path: ['chunkedReplies'], value: false },
         { op: 'set', path: ['maxChunks'], value: 8 },
         { op: 'set', path: ['delayFactor'], value: 1 },
+        { op: 'set', path: ['contacts'], value: {} },
       ],
     ]);
     app.unmount();
@@ -299,6 +300,7 @@ describe('settings card · mounted', () => {
         { op: 'set', path: ['chunkedReplies'], value: false },
         { op: 'set', path: ['maxChunks'], value: 8 },
         { op: 'set', path: ['delayFactor'], value: 1 },
+        { op: 'set', path: ['contacts'], value: {} },
       ],
     ]);
     app.unmount();

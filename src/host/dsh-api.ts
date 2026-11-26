@@ -206,6 +206,41 @@ export interface HostToolsService {
   register(definition: HostToolDefinition): () => void;
 }
 
+/** prompt 组装上下文（官方 AssembleContext 鸭子最小面；M7）。
+ *
+ *  坐标：官方基础面 {scope?, signal?} 在
+ *  deepseek-harness packages/core/system-prompt/src/index.ts:42-48；
+ *  agent?: Agent 是 agent 包对 AssembleContext 的模块扩充
+ *  （packages/core/agent/src/runtime-types.ts:19-24，"Agent for this
+ *  assembly; absent on diagnostics"）。我们只消费 session.id 一个字段，
+ *  不依赖 DSH 内部 Agent 类型。 */
+export interface HostPromptAssembly {
+  readonly scope?: unknown;
+  readonly signal?: AbortSignal;
+  readonly agent?: { readonly session?: { readonly id?: string } };
+}
+
+/** PromptContext 注册面（官方形状的鸭子子集；M7）。
+ *
+ *  坐标：packages/core/system-prompt/src/index.ts:80-90——
+ *  context() 接受 {name, order, text, interpolate?, required?} 返回
+ *  disposer（:520-530）；text 为 string 或组装时求值回调；空文本
+ *  不产生任何内容（"Empty text contributes nothing"）。 */
+export interface HostPromptContextEntry {
+  readonly name: string;
+  readonly order: number;
+  readonly text: string | ((assembly: HostPromptAssembly) => string);
+  readonly interpolate?: boolean;
+  readonly required?: boolean;
+}
+
+/** systemPrompt 服务最小面（M7 身份上下文；动态探测，老宿主无 =
+ *  不注入身份段，聊天不受影响）。 */
+export interface HostSystemPromptService {
+  /** 注册动态上下文，返回官方 Cordis disposer。 */
+  context(entry: HostPromptContextEntry): () => void;
+}
+
 /** 用户消息（官方 UserMessage；探针实测：缺 role:'user' 的消息 resume 时
  *  报 SessionPersistenceCorruptionError，构造时必带 role）。 */
 export type HostUserMessage = import('@deepseek-ai/dsh-llm/types').UserMessage;

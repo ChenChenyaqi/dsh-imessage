@@ -38,6 +38,7 @@ import type {
   HostEventPayloads,
   HostLlmFailure,
   HostSessionEvent,
+  HostSystemPromptService,
   HostToolsService,
   HostSessionTitleService,
   HostWorkspaceRegistry,
@@ -82,6 +83,8 @@ export interface DshPortServices {
   readonly attachments?: HostAttachmentsService;
   /** 可选：工具服务（老宿主无 = 发文件能力缺，文本不受影响，M6.2）。 */
   readonly tools?: HostToolsService;
+  /** 可选：prompt 组装服务（老宿主无 = 不注入身份段，M7）。 */
+  readonly systemPrompt?: HostSystemPromptService;
 }
 
 /** 单次 ask 的收口上限：宿主走失 turn/end 时兜底，防单条消息永久堵死通道。 */

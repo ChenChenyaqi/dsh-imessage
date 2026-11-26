@@ -21,6 +21,7 @@ describe('useCardForm', () => {
       maxChunks: 8,
       delayFactor: 1,
       agentPreset: undefined, // 未设置 = undefined（不造默认；preset 域自己解析意图）
+      contacts: {}, // 形状守卫缺省（无 contacts 键 = 空表）
     });
   });
 

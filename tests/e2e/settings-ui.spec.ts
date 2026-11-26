@@ -99,7 +99,7 @@ test('settings card edits the allowlist and the system message language', async 
     await expect(card).toContainText(PHONE);
     await expect(card.getByRole('button', { name: 'Remove' })).toHaveCount(1);
     // 白名单没有输入框（预设是下拉，添加行收起）：零 textbox
-    await expect(card.getByRole('textbox')).toHaveCount(0);
+    await expect(addField()).toHaveCount(0);
     await expect(save).toBeDisabled();
     mark('settings opened, values prefilled');
   });
@@ -221,6 +221,44 @@ test('settings card edits the allowlist and the system message language', async 
     await page.getByRole('dialog').getByRole('button', { name: 'iMessage', exact: true }).click();
     await expect(card.locator('select[data-field="preset"]')).toHaveValue(other);
     mark('preset saved');
+  });
+
+  await test.step('nicknames: an allowlisted number gets a nickname row', async () => {
+    // 称呼区行集 = 白名单号码（此时 PHONE / PHONE_2 都在）；未填 = 空输入框
+    const rowFor = (phone: string) =>
+      card.getByRole('textbox', { name: `Nickname for ${phone}`, exact: true });
+    await expect(rowFor(PHONE)).toHaveCount(1);
+    await expect(rowFor(PHONE_2)).toHaveCount(1);
+    await expect(rowFor(PHONE)).toHaveValue('');
+    // 未编辑 → 保存禁用
+    await expect(save).toBeDisabled();
+    mark('nickname rows rendered');
+  });
+
+  await test.step('nicknames: saving persists to the profile patch and hot-updates', async () => {
+    const row = card.getByRole('textbox', { name: `Nickname for ${PHONE}`, exact: true });
+    await row.fill('E2E Nick');
+    await expect(save).toBeEnabled();
+    await save.click();
+
+    // 称呼走 config contacts 字段（α 回退定案）：与 allowlist 同一 patch 文件
+    await expect.poll(() => host.readPatch(), { timeout: 15_000 }).toContain('E2E Nick');
+    // 保存后收敛 clean（宿主推送新基准，覆盖清空）
+    await expect(save).toBeDisabled();
+    mark('nickname saved');
+  });
+
+  await test.step('nicknames: reopening the card shows the saved value', async () => {
+    await page.getByRole('dialog').getByRole('button', { name: 'Close' }).click();
+    await page.getByRole('button', { name: 'Account menu' }).click();
+    await page.getByRole('menuitem', { name: 'Settings' }).click();
+    await page.getByRole('dialog').getByRole('button', { name: 'iMessage', exact: true }).click();
+
+    await expect(
+      card.getByRole('textbox', { name: `Nickname for ${PHONE}`, exact: true }),
+    ).toHaveValue('E2E Nick');
+    await expect(save).toBeDisabled();
+    mark('nickname persisted');
   });
 
   await test.step('an invalid number shows red validation and blocks adding and saving', async () => {

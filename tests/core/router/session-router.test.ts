@@ -315,3 +315,54 @@ describe('session router · conversationKeyOf (M6.2 deliver-tool guard)', () => 
     expect(h.router.conversationKeyOf(first.sessionId)).toBeUndefined();
   });
 });
+
+// ---------------------------------------------------------------------------
+// M7 · 新会话绑定回调（身份上下文发布挂点）
+// ---------------------------------------------------------------------------
+
+describe('session router · onSessionCreated (M7)', () => {
+  function makeHarnessWithCallback() {
+    const port = makeFakeDshPort();
+    let state = makeChannelState();
+    const created: Array<{ conversationKey: string; sessionId: string }> = [];
+    const router = makeSessionRouter({
+      port,
+      preset: () => 'dafeiyu',
+      loadState: () => state,
+      saveState: (next) => {
+        state = next;
+      },
+      onSessionCreated: (conversationKey, sessionId) => {
+        created.push({ conversationKey, sessionId });
+      },
+    });
+    return { port, router, created, snapshot: () => state };
+  }
+
+  it('fires when a first message creates the binding', async () => {
+    const h = makeHarnessWithCallback();
+    const { sessionId } = await h.router.route(KEY);
+    expect(h.created).toEqual([{ conversationKey: KEY, sessionId }]);
+  });
+
+  it('fires on rebind too (latest binding gets the peer note)', async () => {
+    const h = makeHarnessWithCallback();
+    const first = await h.router.route(KEY);
+    h.port.statuses.set(first.sessionId, 'missing');
+    const second = await h.router.route(KEY);
+    expect(h.created.map((c) => c.sessionId)).toEqual([first.sessionId, second.sessionId]);
+  });
+
+  it('does not fire when an existing healthy session is reused', async () => {
+    const h = makeHarnessWithCallback();
+    await h.router.route(KEY);
+    h.created.length = 0;
+    await h.router.route(KEY); // 懒验证命中
+    expect(h.created).toEqual([]);
+  });
+
+  it('is optional (absent callback never throws)', async () => {
+    const h = makeHarness(); // 无 onSessionCreated
+    await expect(h.router.route(KEY)).resolves.toMatchObject({ created: true });
+  });
+});

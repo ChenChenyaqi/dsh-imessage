@@ -35,6 +35,10 @@ import { makeSessionRouter } from '@/core/router/session-router';
 import type { OutboundDeps } from '@/core/imessage/outbound';
 import { installDeliverTool } from '@/host/deliver-tool';
 import { loadState, saveState } from '@/core/stores/state-store';
+import { buildPeerNote } from '@/core/identity/peer-note';
+import { PeerRegistry } from '@/core/identity/peer-registry';
+import { asSessionId } from '@/core/types/dsh';
+import { installPeerContext } from '@/host/peer-context';
 import type { EnvProbe } from '@/core/imessage/env';
 import { makeDshPort } from '@/host/dsh-port';
 import type { DshEventSource, DshPortServices } from '@/host/dsh-port';
@@ -57,6 +61,8 @@ export interface ChannelConfig {
   readonly delayFactor?: number;
   /** agent 预设 id（人设组合；缺省内置预设 dafeiyu，仅新建会话生效）。 */
   readonly agentPreset?: string;
+  /** M7 称呼表（键 = 归一化号码；缺省空 = 全部未设置）。 */
+  readonly contacts?: Readonly<Record<string, string>>;
 }
 
 /** 装配环境：宿主面必填，macOS IO 可注入（默认 node 实现）。 */
@@ -137,6 +143,8 @@ export interface HotConfigPatch {
   readonly maxChunks?: number;
   readonly delayFactor?: number;
   readonly agentPreset?: string;
+  /** M7 称呼表（键 = 归一化号码；整字段覆盖写）。 */
+  readonly contacts?: Readonly<Record<string, string>>;
 }
 
 export interface ChannelHandle {
@@ -166,6 +174,7 @@ export function startImessageChannel(config: ChannelConfig, env: ChannelEnv): Ch
     maxBackoffMs?: number;
     style: ReplyStyle;
     agentPreset: string;
+    contacts: Readonly<Record<string, string>>;
   } = {
     locale: config.locale ?? 'zh',
     allowlist: config.allowlist ?? [],
@@ -177,6 +186,7 @@ export function startImessageChannel(config: ChannelConfig, env: ChannelEnv): Ch
       delayFactor: config.delayFactor ?? DEFAULT_CONFIG.delayFactor,
     },
     agentPreset: config.agentPreset ?? DEFAULT_CONFIG.agentPreset,
+    contacts: config.contacts ?? {},
   };
   // 生效意图：未设置 = dafeiyu（未装则 dsh-port 降级宿主默认并 warn）
 
@@ -197,6 +207,34 @@ export function startImessageChannel(config: ChannelConfig, env: ChannelEnv): Ch
   const log: Logger = makeLogger({
     sink: env.logSink ?? makeFileSink(paths.logDir),
   });
+
+  // -- M7 身份上下文（分叉③α：启动全量 + 热更 + 新绑定） --------------
+  // registry 是纯内存表，发布零 IO；称呼数据源 = live.contacts（Config），
+  // 只在发布时读（键域已由写入侧归一化）。probe 失败/无 systemPrompt 服务
+  // 时注册不发生，发布空转无害（peerActive 门挡掉日志噪音）。
+  const peers = new PeerRegistry();
+  const peerActive = { current: false };
+
+  function publishPeerNote(conversationKey: string, sessionId: string): void {
+    const note = buildPeerNote({
+      handle: conversationKey,
+      name: live.contacts[conversationKey] ?? null,
+    });
+    peers.publish(asSessionId(sessionId), note);
+    log.info('peer.published', {
+      conversationKey,
+      sessionId,
+      named: note !== '',
+    });
+  }
+
+  /** 全量重发布：遍历绑定表（启动/热更）。空表不打点（心跳纪律）。
+   *  前置：只在装配完成后被调（peerActive 由调用点保证）。 */
+  function republishPeers(): void {
+    for (const [conversationKey, binding] of Object.entries(loadState(paths.stateFile).sessions)) {
+      publishPeerNote(conversationKey, binding.sessionId);
+    }
+  }
 
   /** 热更新落点：改 live 容器 + 运行中的 deps 字段，打一行留痕日志。 */
   function applyHotConfig(patch: HotConfigPatch): void {
@@ -234,6 +272,15 @@ export function startImessageChannel(config: ChannelConfig, env: ChannelEnv): Ch
       changed.push('agentPreset');
     }
     if (patch.agentPreset !== undefined) live.agentPreset = patch.agentPreset;
+    // 称呼热更（M7）：contacts 与 allowlist 同为 config 整字段；有变化才重发
+    if (patch.contacts !== undefined) {
+      const sameContacts =
+        Object.keys(patch.contacts).length === Object.keys(live.contacts).length &&
+        Object.entries(patch.contacts).every(([key, value]) => live.contacts[key] === value);
+      if (!sameContacts) changed.push('contacts');
+      live.contacts = patch.contacts;
+      if (peerActive.current && !sameContacts) republishPeers();
+    }
     // 运行中的 pipeline 用时读 deps：直接改字段即热生效
     if (mutableDeps.current !== undefined) {
       const t = makeT(live.locale);
@@ -325,6 +372,11 @@ export function startImessageChannel(config: ChannelConfig, env: ChannelEnv): Ch
     loadState: () => loadState(stateFile),
     saveState: (state) => saveState(stateFile, state),
     log,
+    // 首绑与换绑即发布（新会话不等下一次热更）。门在调用点：装配
+    // 完成（peerActive）后 router 才可能建会话，这里无需再挡。
+    onSessionCreated: (conversationKey, sessionId) => {
+      publishPeerNote(conversationKey, sessionId);
+    },
   });
 
   const deps = {
@@ -353,6 +405,11 @@ export function startImessageChannel(config: ChannelConfig, env: ChannelEnv): Ch
     { tools: env.services.tools, collector, conversationKeyOf: router.conversationKeyOf },
     { ...deliverToolFs, log },
   );
+  // 身份上下文注册（M7）：无 systemPrompt 服务的老宿主 = no-op 降级。
+  // 注册即激活发布时机（启动全量 + 热更 + 新绑定都只对着活注册发）。
+  const uninstallPeerContext = installPeerContext(env.services.systemPrompt, peers);
+  peerActive.current = true;
+  republishPeers();
   const run = runPipeline(deps, {
     signal: controller.signal,
     intervalMs: config.intervalMs,
@@ -406,6 +463,7 @@ export function startImessageChannel(config: ChannelConfig, env: ChannelEnv): Ch
     // 卸载/禁用/宿主关闭都走这里：先留痕再中止
     log.info('channel.stop-requested');
     uninstallDeliverTool();
+    uninstallPeerContext();
     controller.abort();
     try {
       await settled;

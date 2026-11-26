@@ -36,6 +36,7 @@ describe('PluginConfig type shape', () => {
       maxChunks: 5,
       delayFactor: 0,
       agentPreset: 'dafeiyu',
+      contacts: {},
     };
     expect(config.allowlist).toHaveLength(1);
   });

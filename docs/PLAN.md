@@ -43,13 +43,19 @@ tmpdir 暂存纪律 + imessage_send_file 交付工具）、引用回复携带媒
 （us/them 文字、纯图引用、caption+图）——记录见各设计文档验收段。
 具体设计见 `docs/media-exchange/plan.md`。
 
-### M7 · 身份与上下文 → **设计定稿待拍板**（2026-11-23）
+### M7 · 身份与上下文 → **已完成**（2026-11-26 真机验收通过）
 - 把"正在跟谁说话"（白名单号码 → 称呼）注入会话上下文：
   `systemPrompt.context` 官方管道（per-session 查表，非 iMessage 会话
-  天然不可见）；称呼存自有 store（隐私面 = 白名单子集），设置页编辑
+  天然不可见）；称呼存 profile config 的 `contacts` 字段（与 allowlist
+  同链路热更；原自有 store + 自建 RPC 方案在实施中被真机 e2e 推翻
+  回退，定案与三 bug 教训见 `docs/identity-context/plan.md` 分叉①）
+- 设置页称呼区（白名单行内编辑，draft wins）；发布时机 = 启动全量 /
+  contacts 热更 / 新会话首绑
 - 贴纸集等轻量上下文（c90abcda）：**不纳入本期**，管道预留
   （贴纸是"主动表达"素材，主场景在 M9 主动关怀）
-- 四分叉与源码坐标见 `docs/identity-context/plan.md`
+- 验收（真机 2026-11-26）：注入段在 system prompt 实证出现 + AI 行为
+  自证 + 热更闭环；未填/非 iMessage/老宿主降级由单测覆盖——记录见
+  `docs/identity-context/plan.md` 验收段
 
 ### M8 · 命令与交互打磨
 - slash 命令回执合并为单条气泡（47def401）；/help 全量列命令（eb657c57）
