@@ -6,6 +6,8 @@
 import { useMemo, useSyncExternalStore } from 'react';
 
 import { readAllowlist } from './allowlist/logic';
+import type { FormSnapshot } from './form';
+import { sanitizePeerNames } from './contacts/logic';
 import { readChunked, readDelayFactor, readMaxChunks } from './chunked/logic';
 import { readLocale, type LocaleOption } from './locale/logic';
 import { readPreset } from './preset/logic';
@@ -33,12 +35,19 @@ export interface SavedBaseline {
   readonly delayFactor?: number;
   /** 未设置 = undefined（不造默认；preset 域用 effectivePreset 解析意图）。 */
   readonly agentPreset?: string;
+  /** M7 称呼表（键 = 归一化号码；未设置 = undefined → {}）。 */
+  readonly contacts?: Readonly<Record<string, string>>;
 }
 
 /** useCardForm 的返回面。 */
 export interface UseCardForm {
   readonly saved: SavedBaseline;
   mutate(ops: readonly FieldOp[]): Promise<boolean>;
+}
+
+/** 读宿主快照里的称呼表（形状守卫：非 string-map → 空表，同 allowlist）。 */
+function readContacts(snapshot: FormSnapshot): Readonly<Record<string, string>> {
+  return sanitizePeerNames((snapshot.value?.['contacts'] ?? {}) as Record<string, string>);
 }
 
 /**
@@ -63,6 +72,7 @@ export function useCardForm(form: CardForm): UseCardForm {
       maxChunks: readMaxChunks(snapshot),
       delayFactor: readDelayFactor(snapshot),
       agentPreset: readPreset(snapshot) || undefined,
+      contacts: readContacts(snapshot),
     }),
     [snapshot],
   );

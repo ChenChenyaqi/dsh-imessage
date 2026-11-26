@@ -34,7 +34,12 @@ type RouteHandler = (request: {
 }) => Promise<Response>;
 
 function makeCtx(
-  options: { connectionFetch?: unknown; attachments?: unknown; tools?: unknown } = {},
+  options: {
+    connectionFetch?: unknown;
+    attachments?: unknown;
+    tools?: unknown;
+    systemPrompt?: unknown;
+  } = {},
 ) {
   const listeners = new Map<string, Array<(payload?: unknown) => void>>();
   /** 触发一个已注册事件（模拟 loader 提交 volatile 更新）。 */
@@ -69,6 +74,7 @@ function makeCtx(
     get(name: string) {
       if (name === 'attachments' && 'attachments' in options) return options.attachments;
       if (name === 'tools' && 'tools' in options) return options.tools;
+      if (name === 'systemPrompt' && 'systemPrompt' in options) return options.systemPrompt;
       return undefined;
     },
     effect(fn: () => () => unknown) {
@@ -83,16 +89,24 @@ function makeCtx(
         listeners.set(event, rest);
       };
     },
-    // 模拟 cordis 动态注入：服务挂上（getter → value）再回调——
-    // 真 cordis 保证回调触发时属性可访问
-    inject(names: readonly string[], callback: () => unknown) {
+    // 真 cordis 语义（官方 inspector / cot-translation 同款）：动态注入的
+    // 服务在**回调参数**（child ctx）上，外层 ctx 永远访问不到。fake 按此
+    // 造 child——M4 初版从外层读 connection 的 bug 曾被这里的老实现（把
+    // 服务挂回外层）纵容过去，真机 status 路由从未注册。
+    inject(names: readonly string[], callback: (child: typeof ctx) => unknown) {
       if (!names.includes('connection')) return;
-      Object.defineProperty(ctx, 'connection', {
-        value: connectionService,
-        enumerable: true,
-        configurable: true,
+      // 不用 {...ctx} 展开（会触发外层 connection getter 的哨兵）；原型链
+      // 继承外层可见属性，connection 作为自有属性覆盖
+      const child = Object.create(ctx, {
+        connection: { value: connectionService, enumerable: true },
+        effect: {
+          value: (fn: () => () => unknown) => {
+            disposers.push(fn());
+          },
+          enumerable: true,
+        },
       });
-      void callback();
+      void callback(child as typeof ctx);
     },
   };
   // 真 cordis 语义（实测事实）：访问未 inject 声明的服务属性直接抛错，
@@ -206,6 +220,26 @@ describe('apply · volatile config', () => {
     for (const dispose of withoutService.disposers) void dispose();
   });
 
+  it('wires the systemPrompt service through when the host provides one (M7)', () => {
+    // 老宿主无该服务 → undefined 降级（不注入身份段，聊天不受影响）；
+    // 有则透传给 channel（peer context 注册）。非函数形状（脏服务）也降级。
+    const good = makeCtx({ systemPrompt: { context: () => () => undefined } });
+    expect(() =>
+      apply(good.ctx as never, { locale: 'zh', allowlist: [] }, { probe: failingProbe }),
+    ).not.toThrow();
+    for (const dispose of good.disposers) void dispose();
+    const dirty = makeCtx({ systemPrompt: { context: 'not-a-function' } });
+    expect(() =>
+      apply(dirty.ctx as never, { locale: 'zh', allowlist: [] }, { probe: failingProbe }),
+    ).not.toThrow();
+    for (const dispose of dirty.disposers) void dispose();
+    const withoutService = makeCtx();
+    expect(() =>
+      apply(withoutService.ctx as never, { locale: 'zh', allowlist: [] }, { probe: failingProbe }),
+    ).not.toThrow();
+    for (const dispose of withoutService.disposers) void dispose();
+  });
+
   it('skips the volatile listener when the host has no ctx.on', () => {
     // 极简宿主防御：没有 on API 就不注册（不抛错）
     const { ctx, disposers } = makeCtx();
@@ -233,7 +267,7 @@ describe('apply · volatile config', () => {
 });
 
 describe('apply · wiring', () => {
-  it('registers the status route and an effect disposer', () => {
+  it('registers the status and contacts routes with an effect disposer', () => {
     const { ctx, disposers, routes } = makeCtx();
 
     apply(ctx as never, { locale: 'zh', allowlist: ['+8613800000000'] }, { probe: failingProbe });

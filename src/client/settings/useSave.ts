@@ -10,6 +10,7 @@
 import { useState, useSyncExternalStore } from 'react';
 
 import { addEntryPending, allowlistDraftView, formatAllowlist } from './allowlist/logic';
+import { contactsDraftView } from './contacts/logic';
 import {
   chunkedDraftView,
   DEFAULT_DELAY_FACTOR,
@@ -45,6 +46,10 @@ export interface UseSaveFields {
     readonly dirty: boolean;
     readonly presetError: boolean;
   };
+  readonly contacts: {
+    readonly names: Readonly<Record<string, string>>;
+    readonly dirty: boolean;
+  };
   readonly presetOptions: readonly PresetOption[];
 }
 
@@ -67,6 +72,11 @@ export function deriveSaveFields(overrides: DraftOverrides, saved: SavedBaseline
     maxChunks: { draft: chunked.maxChunks },
     delayFactor: { draft: chunked.delayFactor },
     preset: presetDraftView(overrides.agentPreset, saved.agentPreset),
+    contacts: contactsDraftView(
+      overrides.peerNames,
+      saved.contacts ?? {},
+      overrides.allowlist ?? saved.allowlist,
+    ),
     presetOptions: overrides.presetOptions ?? [],
   };
 }
@@ -74,7 +84,11 @@ export function deriveSaveFields(overrides: DraftOverrides, saved: SavedBaseline
 /** canSave 判定（纯函数）：任一域 dirty 且无拦保存信号。 */
 export function canSaveOf(fields: UseSaveFields): boolean {
   const anyDirty =
-    fields.locale.dirty || fields.allowlist.dirty || fields.chunked.dirty || fields.preset.dirty;
+    fields.locale.dirty ||
+    fields.allowlist.dirty ||
+    fields.chunked.dirty ||
+    fields.preset.dirty ||
+    fields.contacts.dirty;
   const guarded =
     fields.allowlist.hasInvalid ||
     fields.allowlist.addPending ||
@@ -106,6 +120,8 @@ export function buildSaveOps(fields: UseSaveFields, saved: SavedBaseline): reado
     ? Number.parseFloat(fields.delayFactor.draft.trim())
     : (saved.delayFactor ?? DEFAULT_DELAY_FACTOR);
   const agentPreset = effectivePreset(fields.preset.draft, fields.presetOptions);
+  // fields.contacts.names 已是清洗后的草稿（空值剔除）；整字段覆盖写
+  const contacts = fields.contacts.names;
   const ops: FieldOp[] = [
     { op: 'set', path: ['locale'], value: locale },
     {
@@ -121,6 +137,8 @@ export function buildSaveOps(fields: UseSaveFields, saved: SavedBaseline): reado
   if (agentPreset !== '') {
     ops.push({ op: 'set', path: ['agentPreset'], value: agentPreset });
   }
+  // M7 称呼表（整字段覆盖；与 allowlist 同纪律，clean 时也写回基准）
+  ops.push({ op: 'set', path: ['contacts'], value: contacts });
   return ops;
 }
 

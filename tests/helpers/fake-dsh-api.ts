@@ -30,6 +30,9 @@ import type {
   HostSessionId,
   HostSessionTitleService,
   HostStreamChunk,
+  HostPromptAssembly,
+  HostPromptContextEntry,
+  HostSystemPromptService,
   HostUserMessage,
   HostWorkspace,
   HostWorkspaceRegistry,
@@ -87,6 +90,21 @@ export interface FakeDshHost {
       resolve(id?: string): Promise<{ id: string }>;
       mount(ctx: unknown, id: string): Promise<unknown>;
     };
+    /** M7 身份上下文：照官方形状的 systemPrompt 最小 fake（服务本体；
+     *  观测面在 host 顶层 systemPromptFake，dropService 模拟老宿主）。 */
+    readonly systemPrompt: HostSystemPromptService | undefined;
+  };
+  /** systemPrompt fake 的观测面（registrations / 逐条求值 / 注销记录）。 */
+  readonly systemPromptFake: {
+    readonly registrations: ReadonlyArray<{
+      readonly name: string;
+      readonly order: number;
+      readonly interpolate?: boolean;
+      readonly text: (assembly: HostPromptAssembly) => string;
+    }>;
+    readonly disposed: readonly string[];
+    resolve(assembly: HostPromptAssembly): string;
+    dropService(): void;
   };
   /** 对齐 ctx.on 的事件订阅：返回卸载函数。 */
   on<E extends HostEventName>(
@@ -374,6 +392,39 @@ export function makeFakeDshHost(): FakeDshHost {
     });
   }
 
+  // -- systemPrompt 最小 fake（M7；照官方 context() 形状，标坐标
+  //  peer-context.test.ts 头部） -------------------------------------------
+
+  const promptRegistrations: Array<{
+    readonly name: string;
+    readonly order: number;
+    readonly interpolate?: boolean;
+    readonly text: (assembly: HostPromptAssembly) => string;
+  }> = [];
+  const promptDisposed: string[] = [];
+  let promptServiceActive = true;
+  const systemPromptService: HostSystemPromptService = {
+    context(entry: HostPromptContextEntry): () => void {
+      const source = entry.text;
+      const text =
+        typeof source === 'string'
+          ? () => source
+          : (assembly: HostPromptAssembly) => source(assembly);
+      promptRegistrations.push({ ...entry, text });
+      return () => promptDisposed.push(entry.name);
+    },
+  };
+  const systemPromptFake = {
+    registrations: promptRegistrations,
+    disposed: promptDisposed,
+    resolve(assembly: HostPromptAssembly): string {
+      return promptRegistrations.reduce((acc, r) => acc + r.text(assembly), '');
+    },
+    dropService(): void {
+      promptServiceActive = false;
+    },
+  };
+
   // -- agents 服务 ---------------------------------------------------------
 
   const agentsService: HostAgentsService = {
@@ -541,6 +592,7 @@ export function makeFakeDshHost(): FakeDshHost {
       resolve(id?: string): Promise<{ id: string }>;
       mount(ctx: unknown, id: string): Promise<unknown>;
     };
+    systemPrompt: HostSystemPromptService | undefined;
   } = {
     agents: agentsService,
     workspaceRegistry,
@@ -548,6 +600,10 @@ export function makeFakeDshHost(): FakeDshHost {
     sessionTitle,
     agentsCreateMeta: servicesMeta,
     agentPresets: defaultPresets(),
+    get systemPrompt() {
+      // dropService() 后 = 模拟老宿主（无该服务，可选探测降级）
+      return promptServiceActive ? systemPromptService : undefined;
+    },
   };
   // 默认带 agentPresets 最小面（preset 全链路用例；注入失败走 dsh-port 测试）
   const presetMounts: Array<{ id: string }> = [];
@@ -563,6 +619,7 @@ export function makeFakeDshHost(): FakeDshHost {
 
   return {
     services,
+    systemPromptFake,
     presetMounts,
     on,
     async disposeAgent(sessionId: string) {

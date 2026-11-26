@@ -41,6 +41,9 @@ export interface RouterDeps {
   readonly saveState: (state: ChannelState) => void;
   /** 可选日志通道（孤儿会话等警告）。 */
   readonly log?: Pick<Logger, 'warn' | 'info'>;
+  /** 新绑定建立回调（M7 身份上下文发布挂点）：首个绑定与换绑都触发，
+   *  健康会话复用不触发（启动全量/热更已覆盖）。 */
+  readonly onSessionCreated?: (conversationKey: string, sessionId: SessionId) => void;
 }
 
 export interface SessionRouter {
@@ -96,6 +99,7 @@ export function makeSessionRouter(deps: RouterDeps): SessionRouter {
       });
     }
     log?.info('router.session-created', { conversationKey, sessionId, reason });
+    deps.onSessionCreated?.(conversationKey, sessionId);
     return { sessionId, created: true, reason };
   };
 

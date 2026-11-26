@@ -6,6 +6,7 @@
 // getSnapshot 引用比较完成 —— 不需要 selector 基建。
 
 import type { AddEntryState } from './allowlist/logic';
+import type { PeerNamesDraft } from './contacts/logic';
 import type { PresetOption } from './preset/logic';
 
 /** 各字段的草稿覆盖值（undefined = 未编辑）。 */
@@ -22,6 +23,8 @@ export interface DraftOverrides {
   readonly presetOptions?: readonly PresetOption[];
   /** 白名单添加行（收起 = undefined）。 */
   readonly adding?: AddEntryState;
+  /** M7 称呼草稿（键 → 用户输入；未编辑 = undefined 跟随基准）。 */
+  readonly peerNames?: PeerNamesDraft;
 }
 
 export interface DraftStore {

@@ -97,7 +97,7 @@ describe('useSave · canSave derivation', () => {
 });
 
 describe('useSave · atomic full-overwrite save', () => {
-  it('writes all six ops in one mutation when every field is dirty', async () => {
+  it('writes all seven ops in one mutation when every field is dirty', async () => {
     const mutate = vi.fn((_ops: unknown) => Promise.resolve(true) as Promise<boolean>);
     const { rendered } = mount({
       saved: { locale: 'zh', allowlist: [], agentPreset: '' },
@@ -124,6 +124,7 @@ describe('useSave · atomic full-overwrite save', () => {
       { op: 'set', path: ['maxChunks'], value: 12 },
       { op: 'set', path: ['delayFactor'], value: 2 },
       { op: 'set', path: ['agentPreset'], value: 'ptc' },
+      { op: 'set', path: ['contacts'], value: {} },
     ]);
   });
 
@@ -145,6 +146,7 @@ describe('useSave · atomic full-overwrite save', () => {
       'chunkedReplies',
       'maxChunks',
       'delayFactor',
+      'contacts',
     ]);
   });
 
@@ -262,5 +264,71 @@ describe('useSave · failure handling', () => {
     // 草稿未清：canSave 仍 true，可重试
     expect(store.getSnapshot().locale).toBe('en');
     expect(rendered.result.current.canSave).toBe(true);
+  });
+});
+
+describe('useSave · contacts domain (M7, config-backed)', () => {
+  function mountWithContacts(options: {
+    mutate?: Mutate;
+    saved?: Partial<SavedBaseline>;
+    seed?: (store: DraftStore) => void;
+  }) {
+    return mount({
+      mutate: options.mutate,
+      saved: options.saved,
+      seed: options.seed,
+    });
+  }
+
+  it('contacts edits alone enable saving', () => {
+    const { rendered } = mountWithContacts({
+      saved: { contacts: {} },
+      seed: (store) => {
+        store.set('peerNames', { [PHONE]: '小陈' });
+      },
+    });
+    expect(rendered.result.current.canSave).toBe(true);
+  });
+
+  it('writes contacts as one full-overwrite op through the config mutation', async () => {
+    const mutate = vi.fn((_ops: unknown) => Promise.resolve(true) as Promise<boolean>);
+    const { rendered } = mountWithContacts({
+      mutate: mutate as unknown as Mutate,
+      saved: { contacts: { '+8613900000000': '阿九' } },
+      seed: (s) => {
+        s.set('peerNames', { [PHONE]: '  小陈 ', '+8613900000000': '' });
+      },
+    });
+
+    await act(async () => {
+      await rendered.result.current.save();
+    });
+
+    const ops = mutate.mock.calls[0]?.[0] as Array<{ path: readonly string[]; value?: unknown }>;
+    const contactsOp = ops.find((op) => op.path[0] === 'contacts');
+    // 整字段覆盖：清洗后草稿（trim；空值剔除 = 删除阿九）
+    expect(contactsOp).toEqual({ op: 'set', path: ['contacts'], value: { [PHONE]: '小陈' } });
+  });
+
+  it('writes the baseline back when contacts are clean (full-overwrite parity)', async () => {
+    const mutate = vi.fn((_ops: unknown) => Promise.resolve(true) as Promise<boolean>);
+    const { rendered } = mountWithContacts({
+      mutate: mutate as unknown as Mutate,
+      saved: { contacts: { [PHONE]: '小陈' } },
+      seed: (s) => {
+        s.set('locale', 'en'); // 只有 locale 域脏
+      },
+    });
+
+    await act(async () => {
+      await rendered.result.current.save();
+    });
+
+    const ops = mutate.mock.calls[0]?.[0] as Array<{ path: readonly string[]; value?: unknown }>;
+    expect(ops.find((op) => op.path[0] === 'contacts')).toEqual({
+      op: 'set',
+      path: ['contacts'],
+      value: { [PHONE]: '小陈' },
+    });
   });
 });

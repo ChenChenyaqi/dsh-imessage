@@ -11,3 +11,5 @@ export * from './router/gate';
 export * from './router/artifacts';
 export * from './router/pipeline';
 export * from './router/session-router';
+export * from './identity/peer-note';
+export * from './identity/peer-registry';

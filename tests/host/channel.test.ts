@@ -23,7 +23,9 @@ import type { ImessageSender } from '@/core/imessage/sender';
 import type { ProbeDeps } from '@/core/imessage/env';
 import type { LogSink } from '@/core/log/jsonl';
 import type { Paths } from '@/core/paths';
-import { loadState } from '@/core/stores/state-store';
+import { loadState, saveState } from '@/core/stores/state-store';
+import { makeChannelState, recordBinding } from '@/core/types/state';
+import { asSessionId } from '@/core/types/dsh';
 import { Config, inject, name } from '@/host';
 import { startImessageChannel } from '@/host/channel';
 import { insertIncomingMessage, SCHEMA_SQL } from '../helpers/chatdb-schema';
@@ -58,6 +60,8 @@ interface EnvOptions {
     maxChunks?: number;
     delayFactor?: number;
     agentPreset?: string;
+    /** M7 称呼表（键 = 归一化号码）。 */
+    contacts?: Record<string, string>;
   };
   /** 覆盖 openDb（模拟 db 打不开的 start-failed 路径；可抛非 Error）。 */
   openDbThrows?: unknown;
@@ -78,6 +82,17 @@ function makeEnv(options: EnvOptions = {}) {
   const sink: LogSink = (line) => logLines.push(JSON.parse(line) as Record<string, unknown>);
   const openDbCalls = { count: 0 };
   let db: DatabaseSync | undefined;
+
+  /** 设置/覆盖初始 contacts（start 前调用；热更测试直接走 updateConfig）。 */
+  const setContacts = (contacts: Record<string, string>): void => {
+    options.config = {
+      allowlist: ['+8613800000000'],
+      locale: 'zh',
+      intervalMs: 1,
+      ...(options.config ?? {}),
+      contacts,
+    };
+  };
 
   const start = () =>
     startImessageChannel(
@@ -109,6 +124,7 @@ function makeEnv(options: EnvOptions = {}) {
     logLines,
     openDbCalls,
     start,
+    setContacts,
     /** 启动后插一条新消息（首启水位不回放历史——M3 定案）。 */
     insertAfterStart(text: string, guid: string, handleId = '+8613800000000') {
       if (!db) throw new Error('db not open');
@@ -131,6 +147,22 @@ describe('channel · probe gate', () => {
     expect(env.openDbCalls.count).toBe(0); // 半瘫防线：不碰库不轮询
     expect(env.logLines).toContainEqual(expect.objectContaining({ event: 'channel.probe-failed' }));
     await channel.stop(); // 无害
+  });
+
+  it('does not publish peer notes when the probe gate fails', async () => {
+    const env = makeEnv({ probe: { ...greenProbe, statFile: () => false } });
+    saveState(
+      env.paths.stateFile,
+      recordBinding(makeChannelState(), '+8613800000000', asSessionId('imessage-prebound')),
+    );
+    env.setContacts({ '+8613800000000': '小陈' });
+
+    const channel = env.start();
+    expect(channel.status().phase).toBe('probe-failed');
+    // 半瘫通道上的配置热更：不注册也不发布（peerActive 门），聊天不受影响
+    channel.updateConfig({ locale: 'en' });
+    expect(env.logLines.some((l) => l.event === 'peer.published')).toBe(false);
+    await channel.stop();
   });
 
   it('does not start when automation probe fails', async () => {
@@ -628,3 +660,121 @@ async function waitFor(predicate: () => boolean, timeoutMs: number): Promise<voi
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
 }
+
+// ---------------------------------------------------------------------------
+// M7 · 身份上下文（peer context）
+// ---------------------------------------------------------------------------
+
+describe('channel · M7 peer context', () => {
+  function prebind(
+    env: ReturnType<typeof makeEnv>,
+    options: { name?: string; contacts?: Record<string, string> } = {},
+  ): string {
+    const sessionId = 'imessage-prebound';
+    saveState(
+      env.paths.stateFile,
+      recordBinding(makeChannelState(), '+8613800000000', asSessionId(sessionId)),
+    );
+    // prebind 写 env.options.contacts 的形态：EnvOptions.contacts 是顶层键
+    if (options.name !== undefined) {
+      env.setContacts({ '+8613800000000': options.name });
+    } else if (options.contacts !== undefined) {
+      env.setContacts(options.contacts);
+    }
+    return sessionId;
+  }
+
+  function peerNote(env: ReturnType<typeof makeEnv>, sessionId: string): string {
+    return env.host.systemPromptFake.resolve({ agent: { session: { id: sessionId } } });
+  }
+
+  it('publishes peer notes for pre-bound sessions at startup', async () => {
+    const env = makeEnv();
+    const sessionId = prebind(env, { name: '小陈' });
+
+    const channel = env.start();
+    await waitFor(() => env.logLines.some((l) => l.event === 'channel.started'), 1000);
+
+    expect(peerNote(env, sessionId)).toContain('小陈');
+    // 未发布的会话（桌面/web 直连）拿空串：非 iMessage 会话天然不可见
+    expect(peerNote(env, 'not-ours')).toBe('');
+    await channel.stop();
+  }, 15_000);
+
+  it('publishes an unknown-name note when contacts has no entry', async () => {
+    const env = makeEnv();
+    const sessionId = prebind(env); // 无 contacts 条目
+
+    const channel = env.start();
+    await waitFor(() => env.logLines.some((l) => l.event === 'channel.started'), 1000);
+
+    expect(peerNote(env, sessionId)).toContain('还不知道叫什么，可以问');
+    await channel.stop();
+  }, 15_000);
+
+  it('publishes for a newly bound session on its first message', async () => {
+    const env = makeEnv();
+    env.host.scriptReply({ text: '嗯' });
+    env.setContacts({ '+8613800000000': '小陈' });
+
+    const channel = env.start();
+    await waitFor(() => env.logLines.some((l) => l.event === 'pipeline.cursor-initialized'), 1000);
+    env.insertAfterStart('在吗', 'M7-NEW-1');
+
+    await waitFor(() => env.sender.sent.length > 0, 12_000);
+    const state = loadState(env.paths.stateFile);
+    const sessionId = state.sessions['+8613800000000']?.sessionId ?? '';
+    expect(sessionId).toMatch(/^imessage-/u);
+    expect(peerNote(env, sessionId)).toContain('小陈');
+    await channel.stop();
+  }, 15_000);
+
+  it('re-publishes on a contacts hot-reload (updateConfig)', async () => {
+    const env = makeEnv();
+    const sessionId = prebind(env, { name: '小陈' });
+
+    const channel = env.start();
+    await waitFor(() => env.logLines.some((l) => l.event === 'channel.started'), 1000);
+    expect(peerNote(env, sessionId)).toContain('小陈');
+
+    // 设置页保存链路（Step C）：contacts 进 config，热更与 allowlist 同链路
+    channel.updateConfig({ contacts: { '+8613800000000': '陈工' } });
+    await waitFor(() => env.logLines.some((l) => l.event === 'channel.config-updated'), 1000);
+
+    expect(peerNote(env, sessionId)).toContain('陈工');
+    // 空称呼 = 删除（下次 note 走「可以问」分支）
+    channel.updateConfig({ contacts: {} });
+    await waitFor(
+      () => env.logLines.filter((l) => l.event === 'channel.config-updated').length === 2,
+      1000,
+    );
+    expect(peerNote(env, sessionId)).toContain('还不知道叫什么');
+    await channel.stop();
+  }, 15_000);
+
+  it('degrades gracefully when the host has no systemPrompt service', async () => {
+    const env = makeEnv();
+    env.host.systemPromptFake.dropService(); // 模拟老宿主
+    prebind(env, { name: '小陈' });
+
+    const channel = env.start();
+    await waitFor(() => env.logLines.some((l) => l.event === 'channel.started'), 1000);
+
+    expect(channel.status().phase).toBe('running');
+    expect(env.host.systemPromptFake.registrations.map((r) => r.name)).not.toContain(
+      'dsh-imessage:peer',
+    );
+    await channel.stop();
+  }, 15_000);
+
+  it('disposes the peer context on stop', async () => {
+    const env = makeEnv();
+    prebind(env, { name: '小陈' });
+
+    const channel = env.start();
+    await waitFor(() => env.logLines.some((l) => l.event === 'channel.started'), 1000);
+    await channel.stop();
+
+    expect(env.host.systemPromptFake.disposed).toContain('dsh-imessage:peer');
+  }, 15_000);
+});

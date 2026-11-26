@@ -104,6 +104,7 @@
 | 回复发不出去 | 有 `reply-sent` 吗？没有但见 `send-failed` = AppleScript / 权限 |
 | 文件没发出去 | 有 `artifact.queued`（AI 声明了交付）吗？没有 → 看 `artifact.tool-rejected` 的 `reason`（工具被拒）；有 → 看 `file-sent` 还是 `file-send-failed` / `outbound.stage-failed` 的 `code`；通知文本由系统路径补发 |
 | AI 答非所问（对方明显在引用某条消息） | prompt 里该有引用块（`> 引用了…`）：没引用块 → 看 normalize 是否给了 replyTo（chatdb JOIN 是否命中）；有引用块但 AI 仍答偏 → 模型问题 |
+| AI 不知道对方是谁 / 一直问「你是谁」 | 有没有 `peer.published`？没有 = patch 里 contacts 没写对（键要带 +86 归一化号码，设置页称呼区编辑保存即可）或绑定表为空；有 `named:false` = 称呼未填（AI 会主动问）；设置页改称呼保存 → loader/volatile-update 热更重发 |
 | 插件没启动 | 有 `channel.started` 吗？没有看 `channel.probe-failed` 的 `disk`/`automation` |
 | 启动配置没生效 | `channel.started` 的 `allowlistCount` / `intervalMs` / `cursor` |
 | 退出时丢消息 | `channel.stop-requested` 紧跟某条 `send-failed … aborted`（定案：不重发） |
@@ -128,6 +129,10 @@
   工具被拒不入队：`artifact.tool-rejected`（`reason`——无 agent 语境 /
   非 iMessage 会话 / 参数与限额拒绝，AI 会收到同文案的报错）
 - 会话：`router.session-created`、`router.orphan-session`
+- 身份上下文（M7）：`peer.published`（启动全量 / 配置热更（contacts 变化）/
+  新会话首绑时，每绑定一条；字段 conversationKey/sessionId/named，
+  称呼文本永不入日志；称呼存 profile config 的 contacts 字段，
+  热更与 allowlist 同链路）
 - 空批不打点（否则 2 秒一条心跳刷爆日志）；新增事件请遵守此原则
 
 ## 真机 e2e 纪律

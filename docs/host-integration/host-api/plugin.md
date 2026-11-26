@@ -54,6 +54,7 @@
 - 插件拿到的 `ctx` 是 cordis `Context` 代理；宿主各能力是注册在 registry 里的**命名服务**，通过 `declare module '@deepseek-ai/cordis' { interface Context { xxx: Xxx } }` 做类型合并（`vendor/cordis/src/context.ts:13-33` 描述该接口）。范例：webhook 运行时把自己注册为 `ctx.webhookRuntime`（`packages/experimental/webhook/src/index.ts:14-18`、`:58-73`）。
 - 调用形态就是**普通方法调用**（`ctx.agents.create(...)`），没有 `rpc(name, payload, timeout)` 的代理层；参数/返回是同进程对象，无需序列化。类型安全边界靠 TS 静态类型（DSH 规约：typed same-process boundary 不做运行时校验）。
 - 声明依赖：`export const inject = ['serviceA', ...]`（函数插件）或 `static inject`（Service 子类）；依赖不满足时 fiber 保持 pending，服务上线后自动激活，服务替换时依赖方自动卸载重载（`vendor/cordis/src/fiber.ts:603-646`）。
+- **动态注入 `ctx.inject(deps, callback)`：服务注入到回调参数（child ctx），不在外层 ctx**（官方用法 `packages/experimental/inspector/src/client/plugin.ts:137`、`client-ui-cot-translation/src/index.ts:38`——都从 callback 参数读服务；effect 也挂 child 上）。外层 ctx 访问未声明服务直接抛错（哨兵语义）。M4 初版 status 路由从外层读 `connection` 恒 undefined → 路由从未注册，单测 fake 把服务挂回外层纵容了 bug，M7 e2e 探针才坐实——fake 必须照真实语义造（Object.create 原型链 + 自有属性，不展开触发哨兵）。
 
 ### 2.2 仓库里真正叫「RPC」的三个面（都不是进程内插件接口）
 

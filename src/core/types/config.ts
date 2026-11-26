@@ -22,6 +22,8 @@ export interface PluginConfig {
   readonly delayFactor: number;
   /** agent 预设 id（空 = 未设置：装了 dafeiyu 用它，否则宿主默认）。 */
   readonly agentPreset: string;
+  /** M7 称呼表：归一化号码 → 称呼（与 allowlist 同键域；空 = 未设置）。 */
+  readonly contacts: Readonly<Record<string, string>>;
 }
 
 /** 内置默认预设 id（client 下拉与 host 会话路由共享同一事实）。 */
@@ -36,4 +38,5 @@ export const DEFAULT_CONFIG: PluginConfig = Object.freeze({
   maxChunks: 8,
   delayFactor: 1,
   agentPreset: '',
+  contacts: {},
 });

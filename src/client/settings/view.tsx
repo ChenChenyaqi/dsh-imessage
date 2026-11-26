@@ -3,6 +3,7 @@
 
 import { AllowlistSection } from './allowlist/AllowlistSection';
 import { ChunkedSection } from './chunked/ChunkedSection';
+import { ContactsSection } from './contacts/ContactsSection';
 import { LocaleSelect } from './locale/LocaleSelect';
 import { PresetSelect } from './preset/PresetSelect';
 import { SaveBar } from './save-bar/SaveBar';
@@ -13,6 +14,7 @@ export function SettingsCardView() {
     <div style={{ maxWidth: '520px' }} data-dsh-imessage-card="">
       <LocaleSelect />
       <AllowlistSection />
+      <ContactsSection />
       <ChunkedSection />
       <PresetSelect />
       <SaveBar />

@@ -19,7 +19,11 @@ import type { ChannelEnv } from '@/host/channel';
 import { registerStatusRpc } from '@/host/rpc';
 import type { FetchRegistry } from '@/host/rpc';
 import type { DshPortServices } from '@/host/dsh-port';
-import type { HostAttachmentsService, HostToolsService } from '@/host/dsh-api';
+import type {
+  HostAttachmentsService,
+  HostSystemPromptService,
+  HostToolsService,
+} from '@/host/dsh-api';
 
 export const name = PLUGIN_ID;
 
@@ -51,6 +55,8 @@ export interface Config {
   readonly delayFactor?: number | { get(): number };
   /** agent 预设 id（空 = 未设置：装了 dafeiyu 用它，否则宿主默认）。 */
   readonly agentPreset?: string | { get(): string };
+  /** M7 称呼表（归一化号码 → 称呼；volatile 活引用，readVolatile 取值）。 */
+  readonly contacts?: Record<string, string> | { get(): Record<string, string> };
 }
 
 // volatile（DSH settings 事实）：设置页只渲染 volatile 字段；改动经
@@ -64,6 +70,9 @@ export const Config = z.object({
   maxChunks: z.number().step(1).min(1).max(50).default(8).volatile(),
   delayFactor: z.number().min(0).max(5).default(1).volatile(),
   agentPreset: z.string().default('').volatile(),
+  // M7 称呼表：归一化号码 → 称呼（设置页整字段覆盖写；UI 不渲染此字段，
+  // 卡片自绘编辑区；volatile 走 loader 热更链路）
+  contacts: z.dict(z.string()).default({}).volatile(),
   intervalMs: z.number().step(1).min(1).default(2000),
   maxBackoffMs: z.number().step(1).min(1).default(60000),
 });
@@ -120,6 +129,17 @@ function toolsService(ctx: Context): HostToolsService | undefined {
   return typeof candidate.register === 'function' ? (candidate as HostToolsService) : undefined;
 }
 
+/** systemPrompt 服务最小面（M7 身份上下文；无该服务的老宿主返回
+ *  undefined = 不注入身份段，聊天不受影响）。 */
+function systemPromptService(ctx: Context): HostSystemPromptService | undefined {
+  const service = (ctx as unknown as { get?(name: string): unknown }).get?.('systemPrompt');
+  if (service === undefined || typeof service !== 'object') return undefined;
+  const candidate = service as { context?: unknown };
+  return typeof candidate.context === 'function'
+    ? (candidate as HostSystemPromptService)
+    : undefined;
+}
+
 export function apply(ctx: Context, config: Config, overrides: Partial<ChannelEnv> = {}): void {
   // 宿主服务经 inject 提供；类型合并声明在上方 declare module
   const services: DshPortServices = {
@@ -134,6 +154,8 @@ export function apply(ctx: Context, config: Config, overrides: Partial<ChannelEn
     ...(attachmentsService(ctx) === undefined ? {} : { attachments: attachmentsService(ctx)! }),
     // 工具服务同款动态获取（M6.2）：老宿主无 = 发文件能力缺
     ...(toolsService(ctx) === undefined ? {} : { tools: toolsService(ctx)! }),
+    // prompt 组装服务同款动态获取（M7）：老宿主无 = 不注入身份段
+    ...(systemPromptService(ctx) === undefined ? {} : { systemPrompt: systemPromptService(ctx)! }),
   };
   const env: ChannelEnv = {
     services,
@@ -151,6 +173,7 @@ export function apply(ctx: Context, config: Config, overrides: Partial<ChannelEn
       maxChunks: readVolatile(config.maxChunks) ?? 8,
       delayFactor: readVolatile(config.delayFactor) ?? 1,
       agentPreset: readVolatile(config.agentPreset) ?? '',
+      contacts: readVolatile(config.contacts) ?? {},
       intervalMs: config.intervalMs,
       maxBackoffMs: config.maxBackoffMs,
     },
@@ -172,6 +195,7 @@ export function apply(ctx: Context, config: Config, overrides: Partial<ChannelEn
           maxChunks: readVolatile(config.maxChunks) ?? 8,
           delayFactor: readVolatile(config.delayFactor) ?? 1,
           agentPreset: readVolatile(config.agentPreset) ?? '',
+          contacts: readVolatile(config.contacts) ?? {},
         });
       } catch (err) {
         console.error('[dsh-imessage] volatile update failed:', err);
@@ -182,11 +206,13 @@ export function apply(ctx: Context, config: Config, overrides: Partial<ChannelEn
   // 最小管理面：POST /api/dsh-imessage/status（只读快照）。
   // cordis 探针事实：ctx 上访问未 inject 的服务属性会抛错，且静态 inject
   // 在宿主无该服务时会让插件静默等待（永不激活）；用动态注入——服务
-  // 就绪才挂 RPC，无 connection 的宿主优雅降级（通道照常运行）
+  // 就绪才挂 RPC，无 connection 的宿主优雅降级（通道照常运行）。
+  // cordis 语义（官方 inspector/cot-translation 同款）：注入的服务在**回调
+  // 参数**上，不在外层 ctx——M4 初版从外层 ctx 读 connection 恒 undefined，
+  // status 路由在真宿主上从未注册（M7 e2e 探针坐实后修正）。
   if (typeof ctx.inject === 'function') {
-    ctx.inject(['connection'], () => {
-      // 回调触发时服务已注入 ctx（cordis 惯例：闭包直取）
-      const fetchRegistry = (ctx as unknown as { connection?: { fetch?: FetchRegistry } })
+    ctx.inject(['connection'], (child: Context) => {
+      const fetchRegistry = (child as unknown as { connection?: { fetch?: FetchRegistry } })
         .connection?.fetch;
       if (fetchRegistry === undefined) return;
       const disposeRpc = registerStatusRpc(fetchRegistry, {
@@ -194,7 +220,7 @@ export function apply(ctx: Context, config: Config, overrides: Partial<ChannelEn
         stateFile: (env.paths ?? resolvePaths()).stateFile,
         allowlist: () => channel.currentAllowlist(),
       });
-      ctx.effect(() => () => disposeRpc());
+      child.effect(() => () => disposeRpc());
     });
   }
 }
